@@ -1,6 +1,24 @@
 {
   "name": "agent-muster",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "description": "A local web interface for managing coding agents, projects, sessions, and DingTalk integrations.",
+  "author": "sexyAmole",
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/sexyAmole/agent-muster",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sexyAmole/agent-muster.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sexyAmole/agent-muster/issues"
+  },
+  "keywords": [
+    "cli",
+    "coding-agent",
+    "codex",
+    "claude-code",
+    "dingtalk"
+  ],
   "type": "module",
   "packageManager": "pnpm@10.33.4",
   "bin": {
@@ -40,6 +58,6 @@
     "vite": "^6.3.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   }
 }
