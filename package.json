@@ -1,0 +1,45 @@
+{
+  "name": "agent-muster",
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.33.4",
+  "bin": {
+    "agent-muster": "./bin/agent-muster.js"
+  },
+  "scripts": {
+    "dev": "pnpm run build && tsx watch src/cli.ts web --no-open",
+    "build": "tsc -p tsconfig.json && vite build --config web/vite.config.ts",
+    "prepack": "pnpm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "start": "node bin/agent-muster.js web --no-open"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "web/dist"
+  ],
+  "dependencies": {
+    "dingtalk-stream": "2.1.6-beta.1",
+    "express": "^5.1.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "undici": "^8.11.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.2",
+    "@types/node": "^22.15.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
