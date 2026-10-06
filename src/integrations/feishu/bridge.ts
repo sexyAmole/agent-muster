@@ -1,7 +1,7 @@
-import type { AgentRegistry } from './agents.js';
-import { FeishuRegistry, type FeishuMessage } from './feishu.js';
-import type { SessionManager } from './sessions.js';
-import type { AgentSession, FeishuConversation, SessionEvent } from './types.js';
+import type { AgentRegistry } from '../../agents/registry.js';
+import { FeishuRegistry, type FeishuMessage } from './registry.js';
+import type { SessionManager } from '../../sessions/manager.js';
+import type { AgentSession, FeishuConversation, SessionEvent } from '../../types.js';
 
 const terminalStatuses = new Set(['completed', 'failed', 'stopped']);
 

@@ -1,7 +1,7 @@
-import type { AgentRegistry } from './agents.js';
-import { DingTalkRegistry, type DingTalkMessage } from './dingtalk.js';
-import type { SessionManager } from './sessions.js';
-import type { AgentImage, AgentSession, DingTalkConversation, SessionEvent } from './types.js';
+import type { AgentRegistry } from '../../agents/registry.js';
+import { DingTalkRegistry, type DingTalkMessage } from './registry.js';
+import type { SessionManager } from '../../sessions/manager.js';
+import type { AgentImage, AgentSession, DingTalkConversation, SessionEvent } from '../../types.js';
 
 const terminalStatuses = new Set(['completed', 'failed', 'stopped']);
 

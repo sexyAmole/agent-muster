@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createInterface } from 'node:readline';
-import type { AgentInfo, ModelInfo } from './types.js';
+import type { AgentInfo, ModelInfo } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 

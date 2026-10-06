@@ -1,4 +1,4 @@
-import type { AgentImage, TokenUsage } from './types.js';
+import type { AgentImage, TokenUsage } from '../types.js';
 
 interface Launch {
   command: string;

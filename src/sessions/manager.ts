@@ -4,8 +4,8 @@ import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:
 import { homedir } from 'node:os';
 import { join, isAbsolute, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { adapters } from './adapters.js';
-import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, SessionEvent, SessionStatus, TokenUsage } from './types.js';
+import { adapters } from '../agents/adapters.js';
+import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, SessionEvent, SessionStatus, TokenUsage } from '../types.js';
 
 const sessionDirectory = join(homedir(), '.agent-muster', 'sessions');
 const legacyDataFile = join(homedir(), '.agent-muster', 'sessions.json');

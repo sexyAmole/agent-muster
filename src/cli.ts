@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process';
-import { AgentRegistry } from './agents.js';
-import { DingTalkBridge } from './dingtalk-bridge.js';
-import { DingTalkRegistry } from './dingtalk.js';
-import { FeishuRegistry } from './feishu.js';
-import { FeishuBridge } from './feishu-bridge.js';
-import { ProjectRegistry } from './projects.js';
-import { SessionManager } from './sessions.js';
-import { startServer } from './server.js';
+import { AgentRegistry } from './agents/registry.js';
+import { DingTalkBridge } from './integrations/dingtalk/bridge.js';
+import { DingTalkRegistry } from './integrations/dingtalk/registry.js';
+import { FeishuRegistry } from './integrations/feishu/registry.js';
+import { FeishuBridge } from './integrations/feishu/bridge.js';
+import { ProjectRegistry } from './projects/registry.js';
+import { SessionManager } from './sessions/manager.js';
+import { startServer } from './server/index.js';
 import { checkForUpdates, updatePackage } from './updates.js';
 
 function openBrowser(url: string): void {

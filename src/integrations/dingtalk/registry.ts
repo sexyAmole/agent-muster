@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import QRCode from 'qrcode';
 import { DWClient, TOPIC_ROBOT, type RobotMessage } from 'dingtalk-stream';
 import { EnvHttpProxyAgent, fetch } from 'undici';
-import type { AgentImage } from './types.js';
+import type { AgentImage } from '../../types.js';
 
 const directory = join(homedir(), '.agent-muster');
 const dataFile = join(directory, 'dingtalk-apps.json');

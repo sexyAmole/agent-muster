@@ -6,14 +6,14 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { AgentRegistry } from './agents.js';
-import { DingTalkRegistry } from './dingtalk.js';
-import { FeishuRegistry } from './feishu.js';
-import { ProjectRegistry } from './projects.js';
-import { SessionManager } from './sessions.js';
-import type { SessionEvent } from './types.js';
+import { AgentRegistry } from '../agents/registry.js';
+import { DingTalkRegistry } from '../integrations/dingtalk/registry.js';
+import { FeishuRegistry } from '../integrations/feishu/registry.js';
+import { ProjectRegistry } from '../projects/registry.js';
+import { SessionManager } from '../sessions/manager.js';
+import type { SessionEvent } from '../types.js';
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../web/dist');
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 const execFileAsync = promisify(execFile);
 
 async function chooseProjectDirectory(): Promise<string | null> {
