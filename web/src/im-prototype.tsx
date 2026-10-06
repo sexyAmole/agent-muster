@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Select } from './select';
 
 type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
 type Agent = { id: string; name: string; installed: boolean };
@@ -124,8 +125,8 @@ function ImIntegration({ projects, agents, projectLabel, provider }: Props & { p
     <div className="im-robot-list">
       {apps.length ? apps.map(app => <div className="im-robot-entry" key={app.id}>
         <div className="im-robot-row"><div className="im-robot-mark">{app.icon ? <img src={app.icon} alt="" /> : platform[0]}</div><div className="im-app-info"><strong>{app.name || app.clientId}</strong>{app.connectionStatus && <small className="im-connection-status">{{ idle: '未连接', connecting: '连接中', connected: '消息监听已连接', reconnecting: '重新连接中', failed: '消息监听连接失败' }[app.connectionStatus]}</small>}</div>
-          <label className="im-binding">项目<select aria-label={`绑定 ${app.name || app.clientId} 的项目`} value={app.project || ''} onChange={event => void bind(app.id, { project: event.target.value || null })}><option value="">未绑定</option>{projects.map(path => <option key={path} value={path}>{projectLabel(path)}</option>)}</select></label>
-          <label className="im-binding">Agent<select aria-label={`选择 ${app.name || app.clientId} 的 Agent`} value={app.agent || ''} onChange={event => void bind(app.id, { agent: event.target.value || null })}><option value="">未选择</option>{agents.map(agent => <option key={agent.id} value={agent.id} disabled={!agent.installed}>{agent.name}{agent.installed ? '' : '（未安装）'}</option>)}</select></label>
+          <label className="im-binding">项目<Select aria-label={`绑定 ${app.name || app.clientId} 的项目`} value={app.project || ''} onChange={value => void bind(app.id, { project: value || null })}><option value="">未绑定</option>{projects.map(path => <option key={path} value={path}>{projectLabel(path)}</option>)}</Select></label>
+          <label className="im-binding">Agent<Select aria-label={`选择 ${app.name || app.clientId} 的 Agent`} value={app.agent || ''} onChange={value => void bind(app.id, { agent: value || null })}><option value="">未选择</option>{agents.map(agent => <option key={agent.id} value={agent.id} disabled={!agent.installed}>{agent.name}{agent.installed ? '' : '（未安装）'}</option>)}</Select></label>
           <button className="im-sync-button" disabled={syncingId !== null} aria-label={`同步 ${app.name || app.clientId} 的名称和图标`} onClick={() => void syncApp(app.id)}>{syncingId === app.id ? '同步中…' : '一键同步'}</button>
           <button className="im-delete-button" disabled={deletingId !== null} aria-label={`删除 ${app.name || app.clientId} 的 IM 接入`} onClick={() => void deleteApp(app)}>{deletingId === app.id ? '删除中…' : '删除'}</button>
         </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Select } from './select';
 import { createRoot } from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -19,6 +20,12 @@ type Session = {
 type Directory = { path: string };
 type Layout = 'single' | 'double' | 'quad';
 type PaneState = { sessionId: string | null; cwd: string; revision: number };
+function ActionIcon({ type }: { type: 'add' | 'edit' | 'delete' }) {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {type === 'add' ? <path d="M12 5v14M5 12h14" /> : type === 'edit' ? <path d="m16 3 5 5M4 16 16 4a3.5 3.5 0 0 1 5 5L9 21H4v-5Z" /> : <><path d="M3 6h18M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M5 6l1 14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-14M10 10v7M14 10v7" /></>}
+  </svg>;
+}
+
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...options?.headers } });
   const result = await response.json();
@@ -300,16 +307,16 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
         {!selected && <div className="composer-project-row">
           <span className="project-select">
             <span className="project-folder" aria-hidden="true" />
-            <select aria-label={`窗口 ${index + 1} 选择项目`} value={composerProject} disabled={busy} onChange={event => onProjectChange(index, event.target.value)}>
+            <Select aria-label={`窗口 ${index + 1} 选择项目`} value={composerProject} disabled={busy} onChange={value => onProjectChange(index, value)}>
               {!composerProject && <option value="">选择项目</option>}
               {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects)}</option>)}
-            </select>
+            </Select>
           </span>
-          <span className="agent-select"><select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} disabled={busy} onChange={event => { setAgent(event.target.value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</select></span>
+          <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
         </div>}
         <div className="chat-composer">
           <textarea ref={composerRef} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={sendToDingTalk ? `以应用身份发送到此${imPlatform}对话` : running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求' : '描述要完成的任务'} disabled={busy || composerDisabled} rows={2} />
-          <div className="composer-footer"><div className="composer-actions">{(selected?.dingtalkAppId || selected?.feishuAppId) && <label className="model-select"><select aria-label={`窗口 ${index + 1} 发送方式`} value={delivery} disabled={busy} onChange={event => setDelivery(event.target.value as 'agent' | 'dingtalk')}><option value="dingtalk">发送到{imPlatform}</option><option value="agent">交给 Agent</option></select></label>}{!sendToDingTalk && <label className="model-select"><select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={event => setModel(event.target.value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div><button className="composer-send" aria-label={sendToDingTalk ? `发送到${imPlatform}` : selected ? '发送消息' : '创建对话并发送'} disabled={!canSend} onClick={send}>↑</button></div>
+          <div className="composer-footer"><div className="composer-actions">{(selected?.dingtalkAppId || selected?.feishuAppId) && <label className="model-select"><Select aria-label={`窗口 ${index + 1} 发送方式`} value={delivery} disabled={busy} onChange={value => setDelivery(value as 'agent' | 'dingtalk')}><option value="dingtalk">发送到{imPlatform}</option><option value="agent">交给 Agent</option></Select></label>}{!sendToDingTalk && <label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={value => setModel(value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}</div><button className="composer-send" aria-label={sendToDingTalk ? `发送到${imPlatform}` : selected ? '发送消息' : '创建对话并发送'} disabled={!canSend} onClick={send}>↑</button></div>
         </div>
         {selected && <div className="context-status" title={selected.usage ? `累计输入 ${selected.usage.inputTokens.toLocaleString()} Token，累计输出 ${selected.usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>{usedTokens === undefined && !contextWindow ? '上下文数据未提供' : `累计消耗 ${usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`} · 单次窗口 ${contextWindow ? `${tokenCount(contextWindow)} Token` : '未提供'}`}</div>}
       </div>
@@ -435,9 +442,19 @@ function App() {
     <button className={`mobile-menu-backdrop ${mobileMenuOpen ? 'open' : ''}`} aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)} />
     <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`} id="project-menu">
       <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><strong>Agent Muster</strong><button className="menu-close" aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)}>×</button></div>
-      <button className="sidebar-create" disabled={picking} onClick={() => void pickProject()}>＋ <span>创建项目</span></button>
+      <nav className="sidebar-menu" aria-label="快捷菜单">
+        <button className="sidebar-create" disabled={picking} onClick={() => void pickProject()}><ActionIcon type="add" /><span>创建项目</span></button>
+        {!imOpen && <div className="layout-switch">
+          <Select aria-label="窗口模式" triggerLabel={<><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M12 3v18M12 12h9" /></svg><span>窗口模式</span></>} value={layout} onChange={value => changeLayout(value as Layout)}>
+            <option value="single">单窗</option>
+            <option value="double">1×2</option>
+            <option value="quad">2×2</option>
+          </Select>
+        </div>}
+        <button className={`im-sidebar-link ${imOpen ? 'active' : ''}`} onClick={() => { setImOpen(true); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" /></svg><span>IM 集成</span></button>
+      </nav>
       <nav className="sidebar-projects" aria-label="项目和对话">
-        <div className="section-title"><span>项目 <span className="count">{projects.length}</span></span><button className="add-project" disabled={picking} onClick={() => void pickProject()} aria-label="添加项目" title="添加项目">＋</button></div>
+        <div className="section-title"><span>项目 <span className="count">{projects.length}</span></span><button className="add-project" disabled={picking} onClick={() => void pickProject()} aria-label="添加项目" title="添加项目"><ActionIcon type="add" /></button></div>
         {projects.map(path => {
           const projectSessions = sessions.filter(session => session.cwd === path);
           const expanded = expandedProject === path;
@@ -450,27 +467,22 @@ function App() {
               }} title={path} aria-expanded={expanded}>
                 <span className="project-folder" /><span className="project-name">{projectLabel(path, projects)}</span><span className="project-count">{projectSessions.length}</span>
               </button>
-              <button className="project-new" onClick={() => newConversation(path)} aria-label={`在 ${projectLabel(path, projects)} 中新建对话`} title="新建对话">＋</button>
-              <button className="sidebar-delete" onClick={() => void deleteProject(path)} aria-label={`删除项目 ${projectLabel(path, projects)}`} title="删除项目">×</button>
+              <button className="project-new" onClick={() => newConversation(path)} aria-label={`在 ${projectLabel(path, projects)} 中新建对话`} title="新建对话"><ActionIcon type="edit" /></button>
+              <button className="sidebar-delete" onClick={() => void deleteProject(path)} aria-label={`删除项目 ${projectLabel(path, projects)}`} title="删除项目"><ActionIcon type="delete" /></button>
             </div>
             {expanded && <div className="project-conversations">
               {projectSessions.length ? projectSessions.map(session => {
                 const openIndex = panes.slice(0, paneCount).findIndex(pane => pane.sessionId === session.id);
                 return <div className="conversation-row" key={session.id}><button className={`conversation-item ${activeSessionId === session.id ? 'selected' : ''}`} onClick={() => openConversation(session)} title={session.prompt}>
                   <span className={`status-dot ${session.status}`} />{session.dingtalkAppId && <img className="conversation-app-icon" src={`/api/dingtalk/apps/${session.dingtalkAppId}/icon`} alt="钉钉应用图标" />}{session.feishuAppId && <span className="feishu-app-mark" aria-label="飞书应用">飞</span>}<span className="conversation-text"><strong>{session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
-                </button><button className="sidebar-delete conversation-delete" onClick={() => void deleteSession(session)} aria-label={`删除对话 ${session.prompt}`} title="删除对话">×</button></div>;
+                </button><button className="sidebar-delete conversation-delete" onClick={() => void deleteSession(session)} aria-label={`删除对话 ${session.prompt}`} title="删除对话"><ActionIcon type="delete" /></button></div>;
               }) : <p className="project-empty">还没有对话</p>}
             </div>}
           </div>;
         })}
         {!projects.length && <p className="project-empty">暂无项目。点击右侧加号选择本地目录。</p>}
       </nav>
-      {!imOpen && <div className="layout-switch" role="group" aria-label="对话布局">
-        <button aria-pressed={layout === 'single'} onClick={() => changeLayout('single')}>单窗</button>
-        <button aria-pressed={layout === 'double'} onClick={() => changeLayout('double')}>1×2</button>
-        <button aria-pressed={layout === 'quad'} onClick={() => changeLayout('quad')}>2×2</button>
-      </div>}
-      <button className={`im-sidebar-link ${imOpen ? 'active' : ''}`} onClick={() => { setImOpen(true); setMobileMenuOpen(false); }}>IM 集成</button>
+
     </aside>
 
     <main className="main-area">
