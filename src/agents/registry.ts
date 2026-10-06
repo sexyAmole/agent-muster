@@ -14,6 +14,9 @@ const definitions = [
   { id: 'claude', name: 'Claude Code', command: 'claude' },
   { id: 'pi', name: 'Pi', command: 'pi' },
   { id: 'kimi', name: 'Kimi', command: 'kimi' },
+  { id: 'gemini', name: 'Gemini CLI', command: 'gemini' },
+  { id: 'opencode', name: 'OpenCode', command: 'opencode' },
+  { id: 'cursor', name: 'Cursor', command: 'cursor-agent' },
 ] as const;
 
 async function executablePath(command: string): Promise<string | undefined> {
@@ -95,6 +98,25 @@ async function availableModels(agent: string): Promise<ModelInfo[]> {
     const catalog = JSON.parse(stdout) as { models: Record<string, { displayName?: string; maxContextSize?: number }> };
     return Object.entries(catalog.models).map(([id, model]) => ({ id, name: model.displayName || id, contextWindow: model.maxContextSize }));
   }
+  if (agent === 'gemini') {
+    return ['auto-gemini-3', 'auto-gemini-2.5', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'].map(id => ({ id, name: id }));
+  }
+  if (agent === 'opencode') {
+    const { stdout } = await execFileAsync('opencode', ['models', '--verbose'], { timeout: 10000, maxBuffer: 5_000_000 });
+    return stdout.trim().split(/\r?\n(?=[\w.-]+\/[^\s]+\r?$)/m).map(entry => {
+      const end = entry.indexOf('\n');
+      const id = entry.slice(0, end).trim();
+      const model = JSON.parse(entry.slice(end + 1)) as { name: string; limit: { context: number } };
+      return { id, name: `${model.name} (${id})`, contextWindow: model.limit.context };
+    });
+  }
+  if (agent === 'cursor') {
+    const { stdout } = await execFileAsync('cursor-agent', ['--list-models'], { timeout: 10000 });
+    return stdout.replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/).flatMap(line => {
+      const match = /^\s*([\w.-]+)\s+-\s+(.+?)(?:\s+\((?:current|default)\))?\s*$/.exec(line);
+      return match ? [{ id: match[1], name: match[2] }] : [];
+    });
+  }
   return [];
 }
 
@@ -114,6 +136,20 @@ async function configuredModel(agent: string): Promise<string | undefined> {
   if (agent === 'kimi') {
     const { stdout } = await execFileAsync('kimi', ['provider', 'list'], { timeout: 5000 });
     return /^Default model:\s*(\S+)/m.exec(stdout)?.[1];
+  }
+  if (agent === 'gemini') {
+    if (process.env.GEMINI_MODEL) return process.env.GEMINI_MODEL;
+    const config = JSON.parse(await readFile(join(homedir(), '.gemini', 'settings.json'), 'utf8')) as { model?: { name?: string } };
+    return config.model?.name;
+  }
+  if (agent === 'opencode') {
+    const { stdout } = await execFileAsync('opencode', ['debug', 'config'], { timeout: 10000 });
+    return (JSON.parse(stdout) as { model?: string }).model;
+  }
+  if (agent === 'cursor') {
+    const directory = process.env.CURSOR_CONFIG_DIR || (process.env.XDG_CONFIG_HOME && process.platform !== 'darwin' && process.platform !== 'win32' ? join(process.env.XDG_CONFIG_HOME, 'cursor') : join(homedir(), '.cursor'));
+    const config = JSON.parse(await readFile(join(directory, 'cli-config.json'), 'utf8')) as { model?: { displayModelId?: string } };
+    return config.model?.displayModelId;
   }
 }
 

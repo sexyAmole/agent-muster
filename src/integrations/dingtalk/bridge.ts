@@ -75,6 +75,7 @@ export class DingTalkBridge {
           const downloadCode = part.downloadCode ?? part.pictureDownloadCode;
           if (!downloadCode) throw new Error('钉钉图片消息缺少下载码');
           if (binding.agent === 'kimi') throw new Error('当前 Kimi CLI 不支持图片附件输入');
+          if (binding.agent === 'cursor') throw new Error('当前 Cursor CLI 接入不支持图片附件输入');
           images.push(await this.dingtalk.downloadImage(appId, message.robotCode, downloadCode));
         } else promptParts.push(part.text);
       }

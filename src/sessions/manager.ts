@@ -242,6 +242,7 @@ export class SessionManager extends EventEmitter {
   private start(session: AgentSession, prompt: string, images?: AgentImage[]): void {
     const adapter = adapters[session.agent];
     const launch = adapter.launch(prompt, session.externalSessionId, session.model, images);
+    const read = adapter.createReader?.() || adapter.read;
     const child = spawn(launch.command, launch.args, {
       cwd: session.cwd,
       stdio: 'pipe',
@@ -257,14 +258,17 @@ export class SessionManager extends EventEmitter {
     let stderrPending = '';
     let failed = false;
     const recordStderr = (line: string) => {
-      if (line.trim()) this.append(session, isWarning(line) ? 'warning' : 'error', line);
+      if (!line.trim()) return;
+      const error = adapter.readError?.(line);
+      if (error) failed = true;
+      this.append(session, isWarning(line) ? 'warning' : 'error', error || line);
     };
     child.stdout.on('data', (chunk: Buffer) => {
       pending += chunk.toString('utf8');
       const lines = pending.split('\n');
       pending = lines.pop() || '';
       for (const line of lines) {
-        const result = adapter.read(line.trim());
+        const result = read(line.trim());
         if (result.externalSessionId) {
           session.externalSessionId = result.externalSessionId;
           this.save(session);
@@ -295,7 +299,11 @@ export class SessionManager extends EventEmitter {
     child.on('close', code => {
       recordStderr(stderrPending);
       if (pending.trim()) {
-        const result = adapter.read(pending.trim());
+        const result = read(pending.trim());
+        if (result.externalSessionId) {
+          session.externalSessionId = result.externalSessionId;
+          this.save(session);
+        }
         if (result.text) this.append(session, 'output', result.text);
         if (result.usage) this.addUsage(session, result.usage, result.usageIsTotal);
         for (const tool of result.tools || []) this.append(session, 'tool', tool.name, tool.detail);
