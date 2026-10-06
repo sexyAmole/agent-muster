@@ -26,7 +26,7 @@
     "agent-muster": "./bin/agent-muster.js"
   },
   "scripts": {
-    "dev": "pnpm run build && tsx watch src/cli.ts web --no-open",
+    "dev": "tsx watch src/cli.ts web --dev --no-open",
     "build": "tsc -p tsconfig.json && vite build --config web/vite.config.ts",
     "prepack": "pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",

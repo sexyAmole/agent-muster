@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   const portIndex = options.indexOf('--port');
   const port = portIndex >= 0 ? Number(options[portIndex + 1]) : 17321;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be 1–65535');
-  const server = await startServer(port, registry, projects, sessions, dingtalk, feishu);
+  const server = await startServer(port, registry, projects, sessions, dingtalk, feishu, options.includes('--dev'));
   dingtalk.startSubscriptions();
   feishu.startSubscriptions();
   const url = `http://127.0.0.1:${port}`;

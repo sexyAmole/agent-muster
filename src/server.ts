@@ -33,7 +33,7 @@ async function chooseProjectDirectory(): Promise<string | null> {
   }
 }
 
-export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry) {
+export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, dev = false) {
   const app = express();
   app.disable('x-powered-by');
   app.use((request, response, next) => {
@@ -250,9 +250,20 @@ export async function startServer(port: number, registry: AgentRegistry, project
     request.on('close', () => { clearInterval(heartbeat); sessions.off(session.id, listener); });
   });
 
-  app.use(express.static(webRoot));
-  app.get('/{*path}', (_request, response) => response.sendFile(join(webRoot, 'index.html')));
   const server = createServer(app);
+  if (dev) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      configFile: resolve(webRoot, '../vite.config.ts'),
+      root: resolve(webRoot, '..'),
+      server: { middlewareMode: true, hmr: { server } },
+    });
+    app.use(vite.middlewares);
+    server.once('close', () => { void vite.close(); });
+  } else {
+    app.use(express.static(webRoot));
+    app.get('/{*path}', (_request, response) => response.sendFile(join(webRoot, 'index.html')));
+  }
   await new Promise<void>((done, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', done);
