@@ -4,11 +4,13 @@ import { createRoot } from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ImPrototype } from './im-prototype';
+import { AppIcon } from './app-icon';
 import './style.css';
 
 type Status = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'stopped';
 type Model = { id: string; name: string; contextWindow?: number };
 type Agent = { id: string; name: string; command: string; installed: boolean; models: Model[]; defaultModel?: string };
+type FeishuApp = { id: string; icon: string | null };
 type TokenUsage = { inputTokens: number; outputTokens: number };
 type DingTalkConversation = { type: 'single' | 'group'; groupName?: string; senderName: string; senderStaffId: string };
 type Event = { id: number; type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage'; text: string; detail?: string; kind?: string; comparison?: string; timestamp: number; feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation };
@@ -150,13 +152,14 @@ type PaneProps = {
   agents: Agent[];
   projects: string[];
   sessions: Session[];
+  feishuApps: FeishuApp[];
   onFocus: (index: number) => void;
   onProjectChange: (index: number, path: string) => void;
   onSessionCreated: (index: number, session: Session) => void;
   onSessionUpdate: (session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId'>>) => void;
 };
 
-function ChatPane({ index, pane, multi, active: focused, agents, projects, sessions, onFocus, onProjectChange, onSessionCreated, onSessionUpdate }: PaneProps) {
+function ChatPane({ index, pane, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate }: PaneProps) {
   const selectedId = pane.sessionId;
   const [selected, setSelected] = useState<Session | null>(sessions.find(session => session.id === selectedId) || null);
   const [agent, setAgent] = useState(agents.find(item => item.installed)?.id || '');
@@ -266,12 +269,13 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const composerDisabled = !sendToDingTalk && Boolean(running || (selected && !selected.externalSessionId));
   const canSend = Boolean(message.trim() && !busy && !composerDisabled && (selected ? sendToDingTalk || selected.externalSessionId : composerProject && agent));
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
+  const feishuIcon = feishuApps.find(app => app.id === selected?.feishuAppId)?.icon;
 
   return <div className={`pane-wrap ${focused && multi ? 'focused' : ''}`} onPointerDown={() => onFocus(index)} onFocusCapture={() => onFocus(index)}>
     <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
       <div className="chat-header">
-        {selected?.dingtalkAppId && <img className="chat-app-icon" src={`/api/dingtalk/apps/${selected.dingtalkAppId}/icon`} alt="钉钉应用图标" />}
-        {selected?.feishuAppId && <span className="feishu-app-mark" aria-label="飞书应用">飞</span>}
+        {selected?.dingtalkAppId && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${selected.dingtalkAppId}/icon`} platform="钉钉" />}
+        {selected?.feishuAppId && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}
         <div className="chat-heading">{selected
           ? multi
             ? <><strong title={selected.prompt}>{selected.prompt}</strong><p>{projectLabel(selected.cwd, projects)} · {agentName(selected.agent)} · {statusLabel[selected.status]}</p></>
@@ -327,6 +331,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
 function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [feishuApps, setFeishuApps] = useState<FeishuApp[]>([]);
   const [projects, setProjects] = useState<string[]>([]);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [panes, setPanes] = useState<PaneState[]>(Array.from({ length: 4 }, () => ({ sessionId: null, cwd: '', revision: 0 })));
@@ -340,11 +345,12 @@ function App() {
   const currentPane = panes[activePane];
 
   useEffect(() => {
-    Promise.all([api<Agent[]>('/api/agents'), api<Session[]>('/api/sessions'), api<string[]>('/api/projects'), api<Directory>('/api/directories')])
-      .then(([available, history, savedProjects, directory]) => {
+    Promise.all([api<Agent[]>('/api/agents'), api<Session[]>('/api/sessions'), api<string[]>('/api/projects'), api<Directory>('/api/directories'), api<FeishuApp[]>('/api/feishu/apps')])
+      .then(([available, history, savedProjects, directory, apps]) => {
         const paths = [...new Set([...savedProjects, ...history.map(session => session.cwd)])];
         const firstProject = history[0]?.cwd || savedProjects[0] || directory.path;
         setAgents(available); setSessions(history); setProjects(paths); setExpandedProject(firstProject);
+        setFeishuApps(apps);
         setPanes(current => current.map((pane, index) => index === 0 ? { sessionId: history[0]?.id || null, cwd: firstProject, revision: pane.revision + 1 } : pane));
       }).catch(reason => setError((reason as Error).message));
   }, []);
@@ -352,6 +358,7 @@ function App() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       void api<Session[]>('/api/sessions').then(setSessions).catch(reason => setError((reason as Error).message));
+      void api<FeishuApp[]>('/api/feishu/apps').then(setFeishuApps).catch(reason => setError((reason as Error).message));
     }, 5000);
     return () => window.clearInterval(timer);
   }, []);
@@ -473,6 +480,7 @@ function App() {
             {expanded && <div className="project-conversations">
               {projectSessions.length ? projectSessions.map(session => {
                 const openIndex = panes.slice(0, paneCount).findIndex(pane => pane.sessionId === session.id);
+                const feishuIcon = feishuApps.find(app => app.id === session.feishuAppId)?.icon;
                 return <div className="conversation-row" key={session.id}><button className={`conversation-item ${activeSessionId === session.id ? 'selected' : ''}`} onClick={() => openConversation(session)} title={session.prompt}>
                   <span className={`status-dot ${session.status}`} />{session.dingtalkAppId && <img className="conversation-app-icon" src={`/api/dingtalk/apps/${session.dingtalkAppId}/icon`} alt="钉钉应用图标" />}{session.feishuAppId && <span className="feishu-app-mark" aria-label="飞书应用">飞</span>}<span className="conversation-text"><strong>{session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
                 </button><button className="sidebar-delete conversation-delete" onClick={() => void deleteSession(session)} aria-label={`删除对话 ${session.prompt}`} title="删除对话"><ActionIcon type="delete" /></button></div>;
@@ -492,7 +500,7 @@ function App() {
       <div className="content chat-content">
         {error && <div className="global-error" role="alert"><span>{error}</span><button onClick={() => setError('')}>关闭</button></div>}
         <div className={`workspace-grid ${layout}`} style={{ display: imOpen ? 'none' : undefined }}>
-          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); setExpandedProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} />)}
+          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); setExpandedProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} />)}
         </div>
         <div hidden={!imOpen}><ImPrototype projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects)} /></div>
       </div>
