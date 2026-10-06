@@ -56,6 +56,7 @@ agent-muster
 | `agent-muster web --port 18000` | 指定监听端口 |
 | `agent-muster agents` | 列出 Agent 及安装状态 |
 | `agent-muster sessions` | 列出已保存的对话 |
+| `agent-muster update` | 检查并更新全局安装到最新版本 |
 
 端口和浏览器选项可以组合使用：
 
@@ -112,11 +113,15 @@ npx agent-muster web --port 18000
 
 ## 更新
 
+启动 Web 服务时会自动检查新版本，并在终端显示更新提示。检查在后台进行，不影响服务启动。
+
 全局安装的用户可以运行：
 
 ```bash
-npm install -g agent-muster@latest
+agent-muster update
 ```
+
+命令会检查最新版本，已有新版本时通过 npm 更新全局安装。更新完成后重新启动服务即可生效。也可以手动运行 `npm install -g agent-muster@latest`。
 
 使用 `npx` 时，可以明确指定最新版本：
 

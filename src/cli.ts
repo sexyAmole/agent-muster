@@ -5,6 +5,7 @@ import { DingTalkRegistry } from './dingtalk.js';
 import { ProjectRegistry } from './projects.js';
 import { SessionManager } from './sessions.js';
 import { startServer } from './server.js';
+import { checkForUpdates, updatePackage } from './updates.js';
 
 function openBrowser(url: string): void {
   const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
@@ -14,6 +15,10 @@ function openBrowser(url: string): void {
 
 async function main(): Promise<void> {
   const [command = 'web', ...options] = process.argv.slice(2);
+  if (command === 'update') {
+    await updatePackage();
+    return;
+  }
   const registry = new AgentRegistry();
   await registry.scan();
   const sessions = new SessionManager();
@@ -51,6 +56,7 @@ async function main(): Promise<void> {
   const shutdown = () => { dingtalk.shutdown(); sessions.shutdown(); server.close(); server.closeAllConnections(); };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
+  void checkForUpdates().catch(() => console.warn('无法检查更新，请稍后运行 agent-muster update 重试。'));
 }
 
 main().catch(error => { console.error(error.message); process.exitCode = 1; });
