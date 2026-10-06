@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { AgentRegistry } from './agents/registry.js';
 import { DingTalkBridge } from './integrations/dingtalk/bridge.js';
 import { DingTalkRegistry } from './integrations/dingtalk/registry.js';
@@ -16,7 +17,13 @@ function openBrowser(url: string): void {
 }
 
 async function main(): Promise<void> {
-  const [command = 'web', ...options] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  if (args.includes('--version') || args.includes('-v')) {
+    const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+    console.log(version);
+    return;
+  }
+  const [command = 'web', ...options] = args;
   if (command === 'update') {
     await updatePackage();
     return;

@@ -1,6 +1,6 @@
 {
   "name": "agent-muster",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A local web interface for managing coding agents, projects, sessions, and DingTalk/Feishu integrations.",
   "author": "sexyAmole",
   "license": "UNLICENSED",
