@@ -126,10 +126,10 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     void ws.start({ eventDispatcher }).catch(error => console.error(`飞书应用 ${app.clientId} 消息监听失败：`, error));
   }
 
-  async send(id: string, chatId: string, content: string): Promise<void> {
+  async send(id: string, chatId: string, content: string, format: 'text' | 'markdown' = 'text'): Promise<void> {
     const client = this.clients.get(id);
     if (!client) throw new Error('飞书应用消息监听未启动');
-    // 按 UTF-8 字节分段，避免超过飞书文本消息大小限制。
+    // 按 UTF-8 字节分段，避免超过飞书消息大小限制。
     let chunk = '';
     let size = 0;
     const chunks: string[] = [];
@@ -142,7 +142,12 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     for (const text of chunks) {
       const result = await client.api.im.message.create({
         params: { receive_id_type: 'chat_id' },
-        data: { receive_id: chatId, msg_type: 'text', content: JSON.stringify({ text }) },
+        data: {
+          receive_id: chatId, msg_type: format === 'markdown' ? 'interactive' : 'text',
+          content: JSON.stringify(format === 'markdown'
+            ? { schema: '2.0', body: { elements: [{ tag: 'markdown', content: text }] } }
+            : { text }),
+        },
       });
       if (result.code !== 0) throw new Error(`飞书消息发送失败：${result.msg} (${result.code})`);
     }
@@ -151,7 +156,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
   async sendToSession(id: string, sessionId: string, content: string): Promise<void> {
     const chatId = Object.entries(this.getApp(id).conversations).find(([, value]) => value === sessionId)?.[0];
     if (!chatId) throw new Error('此对话尚无飞书发送目标');
-    await this.send(id, chatId, content);
+    await this.send(id, chatId, content, 'markdown');
   }
 
   async bind(id: string, binding: { project?: string | null; agent?: string | null }, projects: string[], agents: string[]) {
