@@ -1,7 +1,7 @@
 {
   "name": "agent-muster",
-  "version": "0.1.1",
-  "description": "A local web interface for managing coding agents, projects, sessions, and DingTalk integrations.",
+  "version": "0.1.2",
+  "description": "A local web interface for managing coding agents, projects, sessions, and DingTalk/Feishu integrations.",
   "author": "sexyAmole",
   "license": "UNLICENSED",
   "homepage": "https://github.com/sexyAmole/agent-muster",
@@ -17,7 +17,8 @@
     "coding-agent",
     "codex",
     "claude-code",
-    "dingtalk"
+    "dingtalk",
+    "feishu"
   ],
   "type": "module",
   "packageManager": "pnpm@10.33.4",
