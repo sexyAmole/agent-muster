@@ -200,6 +200,17 @@ export class SessionManager extends EventEmitter {
     return session;
   }
 
+  markImPushed(id: string, eventId: number): AgentSession {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error('会话不存在');
+    const event = session.events.find(item => item.id === eventId && item.type === 'output');
+    if (!event) throw new Error('助手结果不存在');
+    event.pushedToIm = true;
+    this.emit(session.id, event);
+    this.save(session);
+    return session;
+  }
+
   stop(id: string): AgentSession {
     const session = this.sessions.get(id);
     if (!session) throw new Error('Session not found');

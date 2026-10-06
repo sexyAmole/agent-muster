@@ -195,13 +195,15 @@ export async function startServer(port: number, registry: AgentRegistry, project
   });
   app.post('/api/sessions/:id/dingtalk/messages', async (request, response) => {
     try {
-      const { content } = request.body || {};
-      if (typeof content !== 'string' || !content.trim()) throw new Error('Message is required');
+      const { eventId } = request.body || {};
       const session = sessions.get(request.params.id);
       if (!session) throw new Error('Session not found');
       if (!session.dingtalkAppId) throw new Error('此对话未关联钉钉应用');
-      await dingtalk.sendToSession(session.dingtalkAppId, session.id, content.trim());
-      response.json(sessions.recordDingTalkMessage(session.id, content.trim()));
+      const event = session.events.find(item => item.id === eventId && item.type === 'output');
+      if (!event?.text.trim()) throw new Error('助手结果不存在或内容为空');
+      if (event.pushedToIm) throw new Error('此结果已推送到 IM');
+      await dingtalk.sendToSession(session.dingtalkAppId, session.id, event.text.trim());
+      response.json(sessions.markImPushed(session.id, event.id));
     } catch (error) {
       console.error(`DingTalk message sending failed for session ${request.params.id}:`, error);
       response.status(400).json({ error: (error as Error).message });
@@ -209,13 +211,15 @@ export async function startServer(port: number, registry: AgentRegistry, project
   });
   app.post('/api/sessions/:id/feishu/messages', async (request, response) => {
     try {
-      const { content } = request.body || {};
-      if (typeof content !== 'string' || !content.trim()) throw new Error('请输入消息内容');
+      const { eventId } = request.body || {};
       const session = sessions.get(request.params.id);
       if (!session) throw new Error('会话不存在');
       if (!session.feishuAppId) throw new Error('此对话未关联飞书应用');
-      await feishu.sendToSession(session.feishuAppId, session.id, content.trim());
-      response.json(sessions.recordFeishuMessage(session.id, content.trim()));
+      const event = session.events.find(item => item.id === eventId && item.type === 'output');
+      if (!event?.text.trim()) throw new Error('助手结果不存在或内容为空');
+      if (event.pushedToIm) throw new Error('此结果已推送到 IM');
+      await feishu.sendToSession(session.feishuAppId, session.id, event.text.trim());
+      response.json(sessions.markImPushed(session.id, event.id));
     } catch (error) {
       console.error(`飞书会话 ${request.params.id} 消息发送失败：`, error);
       response.status(400).json({ error: (error as Error).message });

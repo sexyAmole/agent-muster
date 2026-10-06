@@ -44,6 +44,7 @@ export interface SessionEvent {
   kind?: string;
   comparison?: string;
   timestamp: number;
+  pushedToIm?: boolean;
   dingtalkConversation?: DingTalkConversation;
   feishuConversation?: FeishuConversation;
 }

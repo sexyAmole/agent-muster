@@ -149,11 +149,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .assistant-copy table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0 0 12px; }
 .assistant-copy th, .assistant-copy td { padding: 6px 9px; border: 1px solid #ddd; text-align: left; }
 .assistant-copy a { color: #111; text-decoration: underline; }
-.reply-actions { display: flex; margin-top: 7px; }
+.reply-actions { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
 .dingtalk-sent-label { margin-bottom: 7px; color: #888; font-size: 11px; }
 .dingtalk-sent-content { white-space: pre-wrap; overflow-wrap: anywhere; }
 .reply-copy { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #888; }
 .reply-copy:hover, .reply-copy:focus-visible { background: #f1f1f1; color: #333; }
+.reply-push { height: 28px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: #888; font-size: 12px; }
+.reply-push:hover:not(:disabled), .reply-push:focus-visible { background: #f1f1f1; color: #333; }
+.reply-push:disabled { cursor: default; color: #aaa; }
 .tool-call, .tool-group, .file-change { min-width: 0; max-width: 100%; margin-block: -16px; border: 1px solid #e7e7e7; border-radius: 8px; background: #f8f8f8; color: #555; }
 .tool-call summary, .file-change summary, .file-change-summary { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 9px 12px; list-style: none; cursor: pointer; }
 .file-change-summary { cursor: default; }
