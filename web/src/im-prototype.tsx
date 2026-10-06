@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppIcon } from './app-icon';
+import { Select } from './select';
 
 type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
 type Agent = { id: string; name: string; installed: boolean };
