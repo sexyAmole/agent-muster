@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { AgentRegistry } from '../agents/registry.js';
+import { AgentManagement } from '../agents/management.js';
 import { DingTalkRegistry } from '../integrations/dingtalk/registry.js';
 import { FeishuRegistry } from '../integrations/feishu/registry.js';
 import { ProjectRegistry } from '../projects/registry.js';
@@ -53,6 +54,23 @@ export async function startServer(port: number, registry: AgentRegistry, project
   app.use('/api', express.json({ limit: '128kb' }));
 
   app.get('/api/agents', (_request, response) => response.json(registry.list()));
+  const agentManagement = new AgentManagement(registry);
+  app.get('/api/agents/management', async (_request, response) => {
+    try { response.json(await agentManagement.list()); }
+    catch (error) { response.status(500).json({ error: (error as Error).message }); }
+  });
+  app.post('/api/agents/refresh', async (_request, response) => {
+    try { response.json(await agentManagement.refresh()); }
+    catch (error) { response.status(400).json({ error: (error as Error).message }); }
+  });
+  app.post('/api/agents/:id/actions', async (request, response) => {
+    try {
+      const { action } = request.body || {};
+      if (action !== 'install' && action !== 'update' && action !== 'uninstall') throw new Error('Agent 操作无效');
+      if (sessions.list().some(session => session.agent === request.params.id && (session.status === 'starting' || session.status === 'running'))) throw new Error('此 Agent 有正在运行的会话，请先停止会话');
+      response.json(await agentManagement.run(request.params.id, action));
+    } catch (error) { response.status(400).json({ error: (error as Error).message }); }
+  });
   app.get('/api/projects', (_request, response) => response.json(projects.list()));
   app.post('/api/projects', async (request, response) => {
     try {
@@ -177,6 +195,7 @@ export async function startServer(port: number, registry: AgentRegistry, project
   app.post('/api/sessions', async (request, response) => {
     try {
       const { agent, cwd, prompt, model } = request.body || {};
+      if (agentManagement.operating) throw new Error('正在执行 Agent 操作，请完成后再创建会话');
       if (typeof agent !== 'string' || !registry.get(agent)?.installed) throw new Error('Agent is not installed');
       if (typeof cwd !== 'string' || typeof prompt !== 'string') throw new Error('Project and prompt are required');
       if (model !== undefined && (typeof model !== 'string' || (model && !registry.get(agent)?.models.some(item => item.id === model)))) throw new Error('Invalid model');
@@ -186,9 +205,11 @@ export async function startServer(port: number, registry: AgentRegistry, project
   app.post('/api/sessions/:id/messages', (request, response) => {
     try {
       const { content, model } = request.body || {};
+      if (agentManagement.operating) throw new Error('正在执行 Agent 操作，请完成后再发送消息');
       if (typeof content !== 'string') throw new Error('Message is required');
       const session = sessions.get(request.params.id);
       if (!session) throw new Error('Session not found');
+      if (!registry.get(session.agent)?.installed) throw new Error('此 Agent 已卸载，请先重新安装');
       if (model !== undefined && (typeof model !== 'string' || (model && !registry.get(session.agent)?.models.some(item => item.id === model)))) throw new Error('Invalid model');
       response.json(sessions.send(request.params.id, content, model));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }

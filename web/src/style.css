@@ -300,3 +300,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .im-connection-status { display: block; margin-top: 5px; font-size: 11px; color: #666; }
 .feishu-app-mark { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: none; border-radius: 5px; background: #edf3ff; color: #245bdb; font-size: 12px; }
+
+.agent-panel { width: min(1060px, 100%); margin: 0 auto; padding: 42px; }
+.agent-intro { margin: 9px 0 0; color: #777; font-size: 12px; line-height: 1.6; }
+.agent-feedback { margin-bottom: 16px; color: #526f5a; font-size: 12px; }
+.agent-feedback:empty { display: none; }
+.agent-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.agent-entry { min-width: 0; display: flex; flex-direction: column; padding: 20px; border: 1px solid #e8e8e8; border-radius: 7px; background: #fff; }
+.agent-entry-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-entry-heading strong { font-size: 14px; }
+.agent-install-status { padding: 4px 7px; border-radius: 4px; background: #f2f2f2; color: #888; font-size: 10px; }
+.agent-install-status.installed { background: #edf3ee; color: #526f5a; }
+.agent-details { display: flex; flex-direction: column; gap: 10px; margin: 18px 0; font-size: 11px; }
+.agent-details > div { min-width: 0; display: flex; gap: 14px; }
+.agent-details dt { flex: none; width: 28px; color: #888; }
+.agent-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.agent-path { color: #777; font: 10px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.agent-entry-error { margin: 0 0 15px; color: #963c3c; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; }
+.agent-entry-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; }
+.agent-entry-actions button:disabled { opacity: .5; }
+.agent-panel .im-error span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-panel .im-error button { flex: none; }
+.agent-operation-output { margin-top: 20px; padding: 12px; border: 1px solid #e8e8e8; border-radius: 7px; background: #fff; font-size: 12px; }
+.agent-operation-output summary { cursor: pointer; }
+.agent-operation-output pre { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
+@media (max-width: 900px) { .agent-list { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 650px) { .agent-panel { padding: 25px 14px; } .agent-panel .im-intro { align-items: flex-start; } }

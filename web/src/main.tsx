@@ -5,11 +5,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ImPrototype } from './im-prototype';
 import { AppIcon } from './app-icon';
+import { AgentPanel } from './agent-panel';
+import type { AgentInfo as Agent } from '../../src/types';
 import './style.css';
 
 type Status = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'stopped';
-type Model = { id: string; name: string; contextWindow?: number };
-type Agent = { id: string; name: string; command: string; installed: boolean; models: Model[]; defaultModel?: string };
 type FeishuApp = { id: string; icon: string | null };
 type TokenUsage = { inputTokens: number; outputTokens: number };
 type DingTalkConversation = { type: 'single' | 'group'; groupName?: string; senderName: string; senderStaffId: string };
@@ -171,10 +171,20 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const [copiedTarget, setCopiedTarget] = useState<'conversation' | number | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const runLogRef = useRef<HTMLDetailsElement>(null);
   const followConversation = useRef(true);
 
   useEffect(() => {
-    if (!agent) setAgent(agents.find(item => item.installed)?.id || '');
+    function closeRunLog(event: PointerEvent) {
+      const runLog = runLogRef.current;
+      if (runLog?.open && event.target instanceof Node && !runLog.contains(event.target)) runLog.open = false;
+    }
+    document.addEventListener('pointerdown', closeRunLog);
+    return () => document.removeEventListener('pointerdown', closeRunLog);
+  }, []);
+
+  useEffect(() => {
+    if (!agents.some(item => item.id === agent && item.installed)) setAgent(agents.find(item => item.installed)?.id || '');
   }, [agents, agent]);
 
   useEffect(() => { setModel(selected?.model || ''); }, [selected?.id, selected?.model]);
@@ -280,7 +290,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const contextWindow = models.find(item => item.id === (model || agentInfo?.defaultModel))?.contextWindow;
   const usedTokens = selected?.usage ? selected.usage.inputTokens + selected.usage.outputTokens : undefined;
   const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
-  const canSend = Boolean(message.trim() && !busy && !composerDisabled && (selected ? selected.externalSessionId : composerProject && agent));
+  const canSend = Boolean(message.trim() && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const feishuIcon = feishuApps.find(app => app.id === selected?.feishuAppId)?.icon;
 
@@ -296,7 +306,9 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
           : <><strong>新对话</strong>{multi && <p>窗口 {index + 1} · 从侧边栏选择对话</p>}</>}{selected?.dingtalkConversation && <p className="chat-source">{selected.dingtalkConversation.type === 'group' ? '群聊' : '单聊'}{selected.dingtalkConversation.type === 'group' && selected.dingtalkConversation.groupName && ` · 群名称：${selected.dingtalkConversation.groupName}`} · 提问人：<span title={selected.dingtalkConversation.senderStaffId}>{selected.dingtalkConversation.senderName}</span></p>}{selected?.feishuConversation && <p className="chat-source">飞书 · {selected.feishuConversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{selected.feishuConversation.senderId}</p>}</div>
         <div className="output-actions">
           {selected && <button className="copy-button" onClick={() => void copyText(conversationText(selected), 'conversation')} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}>{copiedTarget === 'conversation' ? '已复制' : '复制对话'}</button>}
-          {selected && <details className="run-log"><summary>运行日志</summary><div className="run-log-content">{selected.events.map(event => <div key={event.id}><span>{time(event.timestamp)} · {event.type}</span><pre>{event.text}</pre>{event.detail && <pre>{event.detail}</pre>}</div>)}</div></details>}
+          {selected && <details ref={runLogRef} className="run-log" onBlur={event => {
+            if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+          }}><summary>运行日志</summary><div className="run-log-content" tabIndex={0}>{selected.events.map(event => <div key={event.id}><span>{time(event.timestamp)} · {event.type}</span><pre>{event.text}</pre>{event.detail && <pre>{event.detail}</pre>}</div>)}</div></details>}
           {running && <button className="stop-button" disabled={busy} onClick={stop}>停止</button>}
         </div>
       </div>
@@ -354,6 +366,7 @@ function App() {
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState('');
   const [imOpen, setImOpen] = useState(() => new URLSearchParams(window.location.search).get('im-view') === 'robots');
+  const [agentsOpen, setAgentsOpen] = useState(false);
   const paneCount = layout === 'single' ? 1 : layout === 'double' ? 2 : 4;
   const currentPane = panes[activePane];
 
@@ -390,6 +403,7 @@ function App() {
 
   function newConversation(path: string, index = activePane) {
     setImOpen(false);
+    setAgentsOpen(false);
     setMobileMenuOpen(false);
     setExpandedProject(path || null);
     setPane(index, null, path);
@@ -397,6 +411,7 @@ function App() {
 
   function openConversation(session: Session) {
     setImOpen(false);
+    setAgentsOpen(false);
     setMobileMenuOpen(false);
     setExpandedProject(session.cwd);
     setPane(activePane, session.id, session.cwd);
@@ -464,14 +479,15 @@ function App() {
       <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><strong>Agent Muster</strong><button className="menu-close" aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)}>×</button></div>
       <nav className="sidebar-menu" aria-label="快捷菜单">
         <button className="sidebar-create" disabled={picking} onClick={() => void pickProject()}><ActionIcon type="add" /><span>创建项目</span></button>
-        {!imOpen && <div className="layout-switch">
+        {!imOpen && !agentsOpen && <div className="layout-switch">
           <Select aria-label="窗口模式" triggerLabel={<><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M12 3v18M12 12h9" /></svg><span>窗口模式</span></>} value={layout} onChange={value => changeLayout(value as Layout)}>
             <option value="single">单窗</option>
             <option value="double">1×2</option>
             <option value="quad">2×2</option>
           </Select>
         </div>}
-        <button className={`im-sidebar-link ${imOpen ? 'active' : ''}`} onClick={() => { setImOpen(true); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" /></svg><span>IM 集成</span></button>
+        <button className={`im-sidebar-link ${imOpen ? 'active' : ''}`} onClick={() => { setImOpen(true); setAgentsOpen(false); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" /></svg><span>IM 集成</span></button>
+        <button className={`im-sidebar-link ${agentsOpen ? 'active' : ''}`} onClick={() => { setAgentsOpen(true); setImOpen(false); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="14" rx="3" /><path d="M12 6V3M8 11h.01M16 11h.01M8 16h8M1 11v4M23 11v4" /></svg><span>Agent 管理</span></button>
       </nav>
       <nav className="sidebar-projects" aria-label="项目和对话">
         <div className="section-title"><span>项目 <span className="count">{projects.length}</span></span><button className="add-project" disabled={picking} onClick={() => void pickProject()} aria-label="添加项目" title="添加项目"><ActionIcon type="add" /></button></div>
@@ -482,6 +498,7 @@ function App() {
             <div className="project-row">
               <button className={`project-item ${currentPane.cwd === path ? 'active' : ''}`} onClick={() => {
                 setImOpen(false);
+                setAgentsOpen(false);
                 if (expanded) setExpandedProject(null);
                 else { setExpandedProject(path); setPane(activePane, projectSessions[0]?.id || null, path); }
               }} title={path} aria-expanded={expanded}>
@@ -512,9 +529,10 @@ function App() {
       </header>
       <div className="content chat-content">
         {error && <div className="global-error" role="alert"><span>{error}</span><button onClick={() => setError('')}>关闭</button></div>}
-        <div className={`workspace-grid ${layout}`} style={{ display: imOpen ? 'none' : undefined }}>
+        <div className={`workspace-grid ${layout}`} style={{ display: imOpen || agentsOpen ? 'none' : undefined }}>
           {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); setExpandedProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} />)}
         </div>
+        <div hidden={!agentsOpen}><AgentPanel active={agentsOpen} onChange={setAgents} /></div>
         <div hidden={!imOpen}><ImPrototype projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects)} /></div>
       </div>
     </main>

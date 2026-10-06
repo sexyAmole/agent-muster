@@ -19,7 +19,7 @@ const definitions = [
   { id: 'cursor', name: 'Cursor', command: 'cursor-agent' },
 ] as const;
 
-async function executablePath(command: string): Promise<string | undefined> {
+export async function executablePath(command: string): Promise<string | undefined> {
   const pathValue = process.env.PATH;
   if (!pathValue) return undefined;
   const extensions = process.platform === 'win32' ? ['.exe', '.cmd', '.bat'] : [''];
@@ -159,11 +159,20 @@ export class AgentRegistry {
   async scan(): Promise<AgentInfo[]> {
     const agents = await Promise.all(definitions.map(async definition => {
       const installed = Boolean(await executablePath(definition.command));
+      let version: string | undefined;
+      let versionError: string | undefined;
+      if (installed) {
+        try {
+          const { stdout } = await execFileAsync(definition.command, ['--version'], { shell: process.platform === 'win32', timeout: 10000 });
+          version = stdout.replace(/\u001b\[[0-9;]*m/g, '').trim();
+          if (!version) versionError = '命令未返回版本信息';
+        } catch (error) { versionError = (error as Error).message; }
+      }
       const [models, defaultModel] = installed ? await Promise.all([
         availableModels(definition.id).catch(() => []),
         configuredModel(definition.id).catch(() => undefined),
       ]) : [[], undefined];
-      return { ...definition, installed, models, defaultModel };
+      return { ...definition, installed, version, versionError, models, defaultModel };
     }));
     this.agents = new Map(agents.map(agent => [agent.id, agent]));
     return agents;

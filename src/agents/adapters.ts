@@ -204,7 +204,7 @@ const gemini: Adapter = {
   launch(prompt, externalSessionId, model, images) {
     return {
       command: 'gemini',
-      args: ['--output-format', 'stream-json', '--approval-mode', 'auto_edit', ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : []), '-p', [prompt, ...(images?.map(image => `@${image.path}`) || [])].join('\n')],
+      args: ['--output-format', 'stream-json', '--approval-mode', 'auto_edit', '--skip-trust', ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : []), '-p', [prompt, ...(images?.map(image => `@${image.path}`) || [])].join('\n')],
     };
   },
   read(line) {

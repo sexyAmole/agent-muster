@@ -5,8 +5,18 @@ export interface AgentInfo {
   name: string;
   command: string;
   installed: boolean;
+  version?: string;
+  versionError?: string;
   models: ModelInfo[];
   defaultModel?: string;
+}
+
+export type AgentAction = 'install' | 'update' | 'uninstall';
+
+export interface ManagedAgent extends AgentInfo {
+  path?: string;
+  management?: 'npm' | 'cursor';
+  managementError?: string;
 }
 
 export interface ModelInfo {
