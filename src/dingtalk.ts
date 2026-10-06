@@ -156,7 +156,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     const response = await fetch(`${openApiBase}${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': token },
       body: JSON.stringify({
-        robotCode: target.robotCode, msgKey: 'sampleText', msgParam: JSON.stringify({ content }),
+        robotCode: target.robotCode, msgKey: 'sampleMarkdown', msgParam: JSON.stringify({ title: 'Agent 执行结果', text: content }),
         ...(target.type === '1' ? { userIds: [target.userId] } : { openConversationId: target.openConversationId }),
       }),
       redirect: 'error', signal: AbortSignal.timeout(10000), dispatcher,

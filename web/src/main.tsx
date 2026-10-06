@@ -13,7 +13,7 @@ type Agent = { id: string; name: string; command: string; installed: boolean; mo
 type FeishuApp = { id: string; icon: string | null };
 type TokenUsage = { inputTokens: number; outputTokens: number };
 type DingTalkConversation = { type: 'single' | 'group'; groupName?: string; senderName: string; senderStaffId: string };
-type Event = { id: number; type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage'; text: string; detail?: string; kind?: string; comparison?: string; timestamp: number; feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation };
+type Event = { id: number; type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage'; text: string; detail?: string; kind?: string; comparison?: string; timestamp: number; pushedToIm?: boolean; feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation };
 type Session = {
   id: string; agent: string; dingtalkAppId?: string; feishuAppId?: string; cwd: string; prompt: string; model?: string; usage?: TokenUsage; externalSessionId?: string;
   feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation;
@@ -165,7 +165,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const [agent, setAgent] = useState(agents.find(item => item.installed)?.id || '');
   const [model, setModel] = useState(sessions.find(session => session.id === selectedId)?.model || '');
   const [message, setMessage] = useState('');
-  const [delivery, setDelivery] = useState<'agent' | 'dingtalk'>((sessions.find(session => session.id === selectedId)?.dingtalkAppId || sessions.find(session => session.id === selectedId)?.feishuAppId) ? 'dingtalk' : 'agent');
+  const [pushingId, setPushingId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copiedTarget, setCopiedTarget] = useState<'conversation' | number | null>(null);
@@ -191,7 +191,10 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       source.onmessage = messageEvent => {
         const event = JSON.parse(messageEvent.data) as Event;
         setSelected(previous => {
-          if (!previous || previous.id !== selectedId || previous.events.some(item => item.id === event.id)) return previous;
+          if (!previous || previous.id !== selectedId) return previous;
+          if (previous.events.some(item => item.id === event.id)) {
+            return event.pushedToIm ? { ...previous, events: previous.events.map(item => item.id === event.id ? { ...item, pushedToIm: true } : item) } : previous;
+          }
           const updated = { ...previous, ...(event.feishuConversation ? { feishuConversation: event.feishuConversation } : {}), ...(event.dingtalkConversation ? { dingtalkConversation: event.dingtalkConversation } : {}), status: event.type === 'status' ? event.text as Status : previous.status, usage: event.type === 'usage' ? JSON.parse(event.text) as TokenUsage : previous.usage, updatedAt: event.timestamp, events: [...previous.events, event].slice(-500) };
           return updated;
         });
@@ -238,7 +241,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     setError(''); setBusy(true);
     try {
       if (selected) {
-        const session = await api<Session>(sendToDingTalk ? `/api/sessions/${selected.id}/${selected.feishuAppId ? 'feishu' : 'dingtalk'}/messages` : `/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify(sendToDingTalk ? { content } : { content, model }) });
+        const session = await api<Session>(`/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify({ content, model }) });
         onSessionUpdate(session);
       } else {
         const session = await api<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ agent, cwd: pane.cwd, prompt: content, model }) });
@@ -247,6 +250,17 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       setMessage('');
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(false); }
+  }
+
+  async function pushToIm(event: Event) {
+    if (!selected || (!selected.dingtalkAppId && !selected.feishuAppId) || event.type !== 'output' || !event.text.trim() || pushingId !== null || event.pushedToIm) return;
+    setError(''); setPushingId(event.id);
+    try {
+      const session = await api<Session>(`/api/sessions/${selected.id}/${selected.feishuAppId ? 'feishu' : 'dingtalk'}/messages`, { method: 'POST', body: JSON.stringify({ eventId: event.id }) });
+      onSessionUpdate(session);
+      setSelected(current => current?.id === session.id ? { ...current, events: current.events.map(item => item.id === event.id ? { ...item, pushedToIm: true } : item) } : current);
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setPushingId(null); }
   }
 
   async function stop() {
@@ -259,15 +273,14 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
 
   const running = selected?.status === 'running' || selected?.status === 'starting';
   const imPlatform = selected?.feishuAppId ? '飞书' : '钉钉';
-  const sendToDingTalk = Boolean((selected?.dingtalkAppId || selected?.feishuAppId) && delivery === 'dingtalk');
   const composerProject = selected?.cwd || (projects.includes(pane.cwd) ? pane.cwd : '');
   const composerAgent = selected?.agent || agent;
   const agentInfo = agents.find(item => item.id === composerAgent);
   const models = agentInfo?.models || [];
   const contextWindow = models.find(item => item.id === (model || agentInfo?.defaultModel))?.contextWindow;
   const usedTokens = selected?.usage ? selected.usage.inputTokens + selected.usage.outputTokens : undefined;
-  const composerDisabled = !sendToDingTalk && Boolean(running || (selected && !selected.externalSessionId));
-  const canSend = Boolean(message.trim() && !busy && !composerDisabled && (selected ? sendToDingTalk || selected.externalSessionId : composerProject && agent));
+  const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
+  const canSend = Boolean(message.trim() && !busy && !composerDisabled && (selected ? selected.externalSessionId : composerProject && agent));
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const feishuIcon = feishuApps.find(app => app.id === selected?.feishuAppId)?.icon;
 
@@ -303,7 +316,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
                 ? <FileChange key={item.id} event={item} cwd={selected.cwd} />
               : item.type === 'error'
                 ? <div key={item.id} className="chat-notice">{item.text}</div>
-                : <div key={item.id} className="chat-turn assistant-turn">{(item.type === 'dingtalk_message' || item.type === 'feishu_message') && <div className="dingtalk-sent-label">应用 · 已发送到{item.type === 'feishu_message' ? '飞书' : '钉钉'}</div>}<div className="assistant-copy">{(item.type === 'dingtalk_message' || item.type === 'feishu_message') ? <div className="dingtalk-sent-content">{item.text}</div> : <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>}</div><div className="reply-actions"><button className="reply-copy" aria-label={copiedTarget === item.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(item.text, item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === item.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button></div></div>)}
+                : <div key={item.id} className="chat-turn assistant-turn">{(item.type === 'dingtalk_message' || item.type === 'feishu_message') && <div className="dingtalk-sent-label">应用 · 已发送到{item.type === 'feishu_message' ? '飞书' : '钉钉'}</div>}<div className="assistant-copy">{(item.type === 'dingtalk_message' || item.type === 'feishu_message') ? <div className="dingtalk-sent-content">{item.text}</div> : <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>}</div><div className="reply-actions"><button className="reply-copy" aria-label={copiedTarget === item.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(item.text, item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === item.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>{item.type === 'output' && (selected.dingtalkAppId || selected.feishuAppId) && item.text.trim() && <button className="reply-push" disabled={pushingId !== null || item.pushedToIm} onClick={() => void pushToIm(item)}>{pushingId === item.id ? '推送中…' : item.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div></div>)}
           {running && <div className="chat-progress"><span />{agentName(selected.agent)} 正在处理…</div>}
         </div> : <div className="chat-empty"><strong>描述你想完成的任务</strong></div>}
       </div>
@@ -319,8 +332,8 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
           <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
         </div>}
         <div className="chat-composer">
-          <textarea ref={composerRef} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={sendToDingTalk ? `以应用身份发送到此${imPlatform}对话` : running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求' : '描述要完成的任务'} disabled={busy || composerDisabled} rows={2} />
-          <div className="composer-footer"><div className="composer-actions">{(selected?.dingtalkAppId || selected?.feishuAppId) && <label className="model-select"><Select aria-label={`窗口 ${index + 1} 发送方式`} value={delivery} disabled={busy} onChange={value => setDelivery(value as 'agent' | 'dingtalk')}><option value="dingtalk">发送到{imPlatform}</option><option value="agent">交给 Agent</option></Select></label>}{!sendToDingTalk && <label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={value => setModel(value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}</div><button className="composer-send" aria-label={sendToDingTalk ? `发送到${imPlatform}` : selected ? '发送消息' : '创建对话并发送'} disabled={!canSend} onClick={send}>↑</button></div>
+          <textarea ref={composerRef} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求' : '描述要完成的任务'} disabled={busy || composerDisabled} rows={2} />
+          <div className="composer-footer"><div className="composer-actions"><label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={value => setModel(value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label></div><button className="composer-send" aria-label={selected ? '发送消息' : '创建对话并发送'} disabled={!canSend} onClick={send}>↑</button></div>
         </div>
         {selected && <div className="context-status" title={selected.usage ? `累计输入 ${selected.usage.inputTokens.toLocaleString()} Token，累计输出 ${selected.usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>{usedTokens === undefined && !contextWindow ? '上下文数据未提供' : `累计消耗 ${usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`} · 单次窗口 ${contextWindow ? `${tokenCount(contextWindow)} Token` : '未提供'}`}</div>}
       </div>
@@ -482,7 +495,7 @@ function App() {
                 const openIndex = panes.slice(0, paneCount).findIndex(pane => pane.sessionId === session.id);
                 const feishuIcon = feishuApps.find(app => app.id === session.feishuAppId)?.icon;
                 return <div className="conversation-row" key={session.id}><button className={`conversation-item ${activeSessionId === session.id ? 'selected' : ''}`} onClick={() => openConversation(session)} title={session.prompt}>
-                  <span className={`status-dot ${session.status}`} />{session.dingtalkAppId && <img className="conversation-app-icon" src={`/api/dingtalk/apps/${session.dingtalkAppId}/icon`} alt="钉钉应用图标" />}{session.feishuAppId && <span className="feishu-app-mark" aria-label="飞书应用">飞</span>}<span className="conversation-text"><strong>{session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
+                  <span className={`status-dot ${session.status}`} />{session.dingtalkAppId && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${session.dingtalkAppId}/icon`} platform="钉钉" />}{session.feishuAppId && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<span className="conversation-text"><strong>{session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
                 </button><button className="sidebar-delete conversation-delete" onClick={() => void deleteSession(session)} aria-label={`删除对话 ${session.prompt}`} title="删除对话"><ActionIcon type="delete" /></button></div>;
               }) : <p className="project-empty">还没有对话</p>}
             </div>}
