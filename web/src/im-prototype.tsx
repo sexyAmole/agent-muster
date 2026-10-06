@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null };
+type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
 type Agent = { id: string; name: string; installed: boolean };
-type Registration = { id: string; userCode: string; verificationUrl: string; qrCode: string; expiresAt: number; interval: number };
+type Registration = { id: string; userCode?: string; verificationUrl: string; qrCode: string; expiresAt: number; interval: number };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; reason?: string };
 type Props = { projects: string[]; agents: Agent[]; projectLabel: (path: string) => string };
 
@@ -13,7 +13,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return result as T;
 }
 
-export function ImPrototype({ projects, agents, projectLabel }: Props) {
+export function ImPrototype(props: Props) {
+  const [provider, setProvider] = useState<'dingtalk' | 'feishu'>('dingtalk');
+  return <div className="im-prototype"><div className="im-provider-tabs" role="group" aria-label="IM 平台">
+    <button className={provider === 'dingtalk' ? 'active' : ''} onClick={() => setProvider('dingtalk')}>钉钉</button>
+    <button className={provider === 'feishu' ? 'active' : ''} onClick={() => setProvider('feishu')}>飞书</button>
+  </div><ImIntegration key={provider} {...props} provider={provider} /></div>;
+}
+
+function ImIntegration({ projects, agents, projectLabel, provider }: Props & { provider: 'dingtalk' | 'feishu' }) {
+  const platform = provider === 'feishu' ? '飞书' : '钉钉';
   const [apps, setApps] = useState<Application[]>([]);
   const [registration, setRegistration] = useState<Registration | null>(null);
   const [open, setOpen] = useState(false);
@@ -21,11 +30,21 @@ export function ImPrototype({ projects, agents, projectLabel }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const registrationAttempt = useRef(0);
   const [scanError, setScanError] = useState('');
 
   useEffect(() => {
-    request<Application[]>('/api/dingtalk/apps').then(setApps).catch(reason => setError((reason as Error).message));
-  }, [projects]);
+    let active = true;
+    const refresh = () => {
+      void request<Application[]>(`/api/${provider}/apps`).then(result => { if (active) setApps(result); })
+        .catch(reason => { if (active) setError((reason as Error).message); });
+    };
+    refresh();
+    const timer = provider === 'feishu' ? window.setInterval(refresh, 5000) : undefined;
+    return () => { active = false; window.clearInterval(timer); };
+  }, [projects, provider]);
+
+  useEffect(() => () => { registrationAttempt.current++; }, []);
 
   useEffect(() => {
     if (!open || !registration) return;
@@ -33,10 +52,10 @@ export function ImPrototype({ projects, agents, projectLabel }: Props) {
     let timer: number;
     async function poll() {
       try {
-        const result = await request<PollResult>(`/api/dingtalk/registration/${registration!.id}`);
+        const result = await request<PollResult>(`/api/${provider}/registration/${registration!.id}`);
         if (!active) return;
         if (result.status === 'SUCCESS') {
-          setApps(await request<Application[]>('/api/dingtalk/apps'));
+          setApps(await request<Application[]>(`/api/${provider}/apps`));
           setOpen(false);
           setRegistration(null);
         } else if (result.status === 'WAITING') {
@@ -51,28 +70,39 @@ export function ImPrototype({ projects, agents, projectLabel }: Props) {
     }
     timer = window.setTimeout(poll, registration.interval * 1000);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [open, registration]);
+  }, [open, registration, provider]);
+
+  useEffect(() => {
+    if (provider !== 'feishu' || !registration) return;
+    return () => { void fetch(`/api/feishu/registration/${registration.id}`, { method: 'DELETE' }); };
+  }, [provider, registration]);
+
+  function closeRegistration() { registrationAttempt.current++; setOpen(false); setRegistration(null); }
 
   async function startRegistration() {
     setOpen(true); setBusy(true); setScanError(''); setRegistration(null);
-    try { setRegistration(await request<Registration>('/api/dingtalk/registration', { method: 'POST' })); }
-    catch (reason) { setScanError((reason as Error).message); }
-    finally { setBusy(false); }
+    const attempt = ++registrationAttempt.current;
+    try {
+      const result = await request<Registration>(`/api/${provider}/registration`, { method: 'POST' });
+      if (attempt === registrationAttempt.current) setRegistration(result);
+      else if (provider === 'feishu') await fetch(`/api/feishu/registration/${result.id}`, { method: 'DELETE' });
+    } catch (reason) { if (attempt === registrationAttempt.current) setScanError((reason as Error).message); }
+    finally { if (attempt === registrationAttempt.current) setBusy(false); }
   }
 
   async function bind(id: string, binding: { project?: string | null; agent?: string | null }) {
     try {
-      const updated = await request<Application>(`/api/dingtalk/apps/${id}`, { method: 'PATCH', body: JSON.stringify(binding) });
+      const updated = await request<Application>(`/api/${provider}/apps/${id}`, { method: 'PATCH', body: JSON.stringify(binding) });
       setApps(current => current.map(app => app.id === id ? updated : app));
     } catch (reason) { setError((reason as Error).message); }
   }
 
   async function deleteApp(app: Application) {
-    if (!window.confirm(`删除“${app.name || app.clientId}”的 IM 接入？删除后将停止接收该应用的消息，已有对话记录会保留。钉钉中的应用不会删除。`)) return;
+    if (!window.confirm(`删除“${app.name || app.clientId}”的 IM 接入？删除后将停止接收该应用的消息，已有对话记录会保留。${platform}中的应用不会删除。`)) return;
     setError('');
     setDeletingId(app.id);
     try {
-      await request<{ id: string }>(`/api/dingtalk/apps/${app.id}`, { method: 'DELETE' });
+      await request<{ id: string }>(`/api/${provider}/apps/${app.id}`, { method: 'DELETE' });
       setApps(current => current.filter(item => item.id !== app.id));
     } catch (reason) { setError((reason as Error).message); }
     finally { setDeletingId(null); }
@@ -82,28 +112,28 @@ export function ImPrototype({ projects, agents, projectLabel }: Props) {
     setError('');
     setSyncingId(id);
     try {
-      const updated = await request<Application>(`/api/dingtalk/apps/${id}/sync`, { method: 'POST' });
+      const updated = await request<Application>(`/api/${provider}/apps/${id}/sync`, { method: 'POST' });
       setApps(current => current.map(app => app.id === id ? updated : app));
     } catch (reason) { setError((reason as Error).message); }
     finally { setSyncingId(null); }
   }
 
-  return <div className="im-prototype">
-    <div className="im-intro"><h1>钉钉接入</h1><button className="im-primary-button" onClick={() => void startRegistration()}>扫码创建应用</button></div>
+  return <div>
+    <div className="im-intro"><h1>{platform}接入</h1><button className="im-primary-button" onClick={() => void startRegistration()}>扫码创建应用</button></div>
     {error && <div className="im-error" role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误">×</button></div>}
     <div className="im-robot-list">
       {apps.length ? apps.map(app => <div className="im-robot-entry" key={app.id}>
-        <div className="im-robot-row"><div className="im-robot-mark">{app.icon ? <img src={app.icon} alt="" /> : '钉'}</div><div className="im-app-info"><strong>{app.name || app.clientId}</strong></div>
+        <div className="im-robot-row"><div className="im-robot-mark">{app.icon ? <img src={app.icon} alt="" /> : platform[0]}</div><div className="im-app-info"><strong>{app.name || app.clientId}</strong>{app.connectionStatus && <small className="im-connection-status">{{ idle: '未连接', connecting: '连接中', connected: '消息监听已连接', reconnecting: '重新连接中', failed: '消息监听连接失败' }[app.connectionStatus]}</small>}</div>
           <label className="im-binding">项目<select aria-label={`绑定 ${app.name || app.clientId} 的项目`} value={app.project || ''} onChange={event => void bind(app.id, { project: event.target.value || null })}><option value="">未绑定</option>{projects.map(path => <option key={path} value={path}>{projectLabel(path)}</option>)}</select></label>
           <label className="im-binding">Agent<select aria-label={`选择 ${app.name || app.clientId} 的 Agent`} value={app.agent || ''} onChange={event => void bind(app.id, { agent: event.target.value || null })}><option value="">未选择</option>{agents.map(agent => <option key={agent.id} value={agent.id} disabled={!agent.installed}>{agent.name}{agent.installed ? '' : '（未安装）'}</option>)}</select></label>
           <button className="im-sync-button" disabled={syncingId !== null} aria-label={`同步 ${app.name || app.clientId} 的名称和图标`} onClick={() => void syncApp(app.id)}>{syncingId === app.id ? '同步中…' : '一键同步'}</button>
           <button className="im-delete-button" disabled={deletingId !== null} aria-label={`删除 ${app.name || app.clientId} 的 IM 接入`} onClick={() => void deleteApp(app)}>{deletingId === app.id ? '删除中…' : '删除'}</button>
         </div>
-      </div>) : <div className="im-empty">暂无钉钉应用</div>}
+      </div>) : <div className="im-empty">暂无{platform}应用</div>}
     </div>
-    {open && <div className="im-scan-layer" role="presentation"><button className="im-scan-backdrop" aria-label="关闭扫码窗口" onClick={() => setOpen(false)} /><section className="im-scan-dialog" role="dialog" aria-modal="true" aria-labelledby="im-scan-title"><button className="im-scan-close" aria-label="关闭" onClick={() => setOpen(false)}>×</button><h2 id="im-scan-title">使用钉钉扫码创建应用</h2>
+    {open && <div className="im-scan-layer" role="presentation"><button className="im-scan-backdrop" aria-label="关闭扫码窗口" onClick={closeRegistration} /><section className="im-scan-dialog" role="dialog" aria-modal="true" aria-labelledby="im-scan-title"><button className="im-scan-close" aria-label="关闭" onClick={closeRegistration}>×</button><h2 id="im-scan-title">使用{platform}扫码创建应用</h2>
       {busy && <p className="im-scan-message">正在获取授权二维码…</p>}
-      {registration && <><img className="im-qr-image" src={registration.qrCode} alt="钉钉应用授权二维码" /><p className="im-user-code">授权码 <strong>{registration.userCode}</strong></p><p>请使用钉钉扫描二维码并完成授权</p><a className="im-open-link" href={registration.verificationUrl} target="_blank" rel="noopener noreferrer">在浏览器中打开授权页面</a></>}
+      {registration && <><img className="im-qr-image" src={registration.qrCode} alt={`${platform}应用授权二维码`} />{registration.userCode && <p className="im-user-code">授权码 <strong>{registration.userCode}</strong></p>}<p>请使用{platform}扫描二维码并完成授权</p><a className="im-open-link" href={registration.verificationUrl} target="_blank" rel="noopener noreferrer">在浏览器中打开授权页面</a></>}
       {scanError && <><p className="im-scan-error" role="alert">{scanError}</p><button className="im-primary-button" onClick={() => void startRegistration()}>重新获取二维码</button></>}
     </section></div>}
   </div>;

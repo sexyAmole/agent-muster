@@ -285,3 +285,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .im-binding { width: 100%; justify-content: space-between; }
   .im-robot-row select { width: min(180px, 65%); }
 }
+
+.im-provider-tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+.im-provider-tabs button { padding: 8px 18px; border: 1px solid #ddd; border-radius: 6px; background: transparent; color: #666; }
+.im-provider-tabs button.active { background: #202020; border-color: #202020; color: #fff; }
+
+.im-connection-status { display: block; margin-top: 5px; font-size: 11px; color: #666; }
+.feishu-app-mark { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: none; border-radius: 5px; background: #edf3ff; color: #245bdb; font-size: 12px; }

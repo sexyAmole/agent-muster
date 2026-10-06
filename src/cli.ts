@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import { AgentRegistry } from './agents.js';
 import { DingTalkBridge } from './dingtalk-bridge.js';
 import { DingTalkRegistry } from './dingtalk.js';
+import { FeishuRegistry } from './feishu.js';
+import { FeishuBridge } from './feishu-bridge.js';
 import { ProjectRegistry } from './projects.js';
 import { SessionManager } from './sessions.js';
 import { startServer } from './server.js';
@@ -27,6 +29,8 @@ async function main(): Promise<void> {
   await projects.load();
   const dingtalk = new DingTalkRegistry();
   await dingtalk.load();
+  const feishu = new FeishuRegistry();
+  await feishu.load();
 
   if (command === 'agents') {
     console.log('Installed Agents\n');
@@ -43,17 +47,20 @@ async function main(): Promise<void> {
   if (command !== 'web') throw new Error(`Unknown command: ${command}`);
   for (const { sessionId, appId } of dingtalk.sessionBindings()) sessions.linkDingTalkSession(sessionId, appId);
   new DingTalkBridge(dingtalk, registry, sessions);
+  for (const { sessionId, appId } of feishu.sessionBindings()) sessions.linkFeishuSession(sessionId, appId);
+  new FeishuBridge(feishu, registry, sessions);
   const portIndex = options.indexOf('--port');
   const port = portIndex >= 0 ? Number(options[portIndex + 1]) : 17321;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be 1–65535');
-  const server = await startServer(port, registry, projects, sessions, dingtalk);
+  const server = await startServer(port, registry, projects, sessions, dingtalk, feishu);
   dingtalk.startSubscriptions();
+  feishu.startSubscriptions();
   const url = `http://127.0.0.1:${port}`;
   console.log(`Agent Muster started\n\nWeb: ${url}\n\nDetected Agents:`);
   for (const agent of registry.list()) console.log(`${agent.installed ? '✓' : '✗'} ${agent.name}`);
   console.log('\nPress Ctrl+C to stop');
   if (!options.includes('--no-open')) openBrowser(url);
-  const shutdown = () => { dingtalk.shutdown(); sessions.shutdown(); server.close(); server.closeAllConnections(); };
+  const shutdown = () => { dingtalk.shutdown(); feishu.shutdown(); sessions.shutdown(); server.close(); server.closeAllConnections(); };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
   void checkForUpdates().catch(() => console.warn('无法检查更新，请稍后运行 agent-muster update 重试。'));

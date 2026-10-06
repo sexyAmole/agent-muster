@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { AgentRegistry } from './agents.js';
 import { DingTalkRegistry } from './dingtalk.js';
+import { FeishuRegistry } from './feishu.js';
 import { ProjectRegistry } from './projects.js';
 import { SessionManager } from './sessions.js';
 import type { SessionEvent } from './types.js';
@@ -32,7 +33,7 @@ async function chooseProjectDirectory(): Promise<string | null> {
   }
 }
 
-export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry) {
+export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry) {
   const app = express();
   app.disable('x-powered-by');
   app.use((request, response, next) => {
@@ -74,8 +75,10 @@ export async function startServer(port: number, registry: AgentRegistry, project
         response.status(404).json({ error: 'Project not found' }); return;
       }
       await dingtalk.unbindProject(path);
+      await feishu.unbindProject(path);
       for (const session of projectSessions) {
         await dingtalk.unbindSession(session.id);
+        await feishu.unbindSession(session.id);
         await sessions.remove(session.id);
       }
       if (registered) await projects.remove(path);
@@ -116,6 +119,38 @@ export async function startServer(port: number, registry: AgentRegistry, project
       await dingtalk.remove(request.params.id);
       response.json({ id: request.params.id });
     } catch (error) { response.status(500).json({ error: (error as Error).message }); }
+  });
+  app.get('/api/feishu/apps', (_request, response) => response.json(feishu.list()));
+  app.post('/api/feishu/apps/:id/sync', async (request, response) => {
+    try { response.json(await feishu.syncMetadata(request.params.id)); }
+    catch (error) { response.status(502).json({ error: (error as Error).message }); }
+  });
+  app.post('/api/feishu/registration', async (_request, response) => {
+    try { response.status(201).json(await feishu.start()); }
+    catch (error) { response.status(502).json({ error: (error as Error).message }); }
+  });
+  app.get('/api/feishu/registration/:id', async (request, response) => {
+    try { response.json(await feishu.poll(request.params.id)); }
+    catch (error) { response.status(502).json({ error: (error as Error).message }); }
+  });
+  app.patch('/api/feishu/apps/:id', async (request, response) => {
+    try {
+      const { project, agent } = request.body || {};
+      if (project !== undefined && project !== null && typeof project !== 'string') throw new Error('项目无效');
+      if (agent !== undefined && agent !== null && typeof agent !== 'string') throw new Error('Agent 无效');
+      response.json(await feishu.bind(request.params.id, { project, agent }, projects.list(), registry.list().filter(item => item.installed).map(item => item.id)));
+    } catch (error) { response.status(400).json({ error: (error as Error).message }); }
+  });
+  app.delete('/api/feishu/apps/:id', async (request, response) => {
+    try {
+      if (!feishu.getBinding(request.params.id)) { response.status(404).json({ error: '飞书应用不存在' }); return; }
+      await feishu.remove(request.params.id);
+      response.json({ id: request.params.id });
+    } catch (error) { response.status(500).json({ error: (error as Error).message }); }
+  });
+  app.delete('/api/feishu/registration/:id', async (request, response) => {
+    await feishu.cancelRegistration(request.params.id);
+    response.status(204).end();
   });
   app.get('/api/sessions', (_request, response) => response.json(sessions.list()));
   app.get('/api/sessions/:id', (request, response) => {
@@ -172,6 +207,20 @@ export async function startServer(port: number, registry: AgentRegistry, project
       response.status(400).json({ error: (error as Error).message });
     }
   });
+  app.post('/api/sessions/:id/feishu/messages', async (request, response) => {
+    try {
+      const { content } = request.body || {};
+      if (typeof content !== 'string' || !content.trim()) throw new Error('请输入消息内容');
+      const session = sessions.get(request.params.id);
+      if (!session) throw new Error('会话不存在');
+      if (!session.feishuAppId) throw new Error('此对话未关联飞书应用');
+      await feishu.sendToSession(session.feishuAppId, session.id, content.trim());
+      response.json(sessions.recordFeishuMessage(session.id, content.trim()));
+    } catch (error) {
+      console.error(`飞书会话 ${request.params.id} 消息发送失败：`, error);
+      response.status(400).json({ error: (error as Error).message });
+    }
+  });
   app.post('/api/sessions/:id/stop', (request, response) => {
     try { response.json(sessions.stop(request.params.id)); }
     catch (error) { response.status(400).json({ error: (error as Error).message }); }
@@ -180,6 +229,7 @@ export async function startServer(port: number, registry: AgentRegistry, project
     try {
       if (!sessions.get(request.params.id)) { response.status(404).json({ error: 'Session not found' }); return; }
       await dingtalk.unbindSession(request.params.id);
+      await feishu.unbindSession(request.params.id);
       await sessions.remove(request.params.id);
       response.json({ id: request.params.id });
     } catch (error) { response.status(500).json({ error: (error as Error).message }); }

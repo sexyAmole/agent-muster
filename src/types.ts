@@ -34,22 +34,27 @@ export interface DingTalkConversation {
   senderStaffId: string;
 }
 
+export type FeishuConversation = { type: 'single' | 'group'; senderId: string };
+
 export interface SessionEvent {
   id: number;
-  type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'tool' | 'file_change' | 'usage';
+  type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage';
   text: string;
   detail?: string;
   kind?: string;
   comparison?: string;
   timestamp: number;
   dingtalkConversation?: DingTalkConversation;
+  feishuConversation?: FeishuConversation;
 }
 
 export interface AgentSession {
   id: string;
   agent: string;
   dingtalkAppId?: string;
+  feishuAppId?: string;
   dingtalkConversation?: DingTalkConversation;
+  feishuConversation?: FeishuConversation;
   cwd: string;
   prompt: string;
   model?: string;

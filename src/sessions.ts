@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { join, isAbsolute, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { adapters } from './adapters.js';
-import type { AgentImage, AgentSession, DingTalkConversation, SessionEvent, SessionStatus, TokenUsage } from './types.js';
+import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, SessionEvent, SessionStatus, TokenUsage } from './types.js';
 
 const sessionDirectory = join(homedir(), '.agent-muster', 'sessions');
 const legacyDataFile = join(homedir(), '.agent-muster', 'sessions.json');
@@ -96,6 +96,13 @@ export class SessionManager extends EventEmitter {
     this.save(session);
   }
 
+  linkFeishuSession(id: string, appId: string): void {
+    const session = this.sessions.get(id);
+    if (!session || session.feishuAppId === appId) return;
+    session.feishuAppId = appId;
+    this.save(session);
+  }
+
   isRunning(id: string): boolean {
     return this.processes.has(id);
   }
@@ -106,7 +113,7 @@ export class SessionManager extends EventEmitter {
       .catch(error => console.error('Failed to save session:', error));
   }
 
-  private append(session: AgentSession, type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, dingtalkConversation?: DingTalkConversation): void {
+  private append(session: AgentSession, type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, dingtalkConversation?: DingTalkConversation, feishuConversation?: FeishuConversation): void {
     const event: SessionEvent = {
       id: (session.events.at(-1)?.id || 0) + 1,
       type,
@@ -116,6 +123,7 @@ export class SessionManager extends EventEmitter {
       ...(comparison === undefined ? {} : { comparison }),
       timestamp: Date.now(),
       ...(dingtalkConversation ? { dingtalkConversation } : {}),
+      ...(feishuConversation ? { feishuConversation } : {}),
     };
     session.events.push(event);
     if (session.events.length > 500) session.events.splice(0, session.events.length - 500);
@@ -137,7 +145,7 @@ export class SessionManager extends EventEmitter {
     this.append(session, 'usage', JSON.stringify(session.usage));
   }
 
-  async create(agent: string, cwd: string, prompt: string, model?: string, dingtalkAppId?: string, dingtalkConversation?: DingTalkConversation, images?: AgentImage[]): Promise<AgentSession> {
+  async create(agent: string, cwd: string, prompt: string, model?: string, dingtalkAppId?: string, dingtalkConversation?: DingTalkConversation, images?: AgentImage[], feishu?: { appId: string; conversation: FeishuConversation }): Promise<AgentSession> {
     if (!adapters[agent]) throw new Error('Unsupported agent');
     if (!prompt.trim()) throw new Error('Prompt is required');
     if (!isAbsolute(cwd) || !(await stat(cwd).then(value => value.isDirectory()).catch(() => false))) {
@@ -148,6 +156,7 @@ export class SessionManager extends EventEmitter {
       id: `ses_${randomUUID()}`,
       agent,
       ...(dingtalkAppId ? { dingtalkAppId } : {}),
+      ...(feishu ? { feishuAppId: feishu.appId, feishuConversation: feishu.conversation } : {}),
       ...(dingtalkConversation ? { dingtalkConversation } : {}),
       model,
       cwd: resolve(cwd),
@@ -158,12 +167,12 @@ export class SessionManager extends EventEmitter {
       events: [],
     };
     this.sessions.set(session.id, session);
-    this.append(session, 'message', session.prompt, undefined, undefined, undefined, dingtalkConversation);
+    this.append(session, 'message', session.prompt, undefined, undefined, undefined, dingtalkConversation, feishu?.conversation);
     this.start(session, session.prompt, images);
     return session;
   }
 
-  send(id: string, message: string, model?: string, dingtalkConversation?: DingTalkConversation, images?: AgentImage[]): AgentSession {
+  send(id: string, message: string, model?: string, dingtalkConversation?: DingTalkConversation, images?: AgentImage[], feishuConversation?: FeishuConversation): AgentSession {
     const session = this.sessions.get(id);
     if (!session) throw new Error('Session not found');
     if (!message.trim()) throw new Error('Message is required');
@@ -171,7 +180,8 @@ export class SessionManager extends EventEmitter {
     if (!session.externalSessionId) throw new Error('This agent did not create a resumable session');
     if (model !== undefined) session.model = model || undefined;
     if (dingtalkConversation) session.dingtalkConversation = dingtalkConversation;
-    this.append(session, 'message', message.trim(), undefined, undefined, undefined, dingtalkConversation);
+    if (feishuConversation) session.feishuConversation = feishuConversation;
+    this.append(session, 'message', message.trim(), undefined, undefined, undefined, dingtalkConversation, feishuConversation);
     this.start(session, message.trim(), images);
     return session;
   }
@@ -180,6 +190,13 @@ export class SessionManager extends EventEmitter {
     const session = this.sessions.get(id);
     if (!session) throw new Error('Session not found');
     this.append(session, 'dingtalk_message', content);
+    return session;
+  }
+
+  recordFeishuMessage(id: string, content: string): AgentSession {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error('会话不存在');
+    this.append(session, 'feishu_message', content);
     return session;
   }
 

@@ -37,6 +37,7 @@
     "web/dist"
   ],
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.74.0",
     "dingtalk-stream": "2.1.6-beta.1",
     "express": "^5.1.0",
     "qrcode": "^1.5.4",
