@@ -298,15 +298,18 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       </div>
       <div className="chat-compose-wrap">
         {!selected && <div className="composer-project-row">
-          <span className="project-folder" aria-hidden="true" />
-          <select aria-label={`窗口 ${index + 1} 选择项目`} value={composerProject} disabled={busy} onChange={event => onProjectChange(index, event.target.value)}>
-            {!composerProject && <option value="">选择项目</option>}
-            {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects)}</option>)}
-          </select>
+          <span className="project-select">
+            <span className="project-folder" aria-hidden="true" />
+            <select aria-label={`窗口 ${index + 1} 选择项目`} value={composerProject} disabled={busy} onChange={event => onProjectChange(index, event.target.value)}>
+              {!composerProject && <option value="">选择项目</option>}
+              {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects)}</option>)}
+            </select>
+          </span>
+          <span className="agent-select"><select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} disabled={busy} onChange={event => { setAgent(event.target.value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</select></span>
         </div>}
         <div className="chat-composer">
           <textarea ref={composerRef} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={sendToDingTalk ? `以应用身份发送到此${imPlatform}对话` : running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求' : '描述要完成的任务'} disabled={busy || composerDisabled} rows={2} />
-          <div className="composer-footer"><div className="composer-actions">{(selected?.dingtalkAppId || selected?.feishuAppId) && <label className="model-select"><select aria-label={`窗口 ${index + 1} 发送方式`} value={delivery} disabled={busy} onChange={event => setDelivery(event.target.value as 'agent' | 'dingtalk')}><option value="dingtalk">发送到{imPlatform}</option><option value="agent">交给 Agent</option></select></label>}{!selected && <span className="agent-select"><select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} disabled={busy} onChange={event => { setAgent(event.target.value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</select></span>}{!sendToDingTalk && <label className="model-select"><select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={event => setModel(event.target.value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div><button className="composer-send" aria-label={sendToDingTalk ? `发送到${imPlatform}` : selected ? '发送消息' : '创建对话并发送'} disabled={!canSend} onClick={send}>↑</button></div>
+          <div className="composer-footer"><div className="composer-actions">{(selected?.dingtalkAppId || selected?.feishuAppId) && <label className="model-select"><select aria-label={`窗口 ${index + 1} 发送方式`} value={delivery} disabled={busy} onChange={event => setDelivery(event.target.value as 'agent' | 'dingtalk')}><option value="dingtalk">发送到{imPlatform}</option><option value="agent">交给 Agent</option></select></label>}{!sendToDingTalk && <label className="model-select"><select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={event => setModel(event.target.value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div><button className="composer-send" aria-label={sendToDingTalk ? `发送到${imPlatform}` : selected ? '发送消息' : '创建对话并发送'} disabled={!canSend} onClick={send}>↑</button></div>
         </div>
         {selected && <div className="context-status" title={selected.usage ? `累计输入 ${selected.usage.inputTokens.toLocaleString()} Token，累计输出 ${selected.usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>{usedTokens === undefined && !contextWindow ? '上下文数据未提供' : `累计消耗 ${usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`} · 单次窗口 ${contextWindow ? `${tokenCount(contextWindow)} Token` : '未提供'}`}</div>}
       </div>
@@ -411,18 +414,6 @@ function App() {
 
   function changeLayout(next: Layout) {
     const count = next === 'single' ? 1 : next === 'double' ? 2 : 4;
-    setPanes(current => {
-      const updated = [...current];
-      const used = new Set(updated.slice(0, count).map(pane => pane.sessionId).filter(Boolean));
-      for (let index = 1; index < count; index++) {
-        if (updated[index].sessionId) continue;
-        const session = sessions.find(item => !used.has(item.id));
-        if (!session) continue;
-        used.add(session.id);
-        updated[index] = { sessionId: session.id, cwd: session.cwd, revision: updated[index].revision + 1 };
-      }
-      return updated;
-    });
     setActivePane(current => Math.min(current, count - 1));
     setLayout(next);
   }
@@ -444,7 +435,7 @@ function App() {
     <button className={`mobile-menu-backdrop ${mobileMenuOpen ? 'open' : ''}`} aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)} />
     <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`} id="project-menu">
       <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><strong>Agent Muster</strong><button className="menu-close" aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)}>×</button></div>
-      <button className="sidebar-create" disabled={!projects.length && picking} onClick={() => projects.length ? newConversation('') : void pickProject()}>＋ <span>创建对话</span></button>
+      <button className="sidebar-create" disabled={picking} onClick={() => void pickProject()}>＋ <span>创建项目</span></button>
       <nav className="sidebar-projects" aria-label="项目和对话">
         <div className="section-title"><span>项目 <span className="count">{projects.length}</span></span><button className="add-project" disabled={picking} onClick={() => void pickProject()} aria-label="添加项目" title="添加项目">＋</button></div>
         {projects.map(path => {

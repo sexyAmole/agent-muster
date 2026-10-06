@@ -35,7 +35,8 @@
   "files": [
     "bin",
     "dist",
-    "web/dist"
+    "web/dist",
+    "README.zh-CN.md"
   ],
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0",
