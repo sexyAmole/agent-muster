@@ -134,7 +134,7 @@ Click **删除** (Delete) on the application entry to remove its local integrati
 
 ## Local Data
 
-Projects, conversations, and IM configuration are stored in `.agent-muster` under your home directory and loaded again on startup. DingTalk and Feishu application credentials are stored in `dingtalk-apps.json` and `feishu-apps.json`, respectively. Keep these files private.
+Projects, conversations, and IM configuration are stored in `.agent-muster` under your home directory and loaded again on startup. DingTalk and Feishu application credentials are stored in `im/dingtalk/apps.json` and `im/feishu/apps.json`, respectively. Keep these files private.
 
 ## FAQ
 

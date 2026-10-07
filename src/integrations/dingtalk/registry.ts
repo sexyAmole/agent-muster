@@ -4,14 +4,16 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import QRCode from 'qrcode';
+import { moveLegacyPath } from '../storage.js';
 import { DWClient, TOPIC_ROBOT, type RobotMessage } from 'dingtalk-stream';
 import { EnvHttpProxyAgent, fetch } from 'undici';
 import type { AgentImage } from '../../types.js';
 
-const directory = join(homedir(), '.agent-muster');
-const dataFile = join(directory, 'dingtalk-apps.json');
-const iconDirectory = join(directory, 'dingtalk-icons');
-const imageDirectory = join(directory, 'dingtalk-images');
+const rootDirectory = join(homedir(), '.agent-muster');
+const directory = join(rootDirectory, 'im', 'dingtalk');
+const dataFile = join(directory, 'apps.json');
+const iconDirectory = join(directory, 'icons');
+const imageDirectory = join(directory, 'images');
 const apiBase = 'https://oapi.dingtalk.com';
 const openApiBase = 'https://api.dingtalk.com';
 const dispatcher = new EnvHttpProxyAgent();
@@ -61,6 +63,9 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
   private writeQueue = Promise.resolve();
 
   async load(): Promise<void> {
+    await moveLegacyPath(join(rootDirectory, 'dingtalk-apps.json'), dataFile);
+    await moveLegacyPath(join(rootDirectory, 'dingtalk-icons'), iconDirectory);
+    await moveLegacyPath(join(rootDirectory, 'dingtalk-images'), imageDirectory);
     try {
       const stored = JSON.parse(await readFile(dataFile, 'utf8')) as Application[];
       this.apps = stored.map(({ id, clientId, clientSecret, name, iconMime, project, agent, conversations, conversationTargets }) => ({

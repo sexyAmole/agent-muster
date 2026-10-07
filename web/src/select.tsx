@@ -7,11 +7,12 @@ type SelectProps = {
   onChange: (value: string) => void;
   children: ReactNode;
   triggerLabel?: ReactNode;
+  title?: string;
   disabled?: boolean;
   'aria-label': string;
 };
 
-export function Select({ value, onChange, children, triggerLabel, disabled, 'aria-label': label }: SelectProps) {
+export function Select({ value, onChange, children, triggerLabel, title, disabled, 'aria-label': label }: SelectProps) {
   const options = Children.toArray(children).filter(isValidElement<OptionHTMLAttributes<HTMLOptionElement>>).map(option => ({
     value: String(option.props.value),
     label: option.props.children,
@@ -75,7 +76,7 @@ export function Select({ value, onChange, children, triggerLabel, disabled, 'ari
   }, [activeIndex, expanded, menuId]);
 
   return <span className="select-control">
-    <button ref={triggerRef} type="button" className="select-input" disabled={disabled} role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={expanded} aria-controls={expanded ? menuId : undefined} aria-activedescendant={expanded && activeIndex >= 0 ? `${menuId}-${activeIndex}` : undefined}
+    <button ref={triggerRef} type="button" className="select-input" title={title} disabled={disabled} role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={expanded} aria-controls={expanded ? menuId : undefined} aria-activedescendant={expanded && activeIndex >= 0 ? `${menuId}-${activeIndex}` : undefined}
       onClick={() => expanded ? setOpen(false) : showMenu()}
       onBlur={() => setOpen(false)}
       onKeyDown={event => {

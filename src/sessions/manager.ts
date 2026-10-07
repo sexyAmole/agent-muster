@@ -1,26 +1,11 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join, isAbsolute, relative, resolve } from 'node:path';
+import { stat } from 'node:fs/promises';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { adapters } from '../agents/adapters.js';
+import { SessionStore } from './store.js';
 import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, SessionEvent, SessionStatus, TokenUsage } from '../types.js';
-
-const sessionDirectory = join(homedir(), '.agent-muster', 'sessions');
-const legacyDataFile = join(homedir(), '.agent-muster', 'sessions.json');
-
-function sessionFile(id: string): string {
-  return join(sessionDirectory, `${encodeURIComponent(id)}.json`);
-}
-
-async function writeSession(id: string, snapshot: string): Promise<void> {
-  await mkdir(sessionDirectory, { recursive: true });
-  const file = sessionFile(id);
-  const temporary = `${file}.${process.pid}.tmp`;
-  await writeFile(temporary, snapshot);
-  await rename(temporary, file);
-}
 
 function isWarning(text: string): boolean {
   return text.trim().split(/\r?\n/).every(line => /^\S+\s+WARN\b/.test(line));
@@ -43,42 +28,35 @@ function fileDiff(cwd: string, path: string): string | undefined {
 export class SessionManager extends EventEmitter {
   private sessions = new Map<string, AgentSession>();
   private processes = new Map<string, ChildProcessWithoutNullStreams>();
-  private writeQueue = Promise.resolve();
+  private store: SessionStore;
+
+  constructor(directory?: string) {
+    super();
+    this.store = new SessionStore(directory);
+  }
 
   async load(): Promise<void> {
-    const restore = (session: AgentSession) => {
+    for (const session of await this.store.load()) {
       if (session.status === 'running' || session.status === 'starting') {
         session.status = 'stopped';
         session.pid = undefined;
-      }
-      session.events ||= [];
-      for (const event of session.events) {
-        if (event.type === 'error' && isWarning(event.text)) event.type = 'warning';
+        this.store.save(session);
       }
       this.sessions.set(session.id, session);
-    };
-
-    try {
-      const files = await readdir(sessionDirectory);
-      for (const file of files.filter(name => name.endsWith('.json'))) {
-        restore(JSON.parse(await readFile(join(sessionDirectory, file), 'utf8')) as AgentSession);
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
+  }
 
-    try {
-      const stored = JSON.parse(await readFile(legacyDataFile, 'utf8')) as AgentSession[];
-      for (const session of stored) {
-        const existing = this.sessions.get(session.id);
-        if (existing && existing.updatedAt >= session.updatedAt) continue;
-        restore(session);
-        await writeSession(session.id, JSON.stringify(session));
-      }
-      await rename(legacyDataFile, `${legacyDataFile}.${Date.now()}.bak`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
+  history(id: string, limit?: number, before?: number) {
+    if (!this.sessions.has(id)) throw new Error('会话不存在');
+    return this.store.history(id, limit, before);
+  }
+
+  getEvent(id: string, eventId: number): SessionEvent | undefined {
+    return this.store.getEvent(id, eventId);
+  }
+
+  eventsAfter(id: string, after: number): Generator<SessionEvent> {
+    return this.store.eventsAfter(id, after);
   }
 
   list(): AgentSession[] {
@@ -107,10 +85,9 @@ export class SessionManager extends EventEmitter {
     return this.processes.has(id);
   }
 
-  private save(session: AgentSession): void {
-    const snapshot = JSON.stringify(session);
-    this.writeQueue = this.writeQueue.then(() => writeSession(session.id, snapshot))
-      .catch(error => console.error('Failed to save session:', error));
+  private save(session: AgentSession, event?: SessionEvent, update = false): void {
+    try { this.store.save(session, event, update); }
+    catch (error) { console.error('保存会话失败：', error); }
   }
 
   private append(session: AgentSession, type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, dingtalkConversation?: DingTalkConversation, feishuConversation?: FeishuConversation): void {
@@ -126,10 +103,10 @@ export class SessionManager extends EventEmitter {
       ...(feishuConversation ? { feishuConversation } : {}),
     };
     session.events.push(event);
-    if (session.events.length > 500) session.events.splice(0, session.events.length - 500);
+    if (session.events.length > 50) session.events.splice(0, session.events.length - 50);
     session.updatedAt = event.timestamp;
+    this.save(session, event);
     this.emit(session.id, event);
-    this.save(session);
   }
 
   private status(session: AgentSession, status: SessionStatus): void {
@@ -203,11 +180,13 @@ export class SessionManager extends EventEmitter {
   markImPushed(id: string, eventId: number): AgentSession {
     const session = this.sessions.get(id);
     if (!session) throw new Error('会话不存在');
-    const event = session.events.find(item => item.id === eventId && item.type === 'output');
-    if (!event) throw new Error('助手结果不存在');
+    const event = this.store.getEvent(id, eventId);
+    if (!event || event.type !== 'output') throw new Error('助手结果不存在');
     event.pushedToIm = true;
+    const cached = session.events.find(item => item.id === eventId);
+    if (cached) cached.pushedToIm = true;
+    this.save(session, event, true);
     this.emit(session.id, event);
-    this.save(session);
     return session;
   }
 
@@ -230,8 +209,7 @@ export class SessionManager extends EventEmitter {
       this.stop(id);
       await closed;
     }
-    await this.writeQueue;
-    await unlink(sessionFile(id));
+    this.store.remove(id);
     this.sessions.delete(id);
   }
 

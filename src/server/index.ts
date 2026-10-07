@@ -170,11 +170,17 @@ export async function startServer(port: number, registry: AgentRegistry, project
     await feishu.cancelRegistration(request.params.id);
     response.status(204).end();
   });
-  app.get('/api/sessions', (_request, response) => response.json(sessions.list()));
+  app.get('/api/sessions', (_request, response) => response.json(sessions.list().map(({ events, ...session }) => session)));
   app.get('/api/sessions/:id', (request, response) => {
     const session = sessions.get(request.params.id);
     if (!session) { response.status(404).json({ error: 'Session not found' }); return; }
-    response.json(session);
+    if (request.query.limit === undefined) { response.json({ ...session, ...sessions.history(session.id) }); return; }
+    const limit = Number(request.query.limit);
+    const before = request.query.before === undefined ? undefined : Number(request.query.before);
+    if (!Number.isInteger(limit) || limit < 0 || limit > 100 || (before !== undefined && (!Number.isSafeInteger(before) || before <= 0))) {
+      response.status(400).json({ error: '历史消息分页参数无效' }); return;
+    }
+    response.json({ ...session, ...sessions.history(session.id, limit, before) });
   });
   app.get('/api/directories', async (request, response) => {
     try {
@@ -217,11 +223,12 @@ export async function startServer(port: number, registry: AgentRegistry, project
   app.post('/api/sessions/:id/dingtalk/messages', async (request, response) => {
     try {
       const { eventId } = request.body || {};
+      if (!Number.isSafeInteger(eventId) || eventId <= 0) throw new Error('消息 ID 无效');
       const session = sessions.get(request.params.id);
       if (!session) throw new Error('Session not found');
       if (!session.dingtalkAppId) throw new Error('此对话未关联钉钉应用');
-      const event = session.events.find(item => item.id === eventId && item.type === 'output');
-      if (!event?.text.trim()) throw new Error('助手结果不存在或内容为空');
+      const event = sessions.getEvent(session.id, eventId);
+      if (event?.type !== 'output' || !event.text.trim()) throw new Error('助手结果不存在或内容为空');
       if (event.pushedToIm) throw new Error('此结果已推送到 IM');
       await dingtalk.sendToSession(session.dingtalkAppId, session.id, event.text.trim());
       response.json(sessions.markImPushed(session.id, event.id));
@@ -233,11 +240,12 @@ export async function startServer(port: number, registry: AgentRegistry, project
   app.post('/api/sessions/:id/feishu/messages', async (request, response) => {
     try {
       const { eventId } = request.body || {};
+      if (!Number.isSafeInteger(eventId) || eventId <= 0) throw new Error('消息 ID 无效');
       const session = sessions.get(request.params.id);
       if (!session) throw new Error('会话不存在');
       if (!session.feishuAppId) throw new Error('此对话未关联飞书应用');
-      const event = session.events.find(item => item.id === eventId && item.type === 'output');
-      if (!event?.text.trim()) throw new Error('助手结果不存在或内容为空');
+      const event = sessions.getEvent(session.id, eventId);
+      if (event?.type !== 'output' || !event.text.trim()) throw new Error('助手结果不存在或内容为空');
       if (event.pushedToIm) throw new Error('此结果已推送到 IM');
       await feishu.sendToSession(session.feishuAppId, session.id, event.text.trim());
       response.json(sessions.markImPushed(session.id, event.id));
@@ -267,8 +275,12 @@ export async function startServer(port: number, registry: AgentRegistry, project
     response.setHeader('Connection', 'keep-alive');
     response.flushHeaders();
     const after = Math.max(Number(request.query.after || 0), Number(request.headers['last-event-id'] || 0));
-    const send = (event: SessionEvent) => response.write(`id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
-    for (const event of session.events) if (event.id > after) send(event);
+    let lastEventId = after;
+    const send = (event: SessionEvent) => {
+      lastEventId = Math.max(lastEventId, event.id);
+      response.write(`id: ${lastEventId}\ndata: ${JSON.stringify(event)}\n\n`);
+    };
+    for (const event of sessions.eventsAfter(session.id, after)) send(event);
     const listener = (event: SessionEvent) => send(event);
     sessions.on(session.id, listener);
     const heartbeat = setInterval(() => response.write(': keepalive\n\n'), 15000);

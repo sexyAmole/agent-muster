@@ -77,7 +77,10 @@ export class FeishuBridge {
       await this.feishu.setSession(appId, message.chat_id, session.id);
     }
     await waitForCompletion(this.sessions, session);
-    const output = session.events.filter(event => event.id > lastEventId && event.type === 'output').at(-1)?.text.trim();
+    let output: string | undefined;
+    for (const event of this.sessions.eventsAfter(session.id, lastEventId)) {
+      if (event.type === 'output') output = event.text.trim();
+    }
     const reply = session.status === 'completed' ? output || 'Agent 已执行完成。' : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
     await this.feishu.send(appId, message.chat_id, reply);
   }

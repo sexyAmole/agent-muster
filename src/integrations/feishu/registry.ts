@@ -5,9 +5,11 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Client, Domain, EventDispatcher, LoggerLevel, WSClient, registerApp, type EventHandles } from '@larksuiteoapi/node-sdk';
 import QRCode from 'qrcode';
+import { moveLegacyPath } from '../storage.js';
 
-const directory = join(homedir(), '.agent-muster');
-const dataFile = join(directory, 'feishu-apps.json');
+const rootDirectory = join(homedir(), '.agent-muster');
+const directory = join(rootDirectory, 'im', 'feishu');
+const dataFile = join(directory, 'apps.json');
 type Application = {
   id: string; clientId: string; clientSecret: string; name: string | null; icon: string | null;
   project: string | null; agent: string | null; conversations: Record<string, string>;
@@ -24,6 +26,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
   private writeQueue = Promise.resolve();
 
   async load(): Promise<void> {
+    await moveLegacyPath(join(rootDirectory, 'feishu-apps.json'), dataFile);
     try { this.apps = JSON.parse(await readFile(dataFile, 'utf8')) as Application[]; }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   }

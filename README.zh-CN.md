@@ -134,7 +134,7 @@ Agent 在选中的项目目录中执行任务。模型列表取决于对应 CLI 
 
 ## 本地数据
 
-项目、对话和 IM 接入配置保存在用户主目录下的 `.agent-muster` 中，重新启动后会读取已有记录。钉钉和飞书应用凭证分别保存在 `dingtalk-apps.json` 和 `feishu-apps.json` 中，请妥善保管这些文件。
+项目、对话和 IM 接入配置保存在用户主目录下的 `.agent-muster` 中，重新启动后会读取已有记录。钉钉和飞书应用凭证分别保存在 `im/dingtalk/apps.json` 和 `im/feishu/apps.json` 中，请妥善保管这些文件。
 
 ## 常见问题
 

@@ -103,12 +103,17 @@ export class DingTalkBridge {
       await this.dingtalk.setSession(appId, conversation, session.id);
     }
     await waitForCompletion(this.sessions, session);
+    let output: string | undefined;
+    const errors: string[] = [];
+    for (const event of this.sessions.eventsAfter(session.id, lastEventId)) {
+      if (event.type === 'output') output = event.text.trim();
+      if (session.status === 'failed' && event.type === 'error') errors.push(event.text);
+    }
     if (session.status === 'failed') {
-      console.error(`DingTalk Agent execution failed for ${appId} (message ${message.msgId}, conversation ${conversation}, session ${session.id}):`,
-        session.events.filter(event => event.id > lastEventId && event.type === 'error').map(event => event.text).join('\n'));
+      console.error(`DingTalk Agent execution failed for ${appId} (message ${message.msgId}, conversation ${conversation}, session ${session.id}):`, errors.join('\n'));
     }
     const reply = session.status === 'completed'
-      ? session.events.filter(event => event.id > lastEventId && event.type === 'output').at(-1)?.text.trim() || 'Agent 已执行完成。'
+      ? output || 'Agent 已执行完成。'
       : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
     await this.dingtalk.reply(appId, message.sessionWebhook, reply);
   }

@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { AppIcon } from './app-icon';
 import { Select } from './select';
 import { Tabs } from './tabs';
 import { useErrorMessage } from './message';
 
-type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
+export type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
 type Agent = { id: string; name: string; installed: boolean };
 type Registration = { id: string; userCode?: string; verificationUrl: string; qrCode: string; expiresAt: number; interval: number };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; reason?: string };
-type Props = { projects: string[]; agents: Agent[]; projectLabel: (path: string) => string };
+type Props = { active: boolean; feishuApps: Application[]; onFeishuAppsChange: Dispatch<SetStateAction<Application[]>>; projects: string[]; agents: Agent[]; projectLabel: (path: string) => string };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...options?.headers } });
@@ -24,9 +24,11 @@ export function ImPrototype(props: Props) {
   </Tabs></div>;
 }
 
-function ImIntegration({ projects, agents, projectLabel, provider }: Props & { provider: 'dingtalk' | 'feishu' }) {
+function ImIntegration({ active, feishuApps, onFeishuAppsChange, projects, agents, projectLabel, provider }: Props & { provider: 'dingtalk' | 'feishu' }) {
   const platform = provider === 'feishu' ? '飞书' : '钉钉';
-  const [apps, setApps] = useState<Application[]>([]);
+  const [dingtalkApps, setDingtalkApps] = useState<Application[]>([]);
+  const apps = provider === 'feishu' ? feishuApps : dingtalkApps;
+  const setApps = provider === 'feishu' ? onFeishuAppsChange : setDingtalkApps;
   const [registration, setRegistration] = useState<Registration | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,15 +40,35 @@ function ImIntegration({ projects, agents, projectLabel, provider }: Props & { p
   const [scanError, setScanError] = useState('');
 
   useEffect(() => {
-    let active = true;
-    const refresh = () => {
-      void request<Application[]>(`/api/${provider}/apps`).then(result => { if (active) setApps(result); })
-        .catch(reason => { if (active) setError((reason as Error).message); });
+    if (!active) return;
+    const controller = new AbortController();
+    let timer: number | undefined;
+    let pending = false;
+    async function refresh() {
+      if (pending || controller.signal.aborted || document.hidden) return;
+      pending = true;
+      try {
+        const result = await request<Application[]>(`/api/${provider}/apps`, { signal: controller.signal });
+        if (!controller.signal.aborted) setApps(current => JSON.stringify(current) === JSON.stringify(result) ? current : result);
+      } catch (reason) {
+        if (!controller.signal.aborted) setError((reason as Error).message);
+      } finally {
+        pending = false;
+        if (provider === 'feishu' && !controller.signal.aborted && !document.hidden) timer = window.setTimeout(refresh, 5000);
+      }
+    }
+    function visibilityChanged() {
+      window.clearTimeout(timer);
+      if (!document.hidden) void refresh();
+    }
+    void refresh();
+    document.addEventListener('visibilitychange', visibilityChanged);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', visibilityChanged);
     };
-    refresh();
-    const timer = provider === 'feishu' ? window.setInterval(refresh, 5000) : undefined;
-    return () => { active = false; window.clearInterval(timer); };
-  }, [projects, provider]);
+  }, [active, projects, provider, setApps]);
 
   useEffect(() => () => { registrationAttempt.current++; }, []);
 
