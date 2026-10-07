@@ -59,12 +59,23 @@ Keep the terminal running. Press `Ctrl+C` to stop the service. The current web i
 | `agent-muster agents` | List agents and their installation status |
 | `agent-muster sessions` | List saved conversations |
 | `agent-muster update` | Check for updates and update the global installation |
+| `agent-muster help` | Show help; also available as `--help` or `-h` |
+| `agent-muster --version` | Print the current version and exit; also available as `-v` |
 
-Combine port and browser options:
+The `web` command is optional. Combine port and browser options:
 
 ```bash
 npx agent-muster web --port 18000 --no-open
+npx agent-muster -p 18000 --no-open
 ```
+
+| Web option | Description |
+| --- | --- |
+| `-p, --port <port>` | Set the listening port to an integer from 1 to 65535; defaults to 17321 |
+| `--no-open` | Start without opening the browser |
+| `--dev` | Enable development mode; requires the source checkout and development dependencies |
+
+Use `agent-muster web --help` to show help. Unknown commands, unsupported options, and invalid ports produce an error before the service starts.
 
 The service listens only on `127.0.0.1`. With the custom port above, visit `http://127.0.0.1:18000`.
 
@@ -148,6 +159,13 @@ Confirm that Agent Muster is running, platform authorization is complete, and th
 Send a message to the bot from IM first, then open the resulting local conversation. Confirm that the integration still exists and its project/agent binding has not changed. Select **发送到钉钉** or **发送到飞书** before sending.
 
 ## Updates
+
+Check the version of the CLI you are running:
+
+```bash
+agent-muster --version
+agent-muster -v
+```
 
 On web startup, Agent Muster checks for a newer version in the background and prints an update notice in the terminal.
 

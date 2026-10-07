@@ -10,6 +10,34 @@ import { SessionManager } from './sessions/manager.js';
 import { startServer } from './server/index.js';
 import { checkForUpdates, updatePackage } from './updates.js';
 
+function printHelp(): void {
+  console.log(`用法：agent-muster [命令] [选项]
+
+命令：
+  web          启动 Web 界面（默认命令）
+  agents       列出 Agent 及安装状态
+  sessions     列出已保存的对话
+  update       检查并更新全局安装到最新版本
+  help         显示帮助
+
+通用选项：
+  -h, --help       显示帮助
+  -v, --version    显示当前版本
+
+Web 选项：
+  -p, --port <端口>  指定监听端口（默认 17321）
+  --no-open         不自动打开浏览器
+  --dev             启用开发模式（需要源码及开发依赖）
+
+示例：
+  agent-muster
+  agent-muster --no-open
+  agent-muster web -p 18000 --no-open
+  agent-muster agents
+  agent-muster sessions
+  agent-muster update`);
+}
+
 function openBrowser(url: string): void {
   const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
@@ -23,7 +51,30 @@ async function main(): Promise<void> {
     console.log(version);
     return;
   }
-  const [command = 'web', ...options] = args;
+  if (args.includes('--help') || args.includes('-h') || args[0] === 'help') {
+    printHelp();
+    return;
+  }
+  const command = args[0] && !args[0].startsWith('-') ? args[0] : 'web';
+  const options = command === args[0] ? args.slice(1) : args;
+  if (!['web', 'agents', 'sessions', 'update'].includes(command)) {
+    throw new Error(`未知命令：${command}。运行 agent-muster --help 查看帮助。`);
+  }
+  for (let index = 0; index < options.length; index++) {
+    const option = options[index];
+    if (command === 'web') {
+      if (option === '--no-open' || option === '--dev') continue;
+      if (option === '--port' || option === '-p') {
+        const value = options[++index];
+        if (!value || !/^\d+$/.test(value)) throw new Error(`${option} 需要指定 1–65535 之间的整数端口。`);
+        continue;
+      }
+    }
+    throw new Error(`未知参数：${option}。运行 agent-muster --help 查看帮助。`);
+  }
+  const portIndex = options.findIndex(option => option === '--port' || option === '-p');
+  const port = portIndex >= 0 ? Number(options[portIndex + 1]) : 17321;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('端口必须是 1–65535 之间的整数。');
   if (command === 'update') {
     await updatePackage();
     return;
@@ -51,14 +102,10 @@ async function main(): Promise<void> {
     }
     return;
   }
-  if (command !== 'web') throw new Error(`Unknown command: ${command}`);
   for (const { sessionId, appId } of dingtalk.sessionBindings()) sessions.linkDingTalkSession(sessionId, appId);
   new DingTalkBridge(dingtalk, registry, sessions);
   for (const { sessionId, appId } of feishu.sessionBindings()) sessions.linkFeishuSession(sessionId, appId);
   new FeishuBridge(feishu, registry, sessions);
-  const portIndex = options.indexOf('--port');
-  const port = portIndex >= 0 ? Number(options[portIndex + 1]) : 17321;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be 1–65535');
   const server = await startServer(port, registry, projects, sessions, dingtalk, feishu, options.includes('--dev'));
   dingtalk.startSubscriptions();
   feishu.startSubscriptions();
