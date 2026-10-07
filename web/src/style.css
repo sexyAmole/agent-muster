@@ -60,19 +60,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .project-item { width: 100%; min-width: 0; min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #555; text-align: left; font-size: 12px; font-weight: 600; }
 .project-row:hover .project-item, .project-row:focus-within .project-item { padding-right: 82px; }
 .project-item:hover { background: #ededed; color: #222; }
-.project-item.active { background: #e8e8e8; border-color: #ddd; color: #222; }
 .project-folder { width: 15px; height: 11px; position: relative; flex: none; border: 1.5px solid currentColor; border-radius: 2px; opacity: .85; }
 .project-folder::before { content: ''; width: 6px; height: 3px; position: absolute; top: -4px; left: -1px; border: 1.5px solid currentColor; border-bottom: 0; border-radius: 2px 2px 0 0; }
 .project-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-count { color: #777; font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
-.project-conversations { margin: 2px 0 6px 17px; padding-left: 8px; border-left: 1px solid #ddd; }
+.project-conversations { margin: 2px 0 6px; }
 .project-new { display: grid; place-items: center; position: absolute; right: 40px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: #ededed; color: #777; font-size: 19px; line-height: 1; }
 .project-new:hover { background: #ededed; color: #222; }
 .sidebar-delete { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: #ededed; color: #777; font-size: 18px; line-height: 1; }
 .project-row > .sidebar-delete { position: absolute; right: 8px; }
 .sidebar-delete:hover { background: #f8eded; color: #963c3c; }
 .conversation-row { position: relative; display: flex; align-items: center; }
-.conversation-item { width: 100%; min-width: 0; min-height: 40px; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent; color: #555; text-align: left; }
+.conversation-item { width: 100%; min-width: 0; min-height: 40px; display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 34px; border: 0; border-radius: 5px; background: transparent; color: #555; text-align: left; }
 .conversation-row:hover .conversation-item, .conversation-row:focus-within .conversation-item { padding-right: 40px; }
 .conversation-delete { position: absolute; right: 8px; width: 24px; height: 24px; font-size: 16px; }
 @media (hover: none) {
@@ -82,16 +81,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .conversation-item:hover { background: #ededed; }
 .conversation-item.selected { background: #e3e3e3; color: #222; }
-.conversation-app-icon { width: 20px; height: 20px; flex: none; border-radius: 5px; object-fit: cover; }
+.conversation-app-icon { position: absolute; left: 10px; width: 20px; height: 20px; border-radius: 5px; object-fit: cover; }
 .pane-marker { width: 18px; height: 18px; display: grid; place-items: center; flex: none; border: 1px solid #bbb; border-radius: 4px; color: #555; font-size: 10px; }
 .conversation-text { min-width: 0; flex: 1; }
 .conversation-text strong, .conversation-text small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-text strong { font-size: 11px; font-weight: 600; }
 .conversation-text small { margin-top: 3px; color: #777; font-size: 9px; }
-.status-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #777; }
-.status-dot.running, .status-dot.starting { background: #333; box-shadow: 0 0 0 3px #00000010; }
-.status-dot.completed { background: #888; }
-.status-dot.failed { background: #525252; }
+.conversation-loading { width: 12px; height: 12px; flex: none; border: 1.5px solid #ccc; border-top-color: #555; border-radius: 50%; animation: conversation-spin .8s linear infinite; }
+@keyframes conversation-spin { to { transform: rotate(360deg); } }
 .project-empty { padding: 5px 9px; color: #717171; font-size: 10px; }
 .main-area { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; }
 .topbar { height: 50px; flex: none; display: none; justify-content: space-between; align-items: center; gap: 16px; padding: 0 22px; border-bottom: 1px solid #e8e8e8; background: #fff; }

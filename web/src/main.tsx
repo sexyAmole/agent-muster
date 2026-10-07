@@ -502,11 +502,11 @@ function App() {
           const expanded = expandedProject === path;
           return <div className="project-group" key={path}>
             <div className="project-row">
-              <button className={`project-item ${currentPane.cwd === path ? 'active' : ''}`} onClick={() => {
+              <button className="project-item" onClick={() => {
                 setImOpen(false);
                 setAgentsOpen(false);
                 if (expanded) setExpandedProject(null);
-                else { setExpandedProject(path); setPane(activePane, projectSessions[0]?.id || null, path); }
+                else setExpandedProject(path);
               }} title={path} aria-expanded={expanded}>
                 <span className="project-folder" /><span className="project-name">{projectLabel(path, projects)}</span><span className="project-count">{projectSessions.length}</span>
               </button>
@@ -518,7 +518,7 @@ function App() {
                 const openIndex = panes.slice(0, paneCount).findIndex(pane => pane.sessionId === session.id);
                 const feishuIcon = feishuApps.find(app => app.id === session.feishuAppId)?.icon;
                 return <div className="conversation-row" key={session.id}><button className={`conversation-item ${activeSessionId === session.id ? 'selected' : ''}`} onClick={() => openConversation(session)} title={session.prompt}>
-                  <span className={`status-dot ${session.status}`} />{session.dingtalkAppId && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${session.dingtalkAppId}/icon`} platform="钉钉" />}{session.feishuAppId && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<span className="conversation-text"><strong>{session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
+                  {session.dingtalkAppId && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${session.dingtalkAppId}/icon`} platform="钉钉" />}{session.feishuAppId && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<span className="conversation-text"><strong>{session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{(session.status === 'starting' || session.status === 'running') && <span className="conversation-loading" role="status" aria-label={statusLabel[session.status]} />}{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
                 </button><button className="sidebar-delete conversation-delete" onClick={() => void deleteSession(session)} aria-label={`删除对话 ${session.prompt}`} title="删除对话"><ActionIcon type="delete" /></button></div>;
               }) : <p className="project-empty">还没有对话</p>}
             </div>}
