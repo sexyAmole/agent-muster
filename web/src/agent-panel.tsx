@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useErrorMessage } from './message';
 import type { AgentAction, AgentInfo, ManagedAgent } from '../../src/types';
 
 type Props = { active: boolean; onChange: (agents: AgentInfo[]) => void };
@@ -16,6 +17,7 @@ export function AgentPanel({ active, onChange }: Props) {
   const [loading, setLoading] = useState(false);
   const [operation, setOperation] = useState<{ id: string; action: AgentAction } | null>(null);
   const [error, setError] = useState('');
+  useErrorMessage(error, setError);
   const [message, setMessage] = useState('');
   const [output, setOutput] = useState('');
 
@@ -58,7 +60,6 @@ export function AgentPanel({ active, onChange }: Props) {
 
   return <section className="agent-panel" aria-label="Agent 管理">
     <div className="im-intro"><div><h1>Agent 管理</h1><p className="agent-intro">查看本机 CLI 版本，安装、更新或卸载 Agent。</p></div><button className="im-sync-button" disabled={loading || Boolean(operation)} onClick={() => void refresh()}>{loading ? '刷新中…' : '刷新状态'}</button></div>
-    {error && <div className="im-error" role="alert"><span>{error}</span><button onClick={() => setError('')}>关闭</button></div>}
     <div className="agent-feedback" role="status" aria-live="polite">{operation ? `正在${actionLabels[operation.action]} ${agents.find(agent => agent.id === operation.id)?.name}，请等待完成…` : message}</div>
     {loading && !agents.length && <p className="im-empty">正在读取 Agent 信息…</p>}
     <div className="agent-list">{agents.map(agent => <article className="agent-entry" key={agent.id}>

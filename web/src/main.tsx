@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { ImPrototype } from './im-prototype';
 import { AppIcon } from './app-icon';
 import { AgentPanel } from './agent-panel';
+import { MessageProvider, useErrorMessage } from './message';
 import type { AgentInfo as Agent } from '../../src/types';
 import './style.css';
 
@@ -22,6 +23,16 @@ type Session = {
 type Directory = { path: string };
 type Layout = 'single' | 'double' | 'quad';
 type PaneState = { sessionId: string | null; cwd: string; revision: number };
+function LayoutSwitch({ layout, onChange }: { layout: Layout; onChange: (layout: Layout) => void }) {
+  return <div className="layout-switch" role="group" aria-label="窗口布局">
+    {(['single', 'double', 'quad'] as const).map(value => {
+      const label = value === 'single' ? '单窗' : value === 'double' ? '双栏' : '四宫格';
+      return <button key={value} type="button" className={layout === value ? 'active' : undefined} aria-label={label} aria-pressed={layout === value} title={label} onClick={() => onChange(value)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" />{value !== 'single' && <path d="M12 3v18" />}{value === 'quad' && <path d="M3 12h18" />}</svg>
+      </button>;
+    })}
+  </div>;
+}
 function ActionIcon({ type }: { type: 'add' | 'edit' | 'delete' }) {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {type === 'add' ? <path d="M12 5v14M5 12h14" /> : type === 'edit' ? <path d="m16 3 5 5M4 16 16 4a3.5 3.5 0 0 1 5 5L9 21H4v-5Z" /> : <><path d="M3 6h18M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M5 6l1 14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-14M10 10v7M14 10v7" /></>}
@@ -159,7 +170,7 @@ type PaneProps = {
   onSessionUpdate: (session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId'>>) => void;
 };
 
-function ChatPane({ index, pane, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate }: PaneProps) {
+function ChatPane({ index, pane, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls }: PaneProps & { layoutControls?: React.ReactNode }) {
   const selectedId = pane.sessionId;
   const [selected, setSelected] = useState<Session | null>(sessions.find(session => session.id === selectedId) || null);
   const [agent, setAgent] = useState(agents.find(item => item.installed)?.id || '');
@@ -168,6 +179,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const [pushingId, setPushingId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  useErrorMessage(error, setError);
   const [copiedTarget, setCopiedTarget] = useState<'conversation' | number | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -310,9 +322,9 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
             if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
           }}><summary>运行日志</summary><div className="run-log-content" tabIndex={0}>{selected.events.map(event => <div key={event.id}><span>{time(event.timestamp)} · {event.type}</span><pre>{event.text}</pre>{event.detail && <pre>{event.detail}</pre>}</div>)}</div></details>}
           {running && <button className="stop-button" disabled={busy} onClick={stop}>停止</button>}
+          {layoutControls && <div className="pane-layout-switch">{layoutControls}</div>}
         </div>
       </div>
-      {error && <div className="global-error" role="alert"><span>{error}</span><button onClick={() => setError('')}>关闭</button></div>}
       <div className="conversation-scroll" key={selected?.id} ref={conversationRef} role="log" aria-label={`窗口 ${index + 1} 对话记录`} onScroll={event => {
         const element = event.currentTarget;
         followConversation.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -365,6 +377,7 @@ function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState('');
+  useErrorMessage(error, setError);
   const [imOpen, setImOpen] = useState(() => new URLSearchParams(window.location.search).get('im-view') === 'robots');
   const [agentsOpen, setAgentsOpen] = useState(false);
   const paneCount = layout === 'single' ? 1 : layout === 'double' ? 2 : 4;
@@ -479,13 +492,6 @@ function App() {
       <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><strong>Agent Muster</strong><button className="menu-close" aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)}>×</button></div>
       <nav className="sidebar-menu" aria-label="快捷菜单">
         <button className="sidebar-create" disabled={picking} onClick={() => void pickProject()}><ActionIcon type="add" /><span>创建项目</span></button>
-        {!imOpen && !agentsOpen && <div className="layout-switch">
-          <Select aria-label="窗口模式" triggerLabel={<><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M12 3v18M12 12h9" /></svg><span>窗口模式</span></>} value={layout} onChange={value => changeLayout(value as Layout)}>
-            <option value="single">单窗</option>
-            <option value="double">1×2</option>
-            <option value="quad">2×2</option>
-          </Select>
-        </div>}
         <button className={`im-sidebar-link ${imOpen ? 'active' : ''}`} onClick={() => { setImOpen(true); setAgentsOpen(false); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" /></svg><span>IM 集成</span></button>
         <button className={`im-sidebar-link ${agentsOpen ? 'active' : ''}`} onClick={() => { setAgentsOpen(true); setImOpen(false); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="14" rx="3" /><path d="M12 6V3M8 11h.01M16 11h.01M8 16h8M1 11v4M23 11v4" /></svg><span>Agent 管理</span></button>
       </nav>
@@ -526,11 +532,11 @@ function App() {
     <main className="main-area">
       <header className="topbar">
         <div className="topbar-left"><button className="menu-toggle" aria-label={mobileMenuOpen ? '关闭菜单' : '打开菜单'} aria-expanded={mobileMenuOpen} aria-controls="project-menu" onClick={() => setMobileMenuOpen(open => !open)}><span /><span /><span /></button></div>
+        {!imOpen && !agentsOpen && <LayoutSwitch layout={layout} onChange={changeLayout} />}
       </header>
       <div className="content chat-content">
-        {error && <div className="global-error" role="alert"><span>{error}</span><button onClick={() => setError('')}>关闭</button></div>}
         <div className={`workspace-grid ${layout}`} style={{ display: imOpen || agentsOpen ? 'none' : undefined }}>
-          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); setExpandedProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} />)}
+          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); setExpandedProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
         </div>
         <div hidden={!agentsOpen}><AgentPanel active={agentsOpen} onChange={setAgents} /></div>
         <div hidden={!imOpen}><ImPrototype projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects)} /></div>
@@ -539,4 +545,4 @@ function App() {
   </div>;
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(<MessageProvider><App /></MessageProvider>);

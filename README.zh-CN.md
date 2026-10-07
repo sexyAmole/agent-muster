@@ -59,12 +59,23 @@ agent-muster
 | `agent-muster agents` | 列出 Agent 及安装状态 |
 | `agent-muster sessions` | 列出已保存的对话 |
 | `agent-muster update` | 检查并更新全局安装到最新版本 |
+| `agent-muster help` | 显示帮助，也支持 `--help` 或 `-h` |
+| `agent-muster --version` | 输出当前版本后退出，也支持 `-v` |
 
-端口和浏览器选项可以组合使用：
+`web` 命令可以省略，端口和浏览器选项可以组合使用：
 
 ```bash
 npx agent-muster web --port 18000 --no-open
+npx agent-muster -p 18000 --no-open
 ```
+
+| Web 选项 | 说明 |
+| --- | --- |
+| `-p, --port <端口>` | 指定监听端口，必须是 1–65535 之间的整数，默认 17321 |
+| `--no-open` | 启动服务，不自动打开浏览器 |
+| `--dev` | 启用开发模式，需要源码及开发依赖 |
+
+运行 `agent-muster web --help` 查看帮助。未知命令、不支持的参数及无效端口会在服务启动前报错。
 
 服务仅监听本机地址 `127.0.0.1`，使用上述自定义端口时，请访问 `http://127.0.0.1:18000`。
 
@@ -148,6 +159,13 @@ npx agent-muster web --port 18000
 先从 IM 向机器人发送一条消息，再打开由此创建的本地对话。确认应用接入仍存在，项目和 Agent 绑定未被修改，并选择「发送到钉钉」或「发送到飞书」后发送。
 
 ## 更新
+
+查看当前运行的 CLI 版本：
+
+```bash
+agent-muster --version
+agent-muster -v
+```
 
 启动 Web 服务时会在后台检查新版本，并在终端显示更新提示。
 

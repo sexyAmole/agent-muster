@@ -247,7 +247,7 @@ export class SessionManager extends EventEmitter {
       cwd: session.cwd,
       stdio: 'pipe',
       detached: process.platform !== 'win32',
-      env: process.env,
+      env: session.agent === 'opencode' ? { ...process.env, PWD: session.cwd } : process.env,
     });
     this.processes.set(session.id, child);
     session.pid = child.pid;

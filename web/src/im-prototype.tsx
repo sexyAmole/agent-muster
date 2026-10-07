@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppIcon } from './app-icon';
 import { Select } from './select';
+import { Tabs } from './tabs';
+import { useErrorMessage } from './message';
 
 type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
 type Agent = { id: string; name: string; installed: boolean };
@@ -17,10 +19,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export function ImPrototype(props: Props) {
   const [provider, setProvider] = useState<'dingtalk' | 'feishu'>('dingtalk');
-  return <div className="im-prototype"><div className="im-provider-tabs" role="group" aria-label="IM 平台">
-    <button className={provider === 'dingtalk' ? 'active' : ''} onClick={() => setProvider('dingtalk')}>钉钉</button>
-    <button className={provider === 'feishu' ? 'active' : ''} onClick={() => setProvider('feishu')}>飞书</button>
-  </div><ImIntegration key={provider} {...props} provider={provider} /></div>;
+  return <div className="im-prototype"><Tabs value={provider} onChange={setProvider} aria-label="IM 平台" items={[{ value: 'dingtalk', label: '钉钉' }, { value: 'feishu', label: '飞书' }]}>
+    <ImIntegration key={provider} {...props} provider={provider} />
+  </Tabs></div>;
 }
 
 function ImIntegration({ projects, agents, projectLabel, provider }: Props & { provider: 'dingtalk' | 'feishu' }) {
@@ -32,6 +33,7 @@ function ImIntegration({ projects, agents, projectLabel, provider }: Props & { p
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  useErrorMessage(error, setError);
   const registrationAttempt = useRef(0);
   const [scanError, setScanError] = useState('');
 
@@ -122,7 +124,6 @@ function ImIntegration({ projects, agents, projectLabel, provider }: Props & { p
 
   return <div>
     <div className="im-intro"><h1>{platform}接入</h1><button className="im-primary-button" onClick={() => void startRegistration()}>扫码创建应用</button></div>
-    {error && <div className="im-error" role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误">×</button></div>}
     <div className="im-robot-list">
       {apps.length ? apps.map(app => <div className="im-robot-entry" key={app.id}>
         <div className="im-robot-row"><div className="im-robot-mark"><AppIcon src={app.icon} platform={platform} /></div><div className="im-app-info"><strong>{app.name || app.clientId}</strong>{app.connectionStatus && <small className="im-connection-status">{{ idle: '未连接', connecting: '连接中', connected: '消息监听已连接', reconnecting: '重新连接中', failed: '消息监听连接失败' }[app.connectionStatus]}</small>}</div>
