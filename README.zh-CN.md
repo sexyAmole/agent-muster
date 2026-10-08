@@ -1,4 +1,5 @@
 # Agent Muster
+<img width="100%" height="auto" alt="Image" src="https://github.com/user-attachments/assets/ab4dc1cb-b7ae-4186-a006-13f321ca6f5b" />
 
 [English](./README.md) | 简体中文
 
