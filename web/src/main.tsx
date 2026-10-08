@@ -8,6 +8,7 @@ import { AppIcon } from './app-icon';
 import { AgentPanel } from './agent-panel';
 import { MessageProvider, useErrorMessage } from './message';
 import { MessageImages } from './message-images';
+import { FileMentionTextarea } from './file-mention-textarea';
 import type { AgentInfo as Agent, AgentImage } from '../../src/types';
 import './style.css';
 
@@ -15,7 +16,7 @@ type Status = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'sto
 type FeishuApp = Pick<Application, 'id' | 'icon'>;
 type TokenUsage = { inputTokens: number; outputTokens: number };
 type DingTalkConversation = { type: 'single' | 'group'; groupName?: string; senderName: string; senderStaffId: string };
-type Event = { id: number; type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage'; text: string; detail?: string; kind?: string; comparison?: string; timestamp: number; pushedToIm?: boolean; feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation; images?: Pick<AgentImage, 'path' | 'mimeType'>[] };
+type Event = { id: number; type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage' | 'raw_stdout' | 'raw_stderr'; text: string; detail?: string; kind?: string; comparison?: string; timestamp: number; pushedToIm?: boolean; feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation; images?: Pick<AgentImage, 'path' | 'mimeType'>[] };
 type Session = {
   id: string; agent: string; dingtalkAppId?: string; feishuAppId?: string; cwd: string; prompt: string; model?: string; usage?: TokenUsage; externalSessionId?: string;
   feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation;
@@ -92,6 +93,7 @@ function Diff({ text }: { text: string }) {
 }
 
 function conversationEvents(session: Session): Event[] {
+  session = { ...session, events: session.events.filter(event => event.type !== 'raw_stdout' && event.type !== 'raw_stderr') };
   if (session.agent !== 'codex') return session.events;
   const events: Event[] = [];
   for (let index = 0; index < session.events.length; index++) {
@@ -238,9 +240,8 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useErrorMessage(error, setError);
-  const [copiedTarget, setCopiedTarget] = useState<'conversation' | number | null>(null);
+  const [copiedTarget, setCopiedTarget] = useState<'conversation' | 'run-log' | number | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
   const runLogRef = useRef<HTMLDetailsElement>(null);
   const followConversation = useRef(true);
 
@@ -269,7 +270,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     let current = true;
     let source: EventSource | undefined;
     setHasMoreHistory(false);
-    api<SessionPage>(`/api/sessions/${selectedId}?limit=50`).then(({ hasMore, ...session }) => {
+    api<SessionPage>(`/api/sessions/${selectedId}?limit=10`).then(({ hasMore, ...session }) => {
       if (!current) return;
       setSelected(session);
       setHasMoreHistory(hasMore);
@@ -327,7 +328,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     return () => window.clearTimeout(timer);
   }, [copiedTarget]);
 
-  async function copyText(text: string, target: 'conversation' | number) {
+  async function copyText(text: string, target: 'conversation' | 'run-log' | number) {
     setError('');
     try {
       await navigator.clipboard.writeText(text);
@@ -342,7 +343,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     historyController.current = controller;
     setLoadingHistory(true);
     try {
-      const page = await api<SessionPage>(`/api/sessions/${selected.id}?limit=50&before=${before}`, { signal: controller.signal });
+      const page = await api<SessionPage>(`/api/sessions/${selected.id}?limit=10&before=${before}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       const element = conversationRef.current;
       if (element) historyScroll.current = { height: element.scrollHeight, top: element.scrollTop };
@@ -447,6 +448,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const feishuIcon = feishuApps.find(app => app.id === selected?.feishuAppId)?.icon;
+  const runLogEvents = selected?.events.filter(event => event.type === 'raw_stdout' || event.type === 'raw_stderr') || [];
 
   const renderItem = (item: Event | Event[], showActions = false, expandTools = false) => selected && (Array.isArray(item)
             ? <ToolTimeline key={item[0].id} events={item} accordionName={`tools-${index}-${selected.id}-${item[0].id}`} active={expandTools} />
@@ -472,7 +474,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
           {selected && <button className="copy-button" onClick={() => void copyConversation()} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'} title={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === 'conversation' ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}
           {selected && <details ref={runLogRef} className="run-log" onBlur={event => {
             if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
-          }}><summary aria-label="运行日志" title="运行日志"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 7h8M8 12h8M8 17h5" /></svg></summary><div className="run-log-content" tabIndex={0}>{selected.events.map(event => <div key={event.id}><span>{time(event.timestamp)} · {event.type}</span><pre>{event.text}</pre>{event.detail && <pre>{event.detail}</pre>}</div>)}</div></details>}
+          }}><summary aria-label="运行日志" title="运行日志"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 7h8M8 12h8M8 17h5" /></svg></summary><div className="run-log-content" tabIndex={0}><div className="run-log-toolbar"><button className="reply-push" disabled={!runLogEvents.length} onClick={() => void copyText(runLogEvents.map(event => event.text).join('\n'), 'run-log')}>{copiedTarget === 'run-log' ? '已复制' : '复制已加载日志'}</button>{hasMoreHistory && <button className="history-load" disabled={loadingHistory} onClick={() => void loadHistory()}>{loadingHistory ? '加载中…' : '加载更早日志'}</button>}</div>{runLogEvents.map(event => <div key={event.id}><span>{time(event.timestamp)} · {event.type === 'raw_stdout' ? 'stdout' : 'stderr'}</span><pre>{event.text}</pre></div>)}{!runLogEvents.length && <p>暂无原始运行日志，新执行的内容将在这里记录。</p>}</div></details>}
           {layoutControls && <div className="pane-layout-switch">{layoutControls}</div>}
         </div>
       </div>
@@ -512,7 +514,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
         </div>}
         <div className="chat-composer">
           {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
-          <textarea ref={composerRef} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={event => setMessage(event.target.value)} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求' : '描述要完成的任务'} disabled={busy || composerDisabled} rows={2} />
+          <FileMentionTextarea project={composerProject} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={setMessage} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求，@ 搜索文件' : '描述要完成的任务，@ 搜索文件'} disabled={busy || composerDisabled} rows={2} />
           <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
           <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}<label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={value => setModel(value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label></div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
         </div>

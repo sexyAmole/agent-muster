@@ -100,7 +100,7 @@ const claude: Adapter = {
   launch(prompt, externalSessionId, model, images) {
     return {
       command: 'claude',
-      args: ['-p', '--verbose', '--output-format', 'stream-json','--permission-mode','plan', ...(images?.length ? ['--input-format', 'stream-json'] : []), ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : [])],
+      args: ['-p', '--verbose', '--output-format', 'stream-json','--permission-mode','auto', ...(images?.length ? ['--input-format', 'stream-json'] : []), ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : [])],
       prompt: images?.length ? JSON.stringify({
         type: 'user', message: { role: 'user', content: [
           { type: 'text', text: prompt },

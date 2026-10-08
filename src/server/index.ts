@@ -11,6 +11,7 @@ import { AgentManagement } from '../agents/management.js';
 import { DingTalkRegistry } from '../integrations/dingtalk/registry.js';
 import { FeishuRegistry } from '../integrations/feishu/registry.js';
 import { ProjectRegistry } from '../projects/registry.js';
+import { searchProjectFiles } from '../projects/files.js';
 import { SessionManager } from '../sessions/manager.js';
 import type { SessionEvent } from '../types.js';
 
@@ -83,6 +84,16 @@ export async function startServer(port: number, registry: AgentRegistry, project
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   app.get('/api/projects', (_request, response) => response.json(projects.list()));
+  app.get('/api/projects/files', async (request, response) => {
+    try {
+      const { path, query } = request.query;
+      if (typeof path !== 'string' || typeof query !== 'string') throw new Error('需要项目路径和搜索词');
+      if (!projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
+        response.status(404).json({ error: '项目不存在' }); return;
+      }
+      response.json(await searchProjectFiles(path, query));
+    } catch (error) { response.status(400).json({ error: (error as Error).message }); }
+  });
   app.post('/api/projects', async (request, response) => {
     try {
       if (typeof request.body?.path !== 'string') throw new Error('Project directory is required');

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { StringDecoder } from 'node:string_decoder';
 import { adapters } from '../agents/adapters.js';
 import { SessionStore } from './store.js';
 import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, SessionEvent, SessionStatus, TokenUsage } from '../types.js';
@@ -105,7 +106,7 @@ export class SessionManager extends EventEmitter {
     const event: SessionEvent = {
       id: (session.events.at(-1)?.id || 0) + 1,
       type,
-      text: text.slice(0, 50000),
+      text: type === 'raw_stdout' || type === 'raw_stderr' ? text : text.slice(0, 50000),
       ...(detail === undefined ? {} : { detail: detail.slice(0, 50000) }),
       ...(kind === undefined ? {} : { kind }),
       ...(comparison === undefined ? {} : { comparison }),
@@ -246,18 +247,22 @@ export class SessionManager extends EventEmitter {
 
     let pending = '';
     let stderrPending = '';
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
     let failed = false;
     const recordStderr = (line: string) => {
+      this.append(session, 'raw_stderr', line);
       if (!line.trim()) return;
       const error = adapter.readError?.(line);
       if (error) failed = true;
       this.append(session, isWarning(line) ? 'warning' : 'error', error || line);
     };
     child.stdout.on('data', (chunk: Buffer) => {
-      pending += chunk.toString('utf8');
+      pending += stdoutDecoder.write(chunk);
       const lines = pending.split('\n');
       pending = lines.pop() || '';
       for (const line of lines) {
+        this.append(session, 'raw_stdout', line);
         const result = read(line.trim());
         if (result.externalSessionId) {
           session.externalSessionId = result.externalSessionId;
@@ -274,7 +279,7 @@ export class SessionManager extends EventEmitter {
       }
     });
     child.stderr.on('data', (chunk: Buffer) => {
-      stderrPending += chunk.toString('utf8');
+      stderrPending += stderrDecoder.write(chunk);
       const lines = stderrPending.split('\n');
       stderrPending = lines.pop() || '';
       for (const line of lines) recordStderr(line);
@@ -287,7 +292,10 @@ export class SessionManager extends EventEmitter {
       this.emit(`${session.id}:idle`);
     });
     child.on('close', code => {
-      recordStderr(stderrPending);
+      pending += stdoutDecoder.end();
+      stderrPending += stderrDecoder.end();
+      if (stderrPending.length) recordStderr(stderrPending);
+      if (pending.length) this.append(session, 'raw_stdout', pending);
       if (pending.trim()) {
         const result = read(pending.trim());
         if (result.externalSessionId) {

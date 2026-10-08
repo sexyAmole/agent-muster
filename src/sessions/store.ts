@@ -115,7 +115,7 @@ export class SessionStore {
         const metadata = this.metadata(file);
         this.files.set(metadata.id, file);
         this.metadataKeys.set(metadata.id, metadataKey(metadata));
-        sessions.push({ ...metadata, events: this.history(metadata.id, 50).events });
+        sessions.push({ ...metadata, events: this.history(metadata.id, 10).events });
       }
     }
     return sessions;
@@ -139,13 +139,15 @@ export class SessionStore {
     if (limit === undefined) return { events: [...this.eventsAfter(id, 0)], hasMore: false };
     const events: SessionEvent[] = [];
     const pushed = new Set<number>();
+    let rounds = 0;
     for (const record of records(this.files.get(id)!, true)) {
       if (record.type === 'im_pushed') { pushed.add(record.eventId); continue; }
       if (record.type === 'session') continue;
       const event = record;
       if (before !== undefined && event.id >= before) continue;
-      if (events.length === limit) return { events: events.reverse(), hasMore: true };
+      if (rounds === limit) return { events: events.reverse(), hasMore: true };
       events.push(pushed.has(event.id) ? { ...event, pushedToIm: true } : event);
+      if (event.type === 'message') rounds++;
     }
     return { events: events.reverse(), hasMore: false };
   }
