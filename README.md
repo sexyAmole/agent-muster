@@ -1,5 +1,6 @@
 # Agent Muster
 <img width="100%" height="auto" alt="Image" src="https://github.com/user-attachments/assets/ab4dc1cb-b7ae-4186-a006-13f321ca6f5b" />
+
 English | [简体中文](./README.zh-CN.md)
 
 Manage local AI coding agents, projects, and conversations in your browser. Send tasks and receive replies through DingTalk or Feishu bots.
