@@ -1,9 +1,9 @@
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { AgentRegistry } from '../agents/registry.js';
@@ -50,6 +50,17 @@ export async function startServer(port: number, registry: AgentRegistry, project
       }
     }
     next();
+  });
+  app.post('/api/images', express.raw({ type: '*/*', limit: '10mb' }), async (request, response) => {
+    try {
+      if (!Buffer.isBuffer(request.body)) throw new Error('图片内容无效');
+      const mimeType = request.get('Content-Type')?.split(';')[0].trim().toLowerCase();
+      if (!mimeType) throw new Error('缺少图片类型');
+      response.status(201).json({ id: await sessions.uploadImage(request.body, mimeType) });
+    } catch (error) { response.status(400).json({ error: (error as Error).message }); }
+  });
+  app.use('/api/images', (error: Error & { status?: number }, _request: Request, response: Response, _next: NextFunction) => {
+    response.status(error.status === 413 ? 413 : 400).json({ error: error.status === 413 ? '单张图片不能超过 10 MB' : '图片上传失败' });
   });
   app.use('/api', express.json({ limit: '128kb' }));
 
@@ -182,6 +193,18 @@ export async function startServer(port: number, registry: AgentRegistry, project
     }
     response.json({ ...session, ...sessions.history(session.id, limit, before) });
   });
+  app.get('/api/sessions/:id/messages/:eventId/images/:index', (request, response) => {
+    if (!sessions.get(request.params.id)) { response.status(404).json({ error: '会话不存在' }); return; }
+    const eventId = Number(request.params.eventId);
+    const index = Number(request.params.index);
+    if (!Number.isSafeInteger(eventId) || eventId <= 0 || !Number.isSafeInteger(index) || index < 0) {
+      response.status(400).json({ error: '图片参数无效' }); return;
+    }
+    const event = sessions.getEvent(request.params.id, eventId);
+    const image = event?.type === 'message' ? event.images?.[index] : undefined;
+    if (!image) { response.status(404).json({ error: '消息图片不存在' }); return; }
+    response.type(image.mimeType).sendFile(basename(image.path), { root: dirname(image.path) });
+  });
   app.get('/api/directories', async (request, response) => {
     try {
       const requested = typeof request.query.path === 'string' ? request.query.path : process.cwd();
@@ -200,24 +223,26 @@ export async function startServer(port: number, registry: AgentRegistry, project
   });
   app.post('/api/sessions', async (request, response) => {
     try {
-      const { agent, cwd, prompt, model } = request.body || {};
+      const { agent, cwd, prompt, model, imageIds } = request.body || {};
       if (agentManagement.operating) throw new Error('正在执行 Agent 操作，请完成后再创建会话');
       if (typeof agent !== 'string' || !registry.get(agent)?.installed) throw new Error('Agent is not installed');
       if (typeof cwd !== 'string' || typeof prompt !== 'string') throw new Error('Project and prompt are required');
       if (model !== undefined && (typeof model !== 'string' || (model && !registry.get(agent)?.models.some(item => item.id === model)))) throw new Error('Invalid model');
-      response.status(201).json(await sessions.create(agent, cwd, prompt, model || undefined));
+      const images = await sessions.readImages(imageIds, agent);
+      response.status(201).json(await sessions.create(agent, cwd, prompt, model || undefined, undefined, undefined, images));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
-  app.post('/api/sessions/:id/messages', (request, response) => {
+  app.post('/api/sessions/:id/messages', async (request, response) => {
     try {
-      const { content, model } = request.body || {};
+      const { content, model, imageIds } = request.body || {};
       if (agentManagement.operating) throw new Error('正在执行 Agent 操作，请完成后再发送消息');
       if (typeof content !== 'string') throw new Error('Message is required');
       const session = sessions.get(request.params.id);
       if (!session) throw new Error('Session not found');
       if (!registry.get(session.agent)?.installed) throw new Error('此 Agent 已卸载，请先重新安装');
       if (model !== undefined && (typeof model !== 'string' || (model && !registry.get(session.agent)?.models.some(item => item.id === model)))) throw new Error('Invalid model');
-      response.json(sessions.send(request.params.id, content, model));
+      const images = await sessions.readImages(imageIds, session.agent);
+      response.json(sessions.send(request.params.id, content, model, undefined, images));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   app.post('/api/sessions/:id/dingtalk/messages', async (request, response) => {
@@ -299,7 +324,7 @@ export async function startServer(port: number, registry: AgentRegistry, project
     server.once('close', () => { void vite.close(); });
   } else {
     app.use(express.static(webRoot));
-    app.get('/{*path}', (_request, response) => response.sendFile(join(webRoot, 'index.html')));
+    app.get('/{*path}', (_request, response) => response.sendFile('index.html', { root: webRoot }));
   }
   await new Promise<void>((done, reject) => {
     server.once('error', reject);

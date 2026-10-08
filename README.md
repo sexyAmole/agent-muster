@@ -99,9 +99,10 @@ Open **IM 集成** (IM integration) in the sidebar and choose **钉钉** (DingTa
 | --- | --- | --- |
 | Application creation | Scan a QR code with DingTalk | Scan a QR code with Feishu |
 | Message listener | DingTalk Stream SDK | Feishu SDK WebSocket connection |
-| Incoming messages | Text, images, and rich text with images | Text |
+| Incoming messages | Text, images, and rich text with images | Text, images, and rich text with images |
 | Conversations | Direct messages and group mentions of the bot | Direct messages and group mentions of the bot |
 | Replies | Automatic agent replies and messages sent from the web interface | Automatic agent replies and messages sent from the web interface |
+| Chat commands | New conversations, project/model switching, and current configuration | New conversations, project/model switching, and current configuration |
 | Application management | Project/agent binding, name/icon sync, and local removal | Project/agent binding, name/icon sync, connection status, and local removal |
 
 ### Create and Connect an Application
@@ -116,11 +117,36 @@ Keep Agent Muster running and connected to the selected platform. Messages are r
 
 ### Receive Tasks and Reply
 
-An incoming message starts a task using the bound agent in the bound project. When execution finishes, Agent Muster sends the result back to the original IM conversation.
+An incoming task message starts a task using the application's bound agent in the project selected for that chat. A new chat initially uses the application's bound project, which can then be changed with a command. When execution finishes, Agent Muster sends the result back to the original IM conversation.
 
-Messages in the same IM conversation reuse its local agent session and are processed in order. Changing an application's project or agent binding clears its IM conversation mappings; the next incoming message starts a new local conversation.
+Messages in the same IM conversation reuse its local agent session and are processed in order. Changing an application's project or agent binding in the Web interface clears the session mappings and project/model settings for all of that application's chats; the next task message starts a new local conversation.
 
-DingTalk image input is supported by the Codex, Claude Code, and Pi integrations. The Kimi CLI integration does not support image input. The Feishu integration currently processes text messages only.
+Both DingTalk and Feishu support standalone images and multiple images within rich-text messages. Images are passed to the agent as attachments. Image-only messages use “请查看这张图片。” as the task prompt. In groups, mention the bot; a Feishu rich-text message can include a mention, text, and images together.
+
+Image input is supported by the Codex, Claude Code, Pi, Gemini CLI, and OpenCode integrations, provided the selected model supports images. The Kimi CLI and Cursor integrations currently reject image attachments with an explanation. Supported formats are PNG, JPEG, GIF, and WebP.
+
+Feishu downloads user images through the message resource API. Newly created applications request the `im:message:readonly` permission. For existing applications, enable this permission in the Feishu developer console and publish a new application version. The bot returns an explanation if an image download fails.
+
+### IM Chat Commands
+
+DingTalk and Feishu support the same commands. Send a text command directly in a private chat, or mention the bot when sending a command in a group. Send each command as a separate message. Agent Muster handles commands directly without submitting them as agent tasks.
+
+| Command | Behavior |
+| --- | --- |
+| `/new` | Clear the current chat's session mapping so the next task starts a new conversation; keep history and the selected project/model |
+| `/projects` | List registered projects with their numbers, names, and full paths |
+| `/project <number or full path>` | Switch the current chat's project; the next task starts a new conversation |
+| `/models` | List the bound agent's available models with their numbers, names, and IDs |
+| `/model <number or model ID>` | Switch the current chat's model for the next task while continuing the current conversation |
+| `/model default` | Use the agent's default model for the next task |
+| `/status` | Show the current project, agent, model, and local conversation ID |
+| `/help` | Show command help |
+
+For example, send `/projects`, then `/project 2` to select the second project. Send `/models`, then `/model 1` to select the first model. Next, send your task message. To start a separate task in the current project, send `/new` before sending the new task.
+
+Projects must already be registered in Agent Muster, and models must appear in the current agent's available model list. Numbers refer to the corresponding list; full project paths and model IDs are also accepted. Invalid commands, projects, or models return an explanation without changing the configuration.
+
+Command changes affect only the current private or group chat. Group members share its configuration and conversation; other chats are unaffected. Project and model settings persist across service restarts. Commands and tasks are processed in order, so a command waits for earlier tasks to finish.
 
 ### Send Messages from the Web Interface
 
@@ -155,7 +181,7 @@ npx agent-muster web --port 18000
 
 ### An IM Bot Does Not Reply
 
-Confirm that Agent Muster is running, platform authorization is complete, and the application is bound to a project and an available agent. In groups, mention the bot. For Feishu, check its connection status and use a text message. Inspect the web conversation log and startup terminal for task status and errors.
+Confirm that Agent Muster is running, platform authorization is complete, and the application is bound to a project and an available agent. In groups, mention the bot. For Feishu, check its connection status; if image downloads fail, confirm that `im:message:readonly` is enabled and the application version has been published. Inspect the web conversation log and startup terminal for task status and errors.
 
 ### A Message Cannot Be Sent from the Web Interface
 

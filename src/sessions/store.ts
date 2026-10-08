@@ -1,8 +1,9 @@
 import { closeSync, copyFileSync, fstatSync, mkdirSync, openSync, readSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeSync, writeFileSync, appendFileSync } from 'node:fs';
-import { readFile, readdir, rename, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { AgentSession, SessionEvent } from '../types.js';
+import type { AgentImage, AgentSession, SessionEvent } from '../types.js';
 import { projectDirectory } from '../projects/storage.js';
 
 type SessionMetadata = Omit<AgentSession, 'events'>;
@@ -53,6 +54,34 @@ export class SessionStore {
   private metadataKeys = new Map<string, string>();
 
   constructor(private directory = join(homedir(), '.agent-muster')) {}
+
+  async saveImage(data: Buffer, mimeType: string): Promise<string> {
+    const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+    const extension = extensions[mimeType];
+    if (typeof extension !== 'string') throw new Error('仅支持 PNG、JPEG、GIF 和 WebP 图片');
+    if (!data.length) throw new Error('图片不能为空');
+    const valid = mimeType === 'image/png' ? data.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
+      : mimeType === 'image/jpeg' ? data.subarray(0, 3).toString('hex') === 'ffd8ff'
+      : mimeType === 'image/gif' ? ['GIF87a', 'GIF89a'].includes(data.subarray(0, 6).toString('ascii'))
+      : data.subarray(0, 4).toString('ascii') === 'RIFF' && data.subarray(8, 12).toString('ascii') === 'WEBP';
+    if (!valid) throw new Error('图片内容与格式不匹配');
+    const directory = join(this.directory, 'images');
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const id = `${randomUUID()}.${extension}`;
+    await writeFile(join(directory, id), data, { mode: 0o600 });
+    return id;
+  }
+
+  async readImages(ids: string[]): Promise<AgentImage[]> {
+    const types: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+    return Promise.all(ids.map(async id => {
+      const match = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}\.(png|jpg|gif|webp)$/.exec(id);
+      if (!match) throw new Error('图片标识无效');
+      const path = join(this.directory, 'images', id);
+      const data = await readFile(path);
+      return { type: 'image', path, mimeType: types[match[1]], data: data.toString('base64') };
+    }));
+  }
 
   async load(): Promise<AgentSession[]> {
     const projects = join(this.directory, 'projects');

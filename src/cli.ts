@@ -103,9 +103,9 @@ async function main(): Promise<void> {
     return;
   }
   for (const { sessionId, appId } of dingtalk.sessionBindings()) sessions.linkDingTalkSession(sessionId, appId);
-  new DingTalkBridge(dingtalk, registry, sessions);
+  new DingTalkBridge(dingtalk, registry, sessions, projects);
   for (const { sessionId, appId } of feishu.sessionBindings()) sessions.linkFeishuSession(sessionId, appId);
-  new FeishuBridge(feishu, registry, sessions);
+  new FeishuBridge(feishu, registry, sessions, projects);
   const server = await startServer(port, registry, projects, sessions, dingtalk, feishu, options.includes('--dev'));
   dingtalk.startSubscriptions();
   feishu.startSubscriptions();

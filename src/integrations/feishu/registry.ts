@@ -3,16 +3,20 @@ import { EventEmitter } from 'node:events';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { buffer } from 'node:stream/consumers';
 import { Client, Domain, EventDispatcher, LoggerLevel, WSClient, registerApp, type EventHandles } from '@larksuiteoapi/node-sdk';
 import QRCode from 'qrcode';
 import { moveLegacyPath } from '../storage.js';
+import type { ConversationSettings } from '../commands.js';
+import type { AgentImage } from '../../types.js';
 
 const rootDirectory = join(homedir(), '.agent-muster');
 const directory = join(rootDirectory, 'im', 'feishu');
 const dataFile = join(directory, 'apps.json');
+const imageDirectory = join(directory, 'images');
 type Application = {
   id: string; clientId: string; clientSecret: string; name: string | null; icon: string | null;
-  project: string | null; agent: string | null; conversations: Record<string, string>;
+  project: string | null; agent: string | null; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
 };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; appId?: string; reason?: string };
 type Registration = { controller: AbortController; expiresAt?: number; result: PollResult };
@@ -32,18 +36,27 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
   }
 
   list() {
-    return this.apps.map(({ clientSecret, conversations, ...app }) => ({
+    return this.apps.map(({ clientSecret, conversations, conversationSettings, ...app }) => ({
       ...app, connectionStatus: this.clients.get(app.id)?.ws.getConnectionStatus().state,
     }));
   }
 
-  getBinding(id: string) {
+  getBinding(id: string, conversation?: string) {
     const app = this.apps.find(item => item.id === id);
-    return app ? { project: app.project, agent: app.agent } : undefined;
+    return app ? { project: app.project, agent: app.agent, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
   }
 
   getSession(id: string, chatId: string) {
     return this.apps.find(item => item.id === id)?.conversations[chatId];
+  }
+
+  async configureConversation(id: string, conversation: string, settings: ConversationSettings, newSession = false): Promise<void> {
+    const app = this.apps.find(item => item.id === id);
+    if (!app) throw new Error('应用不存在');
+    app.conversationSettings ||= {};
+    app.conversationSettings[conversation] = { ...app.conversationSettings[conversation], ...settings };
+    if (newSession) delete app.conversations[conversation];
+    await this.persist();
   }
 
   sessionBindings() {
@@ -64,7 +77,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
         source: 'agent-muster', createOnly: true, signal: registration.controller.signal,
         appPreset: { name: 'Agent Muster', desc: '通过飞书与本地编码 Agent 对话' },
         addons: {
-          scopes: { tenant: ['im:message:send_as_bot', 'im:message.p2p_msg:readonly', 'im:message.group_at_msg:readonly'] },
+          scopes: { tenant: ['im:message:send_as_bot', 'im:message.p2p_msg:readonly', 'im:message.group_at_msg:readonly', 'im:message:readonly'] },
           events: { items: { tenant: ['im.message.receive_v1'] } },
         },
         onQRCodeReady: ({ url, expireIn }) => {
@@ -129,6 +142,35 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     void ws.start({ eventDispatcher }).catch(error => console.error(`飞书应用 ${app.clientId} 消息监听失败：`, error));
   }
 
+  async downloadImage(id: string, messageId: string, imageKey: string): Promise<AgentImage> {
+    if (!messageId || !imageKey) throw new Error('飞书图片消息缺少消息 ID 或图片标识');
+    const client = this.clients.get(id);
+    if (!client) throw new Error('飞书应用消息监听未启动');
+    let data: Buffer;
+    try {
+      const result = await client.api.im.messageResource.get({
+        path: { message_id: messageId, file_key: imageKey }, params: { type: 'image' },
+      });
+      data = await buffer(result.getReadableStream());
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      throw new Error(`飞书图片下载失败${status ? `（HTTP ${status}）` : ''}，请确认应用已开通 im:message:readonly 权限并发布，且机器人在消息所在的会话中。`);
+    }
+    if (!data.length) throw new Error('飞书返回了空图片');
+    // 资源接口可能返回通用二进制类型，依据图片文件头识别格式。
+    let mimeType: string;
+    let extension: string;
+    if (data.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') { mimeType = 'image/png'; extension = 'png'; }
+    else if (data.subarray(0, 3).toString('hex') === 'ffd8ff') { mimeType = 'image/jpeg'; extension = 'jpg'; }
+    else if (['GIF87a', 'GIF89a'].includes(data.subarray(0, 6).toString('ascii'))) { mimeType = 'image/gif'; extension = 'gif'; }
+    else if (data.subarray(0, 4).toString('ascii') === 'RIFF' && data.subarray(8, 12).toString('ascii') === 'WEBP') { mimeType = 'image/webp'; extension = 'webp'; }
+    else throw new Error('飞书返回了不支持的图片格式，请发送 PNG、JPEG、GIF 或 WebP 图片。');
+    await mkdir(imageDirectory, { recursive: true, mode: 0o700 });
+    const path = join(imageDirectory, `${randomUUID()}.${extension}`);
+    await writeFile(path, data, { mode: 0o600 });
+    return { type: 'image', mimeType, data: data.toString('base64'), path };
+  }
+
   async send(id: string, chatId: string, content: string, format: 'text' | 'markdown' = 'text'): Promise<void> {
     const client = this.clients.get(id);
     if (!client) throw new Error('飞书应用消息监听未启动');
@@ -166,7 +208,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     if (binding.project !== undefined && binding.project !== null && !projects.includes(binding.project)) throw new Error('项目不存在');
     if (binding.agent !== undefined && binding.agent !== null && !agents.includes(binding.agent)) throw new Error('Agent 不可用');
     const app = this.getApp(id);
-    if ((binding.project !== undefined && binding.project !== app.project) || (binding.agent !== undefined && binding.agent !== app.agent)) app.conversations = {};
+    if ((binding.project !== undefined && binding.project !== app.project) || (binding.agent !== undefined && binding.agent !== app.agent)) { app.conversations = {}; app.conversationSettings = {}; }
     if (binding.project !== undefined) app.project = binding.project;
     if (binding.agent !== undefined) app.agent = binding.agent;
     await this.persist();
@@ -206,9 +248,16 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
   }
 
   async unbindProject(project: string): Promise<void> {
+    for (const app of this.apps) {
+      for (const [conversation, settings] of Object.entries(app.conversationSettings || {})) {
+        if (settings.project !== project) continue;
+        delete settings.project;
+        delete app.conversations[conversation];
+      }
+    }
     const apps = this.apps.filter(app => app.project === project);
-    for (const app of apps) { app.project = null; app.conversations = {}; }
-    if (apps.length) await this.persist();
+    for (const app of apps) { app.project = null; app.conversations = {}; app.conversationSettings = {}; }
+    await this.persist();
   }
 
   private getApp(id: string): Application {

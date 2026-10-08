@@ -46,6 +46,17 @@ export class SessionManager extends EventEmitter {
     }
   }
 
+  async uploadImage(data: Buffer, mimeType: string): Promise<string> {
+    return this.store.saveImage(data, mimeType);
+  }
+
+  async readImages(ids: unknown, agent: string): Promise<AgentImage[]> {
+    if (ids === undefined) return [];
+    if (!Array.isArray(ids) || !ids.every(id => typeof id === 'string')) throw new Error('图片列表无效');
+    if (ids.length && (agent === 'kimi' || agent === 'cursor')) throw new Error('当前 Agent 接入不支持图片附件');
+    return this.store.readImages(ids);
+  }
+
   history(id: string, limit?: number, before?: number) {
     if (!this.sessions.has(id)) throw new Error('会话不存在');
     return this.store.history(id, limit, before);
@@ -90,7 +101,7 @@ export class SessionManager extends EventEmitter {
     catch (error) { console.error('保存会话失败：', error); }
   }
 
-  private append(session: AgentSession, type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, dingtalkConversation?: DingTalkConversation, feishuConversation?: FeishuConversation): void {
+  private append(session: AgentSession, type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, dingtalkConversation?: DingTalkConversation, feishuConversation?: FeishuConversation, images?: AgentImage[]): void {
     const event: SessionEvent = {
       id: (session.events.at(-1)?.id || 0) + 1,
       type,
@@ -101,6 +112,7 @@ export class SessionManager extends EventEmitter {
       timestamp: Date.now(),
       ...(dingtalkConversation ? { dingtalkConversation } : {}),
       ...(feishuConversation ? { feishuConversation } : {}),
+      ...(images?.length ? { images: images.map(({ path, mimeType }) => ({ path, mimeType })) } : {}),
     };
     session.events.push(event);
     if (session.events.length > 50) session.events.splice(0, session.events.length - 50);
@@ -144,7 +156,7 @@ export class SessionManager extends EventEmitter {
       events: [],
     };
     this.sessions.set(session.id, session);
-    this.append(session, 'message', session.prompt, undefined, undefined, undefined, dingtalkConversation, feishu?.conversation);
+    this.append(session, 'message', session.prompt, undefined, undefined, undefined, dingtalkConversation, feishu?.conversation, images);
     this.start(session, session.prompt, images);
     return session;
   }
@@ -158,7 +170,7 @@ export class SessionManager extends EventEmitter {
     if (model !== undefined) session.model = model || undefined;
     if (dingtalkConversation) session.dingtalkConversation = dingtalkConversation;
     if (feishuConversation) session.feishuConversation = feishuConversation;
-    this.append(session, 'message', message.trim(), undefined, undefined, undefined, dingtalkConversation, feishuConversation);
+    this.append(session, 'message', message.trim(), undefined, undefined, undefined, dingtalkConversation, feishuConversation, images);
     this.start(session, message.trim(), images);
     return session;
   }

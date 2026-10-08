@@ -7,14 +7,15 @@ import { ImPrototype, type Application } from './im-prototype';
 import { AppIcon } from './app-icon';
 import { AgentPanel } from './agent-panel';
 import { MessageProvider, useErrorMessage } from './message';
-import type { AgentInfo as Agent } from '../../src/types';
+import { MessageImages } from './message-images';
+import type { AgentInfo as Agent, AgentImage } from '../../src/types';
 import './style.css';
 
 type Status = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'stopped';
 type FeishuApp = Pick<Application, 'id' | 'icon'>;
 type TokenUsage = { inputTokens: number; outputTokens: number };
 type DingTalkConversation = { type: 'single' | 'group'; groupName?: string; senderName: string; senderStaffId: string };
-type Event = { id: number; type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage'; text: string; detail?: string; kind?: string; comparison?: string; timestamp: number; pushedToIm?: boolean; feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation };
+type Event = { id: number; type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage'; text: string; detail?: string; kind?: string; comparison?: string; timestamp: number; pushedToIm?: boolean; feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation; images?: Pick<AgentImage, 'path' | 'mimeType'>[] };
 type Session = {
   id: string; agent: string; dingtalkAppId?: string; feishuAppId?: string; cwd: string; prompt: string; model?: string; usage?: TokenUsage; externalSessionId?: string;
   feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation;
@@ -25,6 +26,7 @@ type SessionPage = Session & { hasMore: boolean };
 type Directory = { path: string };
 type Layout = 'single' | 'double' | 'quad';
 type PaneState = { sessionId: string | null; cwd: string; revision: number };
+type ComposerImage = { file: File; url: string; id?: string };
 function LayoutSwitch({ layout, onChange }: { layout: Layout; onChange: (layout: Layout) => void }) {
   return <div className="layout-switch">
     <Select aria-label="窗口布局" title={`窗口布局：${layout === 'single' ? '单窗' : layout === 'double' ? '双栏' : '四宫格'}`} value={layout} onChange={value => onChange(value as Layout)} triggerLabel={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" />{layout !== 'single' && <path d="M12 3v18" />}{layout === 'quad' && <path d="M3 12h18" />}</svg>}>
@@ -225,6 +227,9 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const [agent, setAgent] = useState(agents.find(item => item.installed)?.id || '');
   const [model, setModel] = useState(sessions.find(session => session.id === selectedId)?.model || '');
   const [message, setMessage] = useState('');
+  const [images, setImages] = useState<ComposerImage[]>([]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageUrls = useRef(new Set<string>());
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const historyController = useRef<AbortController | null>(null);
@@ -238,6 +243,11 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const runLogRef = useRef<HTMLDetailsElement>(null);
   const followConversation = useRef(true);
+
+  useEffect(() => () => {
+    for (const url of imageUrls.current) URL.revokeObjectURL(url);
+    imageUrls.current.clear();
+  }, []);
 
   useEffect(() => {
     function closeRunLog(event: PointerEvent) {
@@ -357,19 +367,50 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     } catch (reason) { setError(`复制失败：${(reason as Error).message}`); }
   }
 
+  function addImages(files: File[]) {
+    if (busy || composerDisabled) return;
+    if (!supportsImages) { setError('当前 Agent 接入不支持图片附件'); return; }
+    if (files.some(file => !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type))) {
+      setError('仅支持 PNG、JPEG、GIF 和 WebP 图片'); return;
+    }
+    if (files.some(file => file.size > 10 * 1024 * 1024)) { setError('单张图片不能超过 10 MB'); return; }
+    const added = files.map(file => {
+      const url = URL.createObjectURL(file);
+      imageUrls.current.add(url);
+      return { file, url };
+    });
+    setImages(current => [...current, ...added]);
+    setError('');
+  }
+
+  function removeImage(url: string) {
+    URL.revokeObjectURL(url);
+    imageUrls.current.delete(url);
+    setImages(current => current.filter(image => image.url !== url));
+  }
+
   async function send() {
-    const content = message.trim();
+    const content = message.trim() || '请查看这张图片。';
     if (!canSend) return;
     setError(''); setBusy(true);
     try {
+      const uploaded = await Promise.all(images.map(async image => {
+        const { id } = image.id ? { id: image.id } : await api<{ id: string }>('/api/images', { method: 'POST', headers: { 'Content-Type': image.file.type }, body: image.file });
+        return { ...image, id };
+      }));
+      setImages(uploaded);
+      const imageIds = uploaded.map(image => image.id);
       if (selected) {
-        const session = await api<Session>(`/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify({ content, model }) });
+        const session = await api<Session>(`/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify({ content, model, imageIds }) });
         onSessionUpdate(session);
       } else {
-        const session = await api<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ agent, cwd: pane.cwd, prompt: content, model }) });
+        const session = await api<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ agent, cwd: pane.cwd, prompt: content, model, imageIds }) });
         onSessionCreated(index, session);
       }
       setMessage('');
+      setImages([]);
+      for (const url of imageUrls.current) URL.revokeObjectURL(url);
+      imageUrls.current.clear();
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(false); }
   }
@@ -402,14 +443,15 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const contextWindow = models.find(item => item.id === (model || agentInfo?.defaultModel))?.contextWindow;
   const usedTokens = selected?.usage ? selected.usage.inputTokens + selected.usage.outputTokens : undefined;
   const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
-  const canSend = Boolean(message.trim() && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
+  const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'kimi' && composerAgent !== 'cursor');
+  const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const feishuIcon = feishuApps.find(app => app.id === selected?.feishuAppId)?.icon;
 
   const renderItem = (item: Event | Event[], showActions = false, expandTools = false) => selected && (Array.isArray(item)
             ? <ToolTimeline key={item[0].id} events={item} accordionName={`tools-${index}-${selected.id}-${item[0].id}`} active={expandTools} />
             : item.type === 'message'
-              ? <div key={item.id} className="chat-turn user-turn"><div className="user-bubble">{item.text}</div></div>
+              ? <div key={item.id} className="chat-turn user-turn"><div className="user-bubble">{item.text}{item.images && item.images.length > 0 && <MessageImages key={selected.id} sessionId={selected.id} eventId={item.id} count={item.images.length} />}</div></div>
               : item.type === 'file_change'
                 ? <FileChange key={item.id} event={item} cwd={selected.cwd} />
               : item.type === 'error'
@@ -451,10 +493,10 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
               <div className="execution-response">
                 <ExecutionSteps round={round}>{steps.map(item => renderItem(item, false, round.active))}</ExecutionSteps>
                 {results.map(item => renderItem(item, !Array.isArray(item) && item.id === finalOutput?.id))}
+                {round.active && <div className="chat-progress"><span />{agentName(selected.agent)} 正在处理…</div>}
               </div>
             </React.Fragment>;
           })}
-          {running && <div className="chat-progress"><span />{agentName(selected.agent)} 正在处理…</div>}
         </div> : <div className="chat-empty"><strong>描述你想完成的任务</strong></div>}
       </div>
       <div className="chat-compose-wrap">
@@ -469,8 +511,10 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
           <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
         </div>}
         <div className="chat-composer">
-          <textarea ref={composerRef} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求' : '描述要完成的任务'} disabled={busy || composerDisabled} rows={2} />
-          <div className="composer-footer"><div className="composer-actions"><label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={value => setModel(value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label></div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
+          {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
+          <textarea ref={composerRef} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={event => setMessage(event.target.value)} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求' : '描述要完成的任务'} disabled={busy || composerDisabled} rows={2} />
+          <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
+          <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}<label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={value => setModel(value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label></div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
         </div>
         {selected && <div className="context-status" title={selected.usage ? `累计输入 ${selected.usage.inputTokens.toLocaleString()} Token，累计输出 ${selected.usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>{usedTokens === undefined && !contextWindow ? '上下文数据未提供' : `累计消耗 ${usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`} · 单次窗口 ${contextWindow ? `${tokenCount(contextWindow)} Token` : '未提供'}`}</div>}
       </div>

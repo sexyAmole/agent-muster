@@ -57,6 +57,7 @@ export interface SessionEvent {
   pushedToIm?: boolean;
   dingtalkConversation?: DingTalkConversation;
   feishuConversation?: FeishuConversation;
+  images?: Pick<AgentImage, 'path' | 'mimeType'>[];
 }
 
 export interface AgentSession {

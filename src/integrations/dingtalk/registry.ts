@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import QRCode from 'qrcode';
 import { moveLegacyPath } from '../storage.js';
+import type { ConversationSettings } from '../commands.js';
 import { DWClient, TOPIC_ROBOT, type RobotMessage } from 'dingtalk-stream';
 import { EnvHttpProxyAgent, fetch } from 'undici';
 import type { AgentImage } from '../../types.js';
@@ -30,7 +31,7 @@ type AccessTokenResponse = { accessToken?: string; expireIn?: number };
 type InnerAppsResponse = { appList?: { name?: string; icon?: string; robotInfo?: { robotCode?: string } }[]; code?: string };
 type ConversationTarget = { robotCode: string } & ({ type: '1'; userId: string } | { type: '2'; openConversationId: string });
 type SendMessageResponse = { processQueryKey?: string; message?: string; invalidStaffIdList?: string[]; flowControlledStaffIdList?: string[] };
-type Application = { id: string; clientId: string; clientSecret: string; name: string | null; iconMime: string | null; project: string | null; agent: string | null; conversations: Record<string, string>; conversationTargets?: Record<string, ConversationTarget> };
+type Application = { id: string; clientId: string; clientSecret: string; name: string | null; iconMime: string | null; project: string | null; agent: string | null; conversations: Record<string, string>; conversationTargets?: Record<string, ConversationTarget>; conversationSettings?: Record<string, ConversationSettings> };
 type RobotMessageBase = Omit<RobotMessage, 'msgtype' | 'text'> & { conversationTitle?: string };
 type RobotImage = { downloadCode?: string; pictureDownloadCode?: string };
 type IncomingRobotMessage = RobotMessageBase & (
@@ -68,8 +69,8 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     await moveLegacyPath(join(rootDirectory, 'dingtalk-images'), imageDirectory);
     try {
       const stored = JSON.parse(await readFile(dataFile, 'utf8')) as Application[];
-      this.apps = stored.map(({ id, clientId, clientSecret, name, iconMime, project, agent, conversations, conversationTargets }) => ({
-        id, clientId, clientSecret, name: name || null, iconMime: iconMime || null, project, agent: agent || null, conversations: conversations || {}, conversationTargets,
+      this.apps = stored.map(({ id, clientId, clientSecret, name, iconMime, project, agent, conversations, conversationTargets, conversationSettings }) => ({
+        id, clientId, clientSecret, name: name || null, iconMime: iconMime || null, project, agent: agent || null, conversations: conversations || {}, conversationTargets, conversationSettings,
       }));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -86,13 +87,22 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     return { data: await readFile(join(iconDirectory, id)), mime: app.iconMime };
   }
 
-  getBinding(id: string) {
+  getBinding(id: string, conversation?: string) {
     const app = this.apps.find(item => item.id === id);
-    return app ? { project: app.project, agent: app.agent } : undefined;
+    return app ? { project: app.project, agent: app.agent, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
   }
 
   getSession(id: string, conversation: string): string | undefined {
     return this.apps.find(item => item.id === id)?.conversations[conversation];
+  }
+
+  async configureConversation(id: string, conversation: string, settings: ConversationSettings, newSession = false): Promise<void> {
+    const app = this.apps.find(item => item.id === id);
+    if (!app) throw new Error('应用不存在');
+    app.conversationSettings ||= {};
+    app.conversationSettings[conversation] = { ...app.conversationSettings[conversation], ...settings };
+    if (newSession) delete app.conversations[conversation];
+    await this.persist();
   }
 
   sessionBindings() {
@@ -135,7 +145,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     catch (error) { throw new Error(`钉钉图片下载地址响应不是有效 JSON: ${body.slice(0, 2000)}`, { cause: error }); }
     if (typeof result?.downloadUrl !== 'string' || !result.downloadUrl) throw new Error(`钉钉未返回图片下载地址: ${body.slice(0, 2000)}`);
     const url = new URL(result.downloadUrl);
-    if (url.protocol !== 'https:') throw new Error('钉钉返回了无效的图片下载地址');
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('钉钉返回了无效的图片下载地址');
     const image = await fetch(url, { signal: AbortSignal.timeout(30000), dispatcher });
     if (!image.ok) throw new Error(`钉钉图片下载失败 (${image.status}): ${(await image.text()).slice(0, 2000)}`);
     const mimeType = image.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
@@ -186,7 +196,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     if (changed) await this.persist();
   }
 
-  async reply(id: string, webhook: string, content: string): Promise<void> {
+  async reply(id: string, webhook: string, content: string, format: 'text' | 'markdown' = 'text'): Promise<void> {
     const url = new URL(webhook);
     if (url.protocol !== 'https:' || url.hostname !== 'oapi.dingtalk.com' || url.pathname !== '/robot/sendBySession') {
       throw new Error('钉钉返回了无效的回复地址');
@@ -197,7 +207,9 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': accessToken },
-      body: JSON.stringify({ msgtype: 'text', text: { content } }),
+      body: JSON.stringify(format === 'markdown'
+        ? { msgtype: 'markdown', markdown: { title: 'Agent 执行结果', text: content } }
+        : { msgtype: 'text', text: { content } }),
       redirect: 'error', signal: AbortSignal.timeout(10000), dispatcher,
     });
     if (!response.ok) throw new Error(`钉钉回复失败 (${response.status})`);
@@ -279,6 +291,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     if (!app) throw new Error('钉钉应用不存在');
     if ((binding.project !== undefined && binding.project !== app.project) || (binding.agent !== undefined && binding.agent !== app.agent)) {
       app.conversations = {};
+      app.conversationSettings = {};
       app.conversationTargets = {};
     }
     if (binding.project !== undefined) app.project = binding.project;
@@ -300,9 +313,18 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
 
   async unbindProject(project: string): Promise<void> {
     for (const app of this.apps) {
+      for (const [conversation, settings] of Object.entries(app.conversationSettings || {})) {
+        if (settings.project !== project) continue;
+        delete settings.project;
+        delete app.conversations[conversation];
+        delete app.conversationTargets?.[conversation];
+      }
+    }
+    for (const app of this.apps) {
       if (app.project !== project) continue;
       app.project = null;
       app.conversations = {};
+      app.conversationSettings = {};
       app.conversationTargets = {};
     }
     await this.persist();

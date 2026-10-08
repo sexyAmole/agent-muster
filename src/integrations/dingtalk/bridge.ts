@@ -1,3 +1,5 @@
+import type { ProjectRegistry } from '../../projects/registry.js';
+import { handleCommand } from '../commands.js';
 import type { AgentRegistry } from '../../agents/registry.js';
 import { DingTalkRegistry, type DingTalkMessage } from './registry.js';
 import type { SessionManager } from '../../sessions/manager.js';
@@ -25,7 +27,7 @@ export class DingTalkBridge {
   private queues = new Map<string, Promise<void>>();
   private seen = new Set<string>();
 
-  constructor(private dingtalk: DingTalkRegistry, private agents: AgentRegistry, private sessions: SessionManager) {
+  constructor(private dingtalk: DingTalkRegistry, private agents: AgentRegistry, private sessions: SessionManager, private projects: ProjectRegistry) {
     dingtalk.on('message', event => this.enqueue(event));
   }
 
@@ -54,9 +56,14 @@ export class DingTalkBridge {
   private async process(appId: string, conversation: string, message: DingTalkMessage['message']): Promise<void> {
     if (!['text', 'picture', 'richText'].includes(message.msgtype)) return;
     if (message.msgtype === 'text' && !message.text.content.trim()) return;
-    const binding = this.dingtalk.getBinding(appId);
+    if (message.msgtype === 'text' && await handleCommand(message.text.content.trim(), appId, conversation, this.dingtalk, this.projects, this.agents, this.sessions, text => this.dingtalk.reply(appId, message.sessionWebhook, text))) return;
+    const binding = this.dingtalk.getBinding(appId, conversation);
     if (!binding?.project || !binding.agent) {
       await this.dingtalk.reply(appId, message.sessionWebhook, '请先在 Agent Muster 中为此应用绑定项目和 Agent。');
+      return;
+    }
+    if (!this.projects.list().includes(binding.project)) {
+      await this.dingtalk.reply(appId, message.sessionWebhook, '当前项目不存在，请通过 /projects 查看列表并使用 /project 切换项目。');
       return;
     }
     if (!this.agents.get(binding.agent)?.installed) {
@@ -74,8 +81,10 @@ export class DingTalkBridge {
         if (part.type === 'picture') {
           const downloadCode = part.downloadCode ?? part.pictureDownloadCode;
           if (!downloadCode) throw new Error('钉钉图片消息缺少下载码');
-          if (binding.agent === 'kimi') throw new Error('当前 Kimi CLI 不支持图片附件输入');
-          if (binding.agent === 'cursor') throw new Error('当前 Cursor CLI 接入不支持图片附件输入');
+          if (binding.agent === 'kimi' || binding.agent === 'cursor') {
+            await this.dingtalk.reply(appId, message.sessionWebhook, `当前 ${this.agents.get(binding.agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
+            return;
+          }
           images.push(await this.dingtalk.downloadImage(appId, message.robotCode, downloadCode));
         } else promptParts.push(part.text);
       }
@@ -97,9 +106,9 @@ export class DingTalkBridge {
     if (session) this.sessions.linkDingTalkSession(session.id, appId);
     if (session && !terminalStatuses.has(session.status)) await waitForCompletion(this.sessions, session);
     const lastEventId = session?.events.at(-1)?.id || 0;
-    if (session) this.sessions.send(session.id, prompt, undefined, dingtalkConversation, images);
+    if (session) this.sessions.send(session.id, prompt, binding.model, dingtalkConversation, images);
     else {
-      session = await this.sessions.create(binding.agent, binding.project, prompt, undefined, appId, dingtalkConversation, images);
+      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, appId, dingtalkConversation, images);
       await this.dingtalk.setSession(appId, conversation, session.id);
     }
     await waitForCompletion(this.sessions, session);
@@ -115,6 +124,6 @@ export class DingTalkBridge {
     const reply = session.status === 'completed'
       ? output || 'Agent 已执行完成。'
       : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
-    await this.dingtalk.reply(appId, message.sessionWebhook, reply);
+    await this.dingtalk.reply(appId, message.sessionWebhook, reply, 'markdown');
   }
 }
