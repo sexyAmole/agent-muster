@@ -6,7 +6,7 @@ Manage local AI coding agents, projects, and conversations in your browser. Send
 
 ## Features
 
-- Detect installed Codex, Claude Code, Pi, and Kimi CLI agents.
+- Detect installed Codex, Claude Code, Pi, Kimi CLI, Gemini CLI, OpenCode, and Cursor agents.
 - Organize conversations by project and work across one, two, or four conversation panes.
 - Select agents and models, and view live replies, tool calls, execution status, and available token usage.
 - Save projects and conversation history, resume conversations, and stop running tasks.
@@ -24,6 +24,9 @@ Manage local AI coding agents, projects, and conversations in your browser. Send
 | Claude Code | `claude` |
 | Pi | `pi` |
 | Kimi CLI | `kimi` |
+| Gemini CLI | `gemini` |
+| OpenCode | `opencode` |
+| Cursor | `cursor-agent` |
 
 ## Quick Start
 

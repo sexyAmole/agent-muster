@@ -6,7 +6,7 @@
 
 ## 功能
 
-- 自动检测本机已安装的 Codex、Claude Code、Pi 和 Kimi CLI。
+- 自动检测本机已安装的 Codex、Claude Code、Pi、Kimi CLI、Gemini CLI、OpenCode 和 Cursor。
 - 按项目管理对话，支持单窗、双窗和四窗布局，同时查看和继续不同任务。
 - 选择 Agent 和模型，实时查看回复、工具调用、执行状态及可用的 Token 用量。
 - 保存项目和对话记录，支持继续对话和停止正在运行的任务。
@@ -24,6 +24,9 @@
 | Claude Code | `claude` |
 | Pi | `pi` |
 | Kimi CLI | `kimi` |
+| Gemini CLI | `gemini` |
+| OpenCode | `opencode` |
+| Cursor | `cursor-agent` |
 
 ## 快速开始
 
