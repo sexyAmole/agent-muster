@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Select } from './select';
 import { createRoot } from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
@@ -9,6 +9,9 @@ import { AgentPanel } from './agent-panel';
 import { MessageProvider, useErrorMessage } from './message';
 import { MessageImages } from './message-images';
 import { FileMentionTextarea } from './file-mention-textarea';
+import { RunLog } from './run-log';
+import { StreamText } from './stream-text';
+import { mergeSessionEvents } from '../../src/session-events';
 import type { AgentInfo as Agent, AgentImage } from '../../src/types';
 import './style.css';
 
@@ -16,7 +19,7 @@ type Status = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'sto
 type FeishuApp = Pick<Application, 'id' | 'icon'>;
 type TokenUsage = { inputTokens: number; outputTokens: number };
 type DingTalkConversation = { type: 'single' | 'group'; groupName?: string; senderName: string; senderStaffId: string };
-type Event = { id: number; type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage' | 'raw_stdout' | 'raw_stderr'; text: string; detail?: string; kind?: string; comparison?: string; timestamp: number; pushedToIm?: boolean; feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation; images?: Pick<AgentImage, 'path' | 'mimeType'>[] };
+type Event = { id: number; streamId?: string; order?: number; contentIndex?: number; streaming?: boolean; clearStreamIds?: string[]; type: 'system' | 'thinking' | 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage' | 'raw_stdout' | 'raw_stderr'; text: string; detail?: string; kind?: string; comparison?: string; timestamp: number; pushedToIm?: boolean; feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation; images?: Pick<AgentImage, 'path' | 'mimeType'>[] };
 type Session = {
   id: string; agent: string; dingtalkAppId?: string; feishuAppId?: string; cwd: string; prompt: string; model?: string; usage?: TokenUsage; externalSessionId?: string;
   feishuConversation?: { type: 'single' | 'group'; senderId: string }; dingtalkConversation?: DingTalkConversation;
@@ -123,7 +126,7 @@ function conversationEvents(session: Session): Event[] {
 function conversationItems(session: Session): (Event | Event[])[] {
   const items: (Event | Event[])[] = [];
   for (const event of conversationEvents(session)) {
-    if (event.type !== 'message' && event.type !== 'output' && event.type !== 'dingtalk_message' && event.type !== 'feishu_message' && event.type !== 'tool' && event.type !== 'file_change' && !(event.type === 'error' && session.status === 'failed')) continue;
+    if (event.type !== 'thinking' && event.type !== 'message' && event.type !== 'output' && event.type !== 'dingtalk_message' && event.type !== 'feishu_message' && event.type !== 'tool' && event.type !== 'file_change' && !(event.type === 'error' && session.status === 'failed')) continue;
     if (event.type === 'tool') {
       const previous = items.at(-1);
       if (Array.isArray(previous)) previous.push(event);
@@ -152,10 +155,12 @@ function executionRounds(session: Session): ExecutionRound[] {
   return rounds;
 }
 
-function ExecutionSteps({ round, children }: { round: ExecutionRound; children: React.ReactNode }) {
+function ExecutionSteps({ round, stepCount, commandCount, persistentOutputs = false, children }: { round: ExecutionRound; stepCount: number; commandCount: number; persistentOutputs?: boolean; children: React.ReactNode }) {
   const [now, setNow] = useState(Date.now());
   const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [expanded, setExpanded] = useState(round.active);
   useEffect(() => {
+    setExpanded(round.active);
     if (detailsRef.current) detailsRef.current.open = round.active;
     if (!round.active) return;
     setNow(Date.now());
@@ -165,11 +170,12 @@ function ExecutionSteps({ round, children }: { round: ExecutionRound; children: 
   const seconds = round.message && (round.end || round.active)
     ? Math.max(0, Math.floor(((round.end?.timestamp ?? now) - round.message.timestamp) / 1000)) : undefined;
   const duration = seconds === undefined || seconds === 0 ? '' : seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分${seconds % 60 ? ` ${seconds % 60} 秒` : ''}`;
-  const label = round.active ? '工作中' : round.end?.text === 'completed' ? '已工作' : round.end ? statusLabel[round.end.text as Status] : '执行过程';
-  return <details ref={detailsRef} className="execution-steps" open={round.active}>
-    <summary>{label}{duration && ` ${duration}`}<span className="tool-call-chevron" /></summary>
-    <div className="execution-content">{children}</div>
-  </details>;
+  const state = round.end && round.end.text !== 'completed' ? statusLabel[round.end.text as Status] : '';
+  const summary = <><span>执行过程{stepCount > 0 && ` · ${stepCount} 步`}</span>{commandCount > 0 && <span className="execution-meta">· {commandCount} 个命令</span>}{duration && <span className="execution-meta">· {duration}</span>}{state && <span className="execution-meta">· {state}</span>}<span className="tool-call-chevron" aria-hidden="true" /></>;
+  const content = <div className="execution-content">{children}{round.active && <div className="thinking-step" role="status"><span className="thinking-label">思考中…</span></div>}</div>;
+  return persistentOutputs
+    ? <div className={`execution-steps ${expanded ? 'expanded' : 'collapsed'}`}><button type="button" className="execution-summary" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{summary}</button>{content}</div>
+    : <details ref={detailsRef} className="execution-steps" open={round.active}><summary>{summary}</summary>{content}</details>;
 }
 
 function conversationText(session: Session): string {
@@ -184,17 +190,37 @@ function fileLabel(path: string, cwd: string): string {
   return path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}\\`) ? path.slice(prefix.length + 1) : path;
 }
 
-function ToolCall({ event, accordionName }: { event: Event; accordionName: string }) {
-  const label = toolLabel(event.text);
-  return <details className="tool-call" name={accordionName}><summary><time dateTime={new Date(event.timestamp).toISOString()}>{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(event.timestamp)}</time><strong title={event.text}>{label}</strong>{event.detail && <span className="tool-call-chevron" />}</summary>{event.detail && <div className="tool-detail-card">{isDiff(event.detail) ? <Diff text={event.detail} /> : <pre>{event.detail}</pre>}</div>}</details>;
+type PiToolDetails = {
+  args?: { command?: string; path?: string };
+  result?: { content?: { type: string; text?: string }[] };
+  isError?: boolean;
+};
+
+function piToolDetails(detail: string | undefined): PiToolDetails | undefined {
+  if (!detail?.startsWith('{')) return undefined;
+  try { return JSON.parse(detail) as PiToolDetails; }
+  // 已截断的历史记录只展示原文，不提取结构化摘要。
+  catch { return undefined; }
 }
 
-function ToolTimeline({ events, accordionName, active }: { events: Event[]; accordionName: string; active: boolean }) {
-  const timeline = <ol className="tool-timeline" aria-label="工具调用时间线">{events.map(event => <li key={event.id}><ToolCall event={event} accordionName={accordionName} /></li>)}</ol>;
-  return events.length === 1 ? timeline : <details className="tool-batch" open={active}>
-    <summary>工具调用 · {events.length} 次<span className="tool-call-chevron" /></summary>
-    {timeline}
-  </details>;
+function ToolCall({ event, accordionName, agent }: { event: Event; accordionName: string; agent: string }) {
+  const data = agent === 'pi' ? piToolDetails(event.detail) : undefined;
+  const target = data?.args?.command || data?.args?.path;
+  const label = target ? `${event.text} ${data?.args?.command ? toolLabel(target) : target}` : toolLabel(event.text);
+  const output = data?.result?.content?.filter(block => block.type === 'text').map(block => block.text).join('\n');
+  const detail = data ? output : event.detail;
+  const lines = output?.trimEnd() ? output.trimEnd().split('\n').length : undefined;
+  return <details className="tool-call" name={accordionName}><summary>
+    <span className={`tool-call-status${event.streaming ? ' running' : ''}${data?.isError ? ' error' : ''}`} aria-label={event.streaming ? '工具执行中' : data?.isError ? '工具执行失败' : '工具执行记录'} />
+    <strong title={target ? `${event.text} ${target}` : label}>{label}</strong>
+    {event.streaming && <span className="tool-output-lines">执行中</span>}
+    {lines !== undefined && <span className="tool-output-lines">{lines} 行</span>}
+    {detail && <span className="tool-call-chevron" />}
+  </summary>{detail && <div className="tool-detail-card">{isDiff(detail) ? <Diff text={detail} /> : <pre>{detail}</pre>}</div>}</details>;
+}
+
+function ToolTimeline({ events, accordionName, agent }: { events: Event[]; accordionName: string; agent: string }) {
+  return <ol className="tool-timeline" aria-label="工具调用时间线">{events.map(event => <li key={event.streamId || event.id}><ToolCall event={event} accordionName={accordionName} agent={agent} /></li>)}</ol>;
 }
 
 function FileChange({ event, cwd }: { event: Event; cwd: string }) {
@@ -242,21 +268,11 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   useErrorMessage(error, setError);
   const [copiedTarget, setCopiedTarget] = useState<'conversation' | 'run-log' | number | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
-  const runLogRef = useRef<HTMLDetailsElement>(null);
   const followConversation = useRef(true);
 
   useEffect(() => () => {
     for (const url of imageUrls.current) URL.revokeObjectURL(url);
     imageUrls.current.clear();
-  }, []);
-
-  useEffect(() => {
-    function closeRunLog(event: PointerEvent) {
-      const runLog = runLogRef.current;
-      if (runLog?.open && event.target instanceof Node && !runLog.contains(event.target)) runLog.open = false;
-    }
-    document.addEventListener('pointerdown', closeRunLog);
-    return () => document.removeEventListener('pointerdown', closeRunLog);
   }, []);
 
   useEffect(() => {
@@ -275,16 +291,20 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       setSelected(session);
       setHasMoreHistory(hasMore);
       onSessionUpdate(session);
-      source = new EventSource(`/api/sessions/${selectedId}/events?after=${session.events.at(-1)?.id || 0}`);
+      source = new EventSource(`/api/sessions/${selectedId}/events?after=${Math.max(0, ...session.events.map(event => event.id))}`);
       source.onmessage = messageEvent => {
         const event = JSON.parse(messageEvent.data) as Event;
         setSelected(previous => {
           if (!previous || previous.id !== selectedId) return previous;
+          if (event.clearStreamIds) previous = { ...previous, events: previous.events.filter(item => !item.streaming || !event.clearStreamIds!.includes(item.streamId!)) };
+          if (event.streamId) {
+            return { ...previous, updatedAt: Math.max(previous.updatedAt, event.timestamp), events: mergeSessionEvents([...previous.events, event]) };
+          }
           if (previous.events.some(item => item.id === event.id)) {
             return event.pushedToIm ? { ...previous, events: previous.events.map(item => item.id === event.id ? { ...item, pushedToIm: true } : item) } : previous;
           }
-          if (event.id <= (previous.events.at(-1)?.id || 0)) return previous;
-          const updated = { ...previous, ...(event.feishuConversation ? { feishuConversation: event.feishuConversation } : {}), ...(event.dingtalkConversation ? { dingtalkConversation: event.dingtalkConversation } : {}), status: event.type === 'status' ? event.text as Status : previous.status, usage: event.type === 'usage' ? JSON.parse(event.text) as TokenUsage : previous.usage, updatedAt: event.timestamp, events: [...previous.events, event] };
+          if (!event.streaming && event.id <= Math.max(0, ...previous.events.map(item => item.id))) return previous;
+          const updated = { ...previous, ...(event.feishuConversation ? { feishuConversation: event.feishuConversation } : {}), ...(event.dingtalkConversation ? { dingtalkConversation: event.dingtalkConversation } : {}), status: event.type === 'status' ? event.text as Status : previous.status, usage: event.type === 'usage' ? JSON.parse(event.text) as TokenUsage : previous.usage, updatedAt: event.timestamp, events: previous.agent === 'pi' ? mergeSessionEvents([...previous.events, event]) : [...previous.events, event] };
           return updated;
         });
         if (event.type === 'status') {
@@ -320,7 +340,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
 
   useEffect(() => {
     if (followConversation.current && conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
-  }, [selected?.events.length]);
+  }, [selected?.events]);
 
   useEffect(() => {
     if (copiedTarget === null) return;
@@ -328,15 +348,15 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     return () => window.clearTimeout(timer);
   }, [copiedTarget]);
 
-  async function copyText(text: string, target: 'conversation' | 'run-log' | number) {
+  const copyText = useCallback(async (text: string, target: 'conversation' | 'run-log' | number) => {
     setError('');
     try {
       await navigator.clipboard.writeText(text);
       setCopiedTarget(target);
     } catch (reason) { setError(`复制失败：${(reason as Error).message}`); }
-  }
+  }, []);
 
-  async function loadHistory() {
+  const loadHistory = useCallback(async () => {
     const before = selected?.events[0]?.id;
     if (!selected || before === undefined || !hasMoreHistory || historyController.current) return;
     const controller = new AbortController();
@@ -349,7 +369,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       if (element) historyScroll.current = { height: element.scrollHeight, top: element.scrollTop };
       followConversation.current = false;
       setSelected(current => current?.id === page.id
-        ? { ...current, events: [...page.events.filter(event => !current.events.some(item => item.id === event.id)), ...current.events] }
+        ? { ...current, events: current.agent === 'pi' ? mergeSessionEvents([...page.events, ...current.events]) : [...page.events.filter(event => !current.events.some(item => item.id === event.id)), ...current.events] }
         : current);
       setHasMoreHistory(page.hasMore);
     } catch (reason) {
@@ -358,7 +378,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       historyController.current = null;
       if (!controller.signal.aborted) setLoadingHistory(false);
     }
-  }
+  }, [selected, hasMoreHistory]);
 
   async function copyConversation() {
     if (!selected) return;
@@ -448,19 +468,43 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const feishuIcon = feishuApps.find(app => app.id === selected?.feishuAppId)?.icon;
-  const runLogEvents = selected?.events.filter(event => event.type === 'raw_stdout' || event.type === 'raw_stderr') || [];
 
-  const renderItem = (item: Event | Event[], showActions = false, expandTools = false) => selected && (Array.isArray(item)
-            ? <ToolTimeline key={item[0].id} events={item} accordionName={`tools-${index}-${selected.id}-${item[0].id}`} active={expandTools} />
-            : item.type === 'message'
-              ? <div key={item.id} className="chat-turn user-turn"><div className="user-bubble">{item.text}{item.images && item.images.length > 0 && <MessageImages key={selected.id} sessionId={selected.id} eventId={item.id} count={item.images.length} />}</div></div>
-              : item.type === 'file_change'
-                ? <FileChange key={item.id} event={item} cwd={selected.cwd} />
-              : item.type === 'error'
-                ? <div key={item.id} className="chat-notice">{item.text}</div>
-                : <div key={item.id} className="chat-turn assistant-turn">{(item.type === 'dingtalk_message' || item.type === 'feishu_message') && <div className="dingtalk-sent-label">应用 · 已发送到{item.type === 'feishu_message' ? '飞书' : '钉钉'}</div>}<div className="assistant-copy">{(item.type === 'dingtalk_message' || item.type === 'feishu_message') ? <div className="dingtalk-sent-content">{item.text}</div> : <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>}</div>{showActions && <div className="reply-actions"><button className="reply-copy" aria-label={copiedTarget === item.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(item.text, item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === item.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>{item.type === 'output' && (selected.dingtalkAppId || selected.feishuAppId) && item.text.trim() && <button className="reply-push" disabled={pushingId !== null || item.pushedToIm} onClick={() => void pushToIm(item)}>{pushingId === item.id ? '推送中…' : item.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div>}</div>);
+  const followStream = useCallback(() => {
+    if (followConversation.current && conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
+  }, []);
 
-  return <div className={`pane-wrap ${focused && multi ? 'focused' : ''}`} onPointerDown={() => onFocus(index)} onFocusCapture={() => onFocus(index)}>
+  const conversation = useMemo(() => {
+    if (!selected) return null;
+    const renderItem = (item: Event | Event[], showActions = false) => selected && (Array.isArray(item)
+              ? <ToolTimeline key={item[0].streamId || item[0].id} events={item} accordionName={`tools-${index}-${selected.id}-${item[0].streamId || item[0].id}`} agent={selected.agent} />
+              : item.type === 'thinking'
+                ? <details key={item.streamId || item.id} className="thinking-step"><summary className="thinking-label"><span>{item.streaming ? '思考中…' : '思考内容'}<span> · {Array.from(item.text).length} 字</span></span><span className="tool-call-chevron" aria-hidden="true" /></summary><div className="thinking-content"><StreamText text={item.text} streaming={item.streaming} onProgress={followStream} /></div></details>
+                : item.type === 'message'
+                ? <div key={item.streamId || item.id} className="chat-turn user-turn"><div className="user-bubble">{item.text}{item.images && item.images.length > 0 && <MessageImages key={selected.id} sessionId={selected.id} eventId={item.id} count={item.images.length} />}</div></div>
+                : item.type === 'file_change'
+                  ? <FileChange key={item.streamId || item.id} event={item} cwd={selected.cwd} />
+                : item.type === 'error'
+                  ? <div key={item.streamId || item.id} className="chat-notice">{item.text}</div>
+                  : <div key={item.streamId || item.id} className="chat-turn assistant-turn">{(item.type === 'dingtalk_message' || item.type === 'feishu_message') && <div className="dingtalk-sent-label">应用 · 已发送到{item.type === 'feishu_message' ? '飞书' : '钉钉'}</div>}<div className="assistant-copy">{(item.type === 'dingtalk_message' || item.type === 'feishu_message') ? <div className="dingtalk-sent-content">{item.text}</div> : <StreamText text={item.text} streaming={item.streaming} onProgress={followStream}>{text => <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>}</StreamText>}</div>{showActions && <div className="reply-actions"><button className="reply-copy" aria-label={copiedTarget === item.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(item.text, item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === item.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>{item.type === 'output' && (selected.dingtalkAppId || selected.feishuAppId) && item.text.trim() && <button className="reply-push" disabled={pushingId !== null || item.pushedToIm} onClick={() => void pushToIm(item)}>{pushingId === item.id ? '推送中…' : item.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div>}</div>);
+
+    return executionRounds(selected).map(round => {
+      const items = conversationItems({ ...selected, events: round.events, status: round.end ? round.end.text as Status : selected.status });
+      const finalOutput = round.end || (round.active && selected.agent === 'pi') ? [...round.events].reverse().find(event => event.type === 'output') : undefined;
+      const steps = items.filter(item => Array.isArray(item) || (item !== finalOutput && item.type !== 'dingtalk_message' && item.type !== 'feishu_message' && item.type !== 'error'));
+      const timeline = selected.agent === 'pi' ? items.filter(item => Array.isArray(item) || (item.type !== 'dingtalk_message' && item.type !== 'feishu_message' && item.type !== 'error')) : steps;
+      const stepEvents = (selected.agent === 'pi' ? timeline : steps).flatMap(item => Array.isArray(item) ? item : [item]).filter(item => selected.agent !== 'pi' || item.type !== 'output');
+      const results = items.filter(item => !Array.isArray(item) && (item === finalOutput || item.type === 'dingtalk_message' || item.type === 'feishu_message' || item.type === 'error'));
+      return <React.Fragment key={round.id}>
+        {round.message && renderItem(round.message)}
+        <div className="execution-response">
+          <ExecutionSteps round={round} persistentOutputs={selected.agent === 'pi'} stepCount={stepEvents.length} commandCount={stepEvents.filter(event => event.type === 'tool').length}>{timeline.map(item => renderItem(item, !Array.isArray(item) && !item.streaming && item === finalOutput))}</ExecutionSteps>
+          {results.filter(item => selected.agent !== 'pi' || Array.isArray(item) || item.type !== 'output').map(item => renderItem(item, !Array.isArray(item) && !item.streaming && item === finalOutput))}
+        </div>
+      </React.Fragment>;
+    });
+  }, [selected, index, agents, copiedTarget, pushingId, onSessionUpdate, followStream]);
+
+  return <div className={`pane-wrap ${focused && multi ? 'focused' : ''}`} onPointerDown={() => { if (!focused) onFocus(index); }} onFocusCapture={() => { if (!focused) onFocus(index); }}>
     <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
       <div className="chat-header">
         {selected?.dingtalkAppId && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${selected.dingtalkAppId}/icon`} platform="钉钉" />}
@@ -472,9 +516,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
           : <><strong>新对话</strong>{multi && <p>窗口 {index + 1} · 从侧边栏选择对话</p>}</>}{selected?.dingtalkConversation && <p className="chat-source">{selected.dingtalkConversation.type === 'group' ? '群聊' : '单聊'}{selected.dingtalkConversation.type === 'group' && selected.dingtalkConversation.groupName && ` · 群名称：${selected.dingtalkConversation.groupName}`} · 提问人：<span title={selected.dingtalkConversation.senderStaffId}>{selected.dingtalkConversation.senderName}</span></p>}{selected?.feishuConversation && <p className="chat-source">飞书 · {selected.feishuConversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{selected.feishuConversation.senderId}</p>}</div>
         <div className="output-actions">
           {selected && <button className="copy-button" onClick={() => void copyConversation()} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'} title={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === 'conversation' ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}
-          {selected && <details ref={runLogRef} className="run-log" onBlur={event => {
-            if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
-          }}><summary aria-label="运行日志" title="运行日志"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 7h8M8 12h8M8 17h5" /></svg></summary><div className="run-log-content" tabIndex={0}><div className="run-log-toolbar"><button className="reply-push" disabled={!runLogEvents.length} onClick={() => void copyText(runLogEvents.map(event => event.text).join('\n'), 'run-log')}>{copiedTarget === 'run-log' ? '已复制' : '复制已加载日志'}</button>{hasMoreHistory && <button className="history-load" disabled={loadingHistory} onClick={() => void loadHistory()}>{loadingHistory ? '加载中…' : '加载更早日志'}</button>}</div>{runLogEvents.map(event => <div key={event.id}><span>{time(event.timestamp)} · {event.type === 'raw_stdout' ? 'stdout' : 'stderr'}</span><pre>{event.text}</pre></div>)}{!runLogEvents.length && <p>暂无原始运行日志，新执行的内容将在这里记录。</p>}</div></details>}
+          {selected && <RunLog key={selected.id} agent={selected.agent} events={selected.events} copied={copiedTarget === 'run-log'} hasMore={hasMoreHistory} loading={loadingHistory} onCopy={copyText} onLoad={loadHistory} />}
           {layoutControls && <div className="pane-layout-switch">{layoutControls}</div>}
         </div>
       </div>
@@ -485,20 +527,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       }}>
         {selected ? <div className="chat-thread">
           {hasMoreHistory && <button className="history-load" disabled={loadingHistory} onClick={() => void loadHistory()}>{loadingHistory ? '加载中…' : '加载更早消息'}</button>}
-          {executionRounds(selected).map(round => {
-            const items = conversationItems({ ...selected, events: round.events, status: round.end ? round.end.text as Status : selected.status });
-            const finalOutput = round.end ? [...round.events].reverse().find(event => event.type === 'output') : undefined;
-            const steps = items.filter(item => Array.isArray(item) || (item.id !== finalOutput?.id && item.type !== 'dingtalk_message' && item.type !== 'feishu_message' && item.type !== 'error'));
-            const results = items.filter(item => !Array.isArray(item) && (item.id === finalOutput?.id || item.type === 'dingtalk_message' || item.type === 'feishu_message' || item.type === 'error'));
-            return <React.Fragment key={round.id}>
-              {round.message && renderItem(round.message)}
-              <div className="execution-response">
-                <ExecutionSteps round={round}>{steps.map(item => renderItem(item, false, round.active))}</ExecutionSteps>
-                {results.map(item => renderItem(item, !Array.isArray(item) && item.id === finalOutput?.id))}
-                {round.active && <div className="chat-progress"><span />{agentName(selected.agent)} 正在处理…</div>}
-              </div>
-            </React.Fragment>;
-          })}
+          {conversation}
         </div> : <div className="chat-empty"><strong>描述你想完成的任务</strong></div>}
       </div>
       <div className="chat-compose-wrap">
@@ -660,9 +689,9 @@ function App() {
     setLayout(next);
   }
 
-  function updateSession(session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId'>>) {
+  const updateSession = useCallback((session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId'>>) => {
     setSessions(current => current.map(item => item.id === session.id ? { ...item, status: session.status, updatedAt: session.updatedAt, externalSessionId: session.externalSessionId ?? item.externalSessionId } : item));
-  }
+  }, []);
 
   function sessionCreated(index: number, session: Session) {
     const { events, ...summary } = session;

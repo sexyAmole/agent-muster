@@ -48,7 +48,13 @@ export type FeishuConversation = { type: 'single' | 'group'; senderId: string };
 
 export interface SessionEvent {
   id: number;
-  type: 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage' | 'raw_stdout' | 'raw_stderr';
+  rawRecordId?: number;
+  streamId?: string;
+  order?: number;
+  contentIndex?: number;
+  streaming?: boolean;
+  clearStreamIds?: string[];
+  type: 'system' | 'thinking' | 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage' | 'raw_stdout' | 'raw_stderr';
   text: string;
   detail?: string;
   kind?: string;

@@ -4,8 +4,9 @@ import { stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
-import { adapters } from '../agents/adapters.js';
+import { adapters, type AdapterResult } from '../agents/adapters.js';
 import { SessionStore } from './store.js';
+import { mergeSessionEvents } from '../session-events.js';
 import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, SessionEvent, SessionStatus, TokenUsage } from '../types.js';
 
 function isWarning(text: string): boolean {
@@ -60,15 +61,20 @@ export class SessionManager extends EventEmitter {
 
   history(id: string, limit?: number, before?: number) {
     if (!this.sessions.has(id)) throw new Error('会话不存在');
-    return this.store.history(id, limit, before);
+    const page = this.store.history(id, limit, before);
+    if (limit !== 0 && before === undefined) page.events = mergeSessionEvents([...page.events, ...this.sessions.get(id)!.events.filter(event => event.streaming)]);
+    return page;
   }
 
   getEvent(id: string, eventId: number): SessionEvent | undefined {
     return this.store.getEvent(id, eventId);
   }
 
-  eventsAfter(id: string, after: number): Generator<SessionEvent> {
-    return this.store.eventsAfter(id, after);
+  *eventsAfter(id: string, after: number): Generator<SessionEvent> {
+    yield* this.store.eventsAfter(id, after);
+    for (const event of this.sessions.get(id)?.events || []) {
+      if (event.streaming) yield event;
+    }
   }
 
   list(): AgentSession[] {
@@ -102,12 +108,13 @@ export class SessionManager extends EventEmitter {
     catch (error) { console.error('保存会话失败：', error); }
   }
 
-  private append(session: AgentSession, type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, dingtalkConversation?: DingTalkConversation, feishuConversation?: FeishuConversation, images?: AgentImage[]): void {
+  private append(session: AgentSession, type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, dingtalkConversation?: DingTalkConversation, feishuConversation?: FeishuConversation, images?: AgentImage[], attributes: Pick<SessionEvent, 'rawRecordId' | 'streamId' | 'order' | 'contentIndex' | 'streaming' | 'clearStreamIds'> = {}): SessionEvent {
     const event: SessionEvent = {
-      id: (session.events.at(-1)?.id || 0) + 1,
+      id: Math.max(0, ...session.events.map(event => event.id)) + 1,
+      ...attributes,
       type,
-      text: type === 'raw_stdout' || type === 'raw_stderr' ? text : text.slice(0, 50000),
-      ...(detail === undefined ? {} : { detail: detail.slice(0, 50000) }),
+      text: type === 'raw_stdout' || type === 'raw_stderr' || type === 'system' || attributes.streamId ? text : text.slice(0, 50000),
+      ...(detail === undefined ? {} : { detail: type === 'system' || type === 'tool' ? detail : detail.slice(0, 50000) }),
       ...(kind === undefined ? {} : { kind }),
       ...(comparison === undefined ? {} : { comparison }),
       timestamp: Date.now(),
@@ -115,11 +122,14 @@ export class SessionManager extends EventEmitter {
       ...(feishuConversation ? { feishuConversation } : {}),
       ...(images?.length ? { images: images.map(({ path, mimeType }) => ({ path, mimeType })) } : {}),
     };
+    const index = event.streamId ? session.events.findIndex(item => item.streamId === event.streamId) : -1;
+    if (index !== -1) session.events.splice(index, 1);
     session.events.push(event);
-    if (session.events.length > 50) session.events.splice(0, session.events.length - 50);
+    if (session.events.length > 50) session.events = session.events.filter((event, index) => event.streaming || index >= session.events.length - 50);
     session.updatedAt = event.timestamp;
-    this.save(session, event);
+    if (!event.streaming) this.save(session, event);
     this.emit(session.id, event);
+    return event;
   }
 
   private status(session: AgentSession, status: SessionStatus): void {
@@ -127,12 +137,12 @@ export class SessionManager extends EventEmitter {
     this.append(session, 'status', status);
   }
 
-  private addUsage(session: AgentSession, usage: TokenUsage, total = false): void {
+  private addUsage(session: AgentSession, usage: TokenUsage, total = false, rawRecordId?: number): void {
     session.usage = total ? usage : {
       inputTokens: (session.usage?.inputTokens || 0) + usage.inputTokens,
       outputTokens: (session.usage?.outputTokens || 0) + usage.outputTokens,
     };
-    this.append(session, 'usage', JSON.stringify(session.usage));
+    this.append(session, 'usage', JSON.stringify(session.usage), undefined, undefined, undefined, undefined, undefined, undefined, { rawRecordId });
   }
 
   async create(agent: string, cwd: string, prompt: string, model?: string, dingtalkAppId?: string, dingtalkConversation?: DingTalkConversation, images?: AgentImage[], feishu?: { appId: string; conversation: FeishuConversation }): Promise<AgentSession> {
@@ -250,33 +260,67 @@ export class SessionManager extends EventEmitter {
     const stdoutDecoder = new StringDecoder('utf8');
     const stderrDecoder = new StringDecoder('utf8');
     let failed = false;
+    let settled = false;
+    let aborted = false;
+    const runId = randomUUID();
+    const orders = new Map<string, number>();
+    const streamId = (id: string) => `${runId}:${id}`;
+    const savePending = () => {
+      try { this.store.savePending(session.id, session.events.filter(event => event.streaming)); }
+      catch (error) { console.error('保存未完成内容失败：', error); }
+    };
+    const recordResult = (result: AdapterResult, rawRecordId: number) => {
+      const append = (type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, attributes: Pick<SessionEvent, 'streamId' | 'order' | 'contentIndex' | 'streaming' | 'clearStreamIds'> = {}) =>
+        this.append(session, type, text, detail, kind, comparison, undefined, undefined, undefined, { rawRecordId, ...attributes });
+      if (result.settled) { settled = true; aborted = result.aborted === true; failed = result.failed === true; }
+      if (result.externalSessionId) {
+        session.externalSessionId = result.externalSessionId;
+        this.save(session);
+      }
+      if (result.clearStreamIds?.length) {
+        const clearStreamIds = result.clearStreamIds.map(streamId);
+        session.events = session.events.filter(event => !event.streaming || !clearStreamIds.includes(event.streamId!));
+        append('status', session.status, undefined, undefined, undefined, { clearStreamIds });
+      }
+      if (result.system) append('system', result.system.text, result.system.detail);
+      if (result.thinking) append('thinking', result.thinking);
+      if (result.text) append('output', result.text);
+      if (result.usage) this.addUsage(session, result.usage, result.usageIsTotal, rawRecordId);
+      for (const event of result.events || []) {
+        const id = event.streamId ? streamId(event.streamId) : undefined;
+        const previous = id ? session.events.find(item => item.streamId === id) : undefined;
+        if (event.streaming && previous?.text === event.text && previous.detail === event.detail && previous.contentIndex === event.contentIndex) continue;
+        if (event.orderKey && !orders.has(event.orderKey)) orders.set(event.orderKey, rawRecordId);
+        append(event.type, event.text, event.detail, undefined, undefined, {
+          streamId: id, order: event.orderKey ? orders.get(event.orderKey) : undefined,
+          contentIndex: event.contentIndex, streaming: event.streaming,
+        });
+      }
+      for (const tool of result.tools || []) append('tool', tool.name, tool.detail);
+      for (const change of result.changes || []) {
+        const diff = change.diff || fileDiff(session.cwd, change.path);
+        append('file_change', change.path, diff, change.kind, change.diff || !diff ? undefined : 'HEAD');
+      }
+      if (result.error) { failed = result.failed ?? true; append('error', result.error); }
+      if (result.events?.some(event => !event.streaming) || result.clearStreamIds?.length) savePending();
+    };
+    const recordStdout = (line: string) => {
+      const raw = this.append(session, 'raw_stdout', line);
+      recordResult(read(line.trim()), raw.id);
+    };
+    const checkpoint = setInterval(savePending, 1000);
     const recordStderr = (line: string) => {
-      this.append(session, 'raw_stderr', line);
+      const raw = this.append(session, 'raw_stderr', line);
       if (!line.trim()) return;
       const error = adapter.readError?.(line);
       if (error) failed = true;
-      this.append(session, isWarning(line) ? 'warning' : 'error', error || line);
+      this.append(session, isWarning(line) ? 'warning' : 'error', error || line, undefined, undefined, undefined, undefined, undefined, undefined, { rawRecordId: raw.id });
     };
     child.stdout.on('data', (chunk: Buffer) => {
       pending += stdoutDecoder.write(chunk);
       const lines = pending.split('\n');
       pending = lines.pop() || '';
-      for (const line of lines) {
-        this.append(session, 'raw_stdout', line);
-        const result = read(line.trim());
-        if (result.externalSessionId) {
-          session.externalSessionId = result.externalSessionId;
-          this.save(session);
-        }
-        if (result.text) this.append(session, 'output', result.text);
-        if (result.usage) this.addUsage(session, result.usage, result.usageIsTotal);
-        for (const tool of result.tools || []) this.append(session, 'tool', tool.name, tool.detail);
-        for (const change of result.changes || []) {
-          const diff = change.diff || fileDiff(session.cwd, change.path);
-          this.append(session, 'file_change', change.path, diff, change.kind, change.diff || !diff ? undefined : 'HEAD');
-        }
-        if (result.error) { failed = true; this.append(session, 'error', result.error); }
-      }
+      for (const line of lines) recordStdout(line);
     });
     child.stderr.on('data', (chunk: Buffer) => {
       stderrPending += stderrDecoder.write(chunk);
@@ -285,6 +329,7 @@ export class SessionManager extends EventEmitter {
       for (const line of lines) recordStderr(line);
     });
     child.on('error', error => {
+      clearInterval(checkpoint);
       this.append(session, 'error', error.message);
       this.processes.delete(session.id);
       session.pid = undefined;
@@ -295,26 +340,22 @@ export class SessionManager extends EventEmitter {
       pending += stdoutDecoder.end();
       stderrPending += stderrDecoder.end();
       if (stderrPending.length) recordStderr(stderrPending);
-      if (pending.length) this.append(session, 'raw_stdout', pending);
-      if (pending.trim()) {
-        const result = read(pending.trim());
-        if (result.externalSessionId) {
-          session.externalSessionId = result.externalSessionId;
-          this.save(session);
-        }
-        if (result.text) this.append(session, 'output', result.text);
-        if (result.usage) this.addUsage(session, result.usage, result.usageIsTotal);
-        for (const tool of result.tools || []) this.append(session, 'tool', tool.name, tool.detail);
-        for (const change of result.changes || []) {
-          const diff = change.diff || fileDiff(session.cwd, change.path);
-          this.append(session, 'file_change', change.path, diff, change.kind, change.diff || !diff ? undefined : 'HEAD');
-        }
-        if (result.error) { failed = true; this.append(session, 'error', result.error); }
+      if (pending.length) recordStdout(pending);
+      clearInterval(checkpoint);
+      for (const event of session.events.filter(event => event.streaming)) {
+        this.append(session, event.type, event.text, event.detail, event.kind, event.comparison, undefined, undefined, undefined, {
+          rawRecordId: event.rawRecordId, streamId: event.streamId, order: event.order, contentIndex: event.contentIndex, streaming: false,
+        });
       }
+      savePending();
       this.processes.delete(session.id);
       session.pid = undefined;
       if (session.status !== 'stopped' && session.status !== 'failed') {
-        this.status(session, code === 0 && !failed ? 'completed' : 'failed');
+        if (adapter.settlementError && !settled && code === 0 && !failed) {
+          failed = true;
+          this.append(session, 'error', adapter.settlementError);
+        }
+        this.status(session, aborted ? 'stopped' : code === 0 && !failed ? 'completed' : 'failed');
       }
       this.emit(`${session.id}:idle`);
     });

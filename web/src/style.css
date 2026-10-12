@@ -144,7 +144,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .message-image:focus-visible { outline: 2px solid #555; outline-offset: 2px; }
 .message-image-error { color: #963c3c; font-size: 12px; }
 .assistant-turn { padding-right: 28px; }
-.assistant-copy { color: #191919; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; }
+.assistant-copy { color: #191919; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; text-align: left; }
 .assistant-copy p { margin: 0 0 12px; }
 .assistant-copy > :last-child { margin-bottom: 0; }
 .assistant-copy h1, .assistant-copy h2, .assistant-copy h3 { margin: 18px 0 8px; line-height: 1.4; }
@@ -345,34 +345,50 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .history-load:hover:not(:disabled) { background: #f5f5f5; color: #333; }
 .history-load:disabled { cursor: wait; opacity: .6; }
 
-.execution-response { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.execution-response { min-width: 0; display: flex; flex-direction: column; gap: 8px; text-align: left; }
 .execution-steps { min-width: 0; color: #777; }
-.execution-steps > summary { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #e7e7e7; font-size: 12px; list-style: none; cursor: pointer; }
+.execution-steps > summary, .execution-summary { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #e7e7e7; font-size: 12px; list-style: none; cursor: pointer; }
 .execution-steps > summary::-webkit-details-marker { display: none; }
-.execution-steps > summary:hover { color: #202020; }
-.execution-steps > summary .tool-call-chevron { width: 5px; height: 5px; border-color: #aaa; transform: rotate(-45deg); }
-.execution-steps[open] > summary .tool-call-chevron { transform: rotate(45deg); }
-.execution-content { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
+.execution-steps > summary:hover, .execution-summary:hover { color: #202020; }
+.execution-steps > summary .tool-call-chevron, .execution-summary .tool-call-chevron { width: 5px; height: 5px; flex: none; margin-left: auto; margin-right: 2px; border-color: #aaa; transform: rotate(-45deg); opacity: 1; }
+.execution-steps[open] > summary .tool-call-chevron, .execution-steps.expanded > .execution-summary .tool-call-chevron { transform: rotate(45deg); }
+.execution-content { min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 8px 0 4px; }
+.execution-summary { width: 100%; border-top: 0; border-right: 0; border-left: 0; border-radius: 0; background: transparent; color: inherit; font-family: inherit; text-align: left; }
+.execution-steps.collapsed > .execution-content > :not(.assistant-turn) { display: none; }
 .execution-content:empty { display: none; }
 .execution-content > .file-change { margin-block: 0; }
 
-.tool-batch { min-width: 0; }
-.tool-batch > summary { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: #777; font-size: 11px; list-style: none; cursor: pointer; }
-.tool-batch > summary::-webkit-details-marker { display: none; }
-.tool-batch > summary:hover { color: #202020; }
-.tool-batch > summary .tool-call-chevron, .tool-timeline .tool-call > summary .tool-call-chevron { transform: rotate(-45deg); }
-.tool-batch[open] > summary .tool-call-chevron, .tool-timeline .tool-call[open] > summary .tool-call-chevron { transform: rotate(45deg); }
-.tool-batch > .tool-timeline { margin-top: 2px; }
+.tool-timeline { margin-top: 2px; }
+.tool-timeline .tool-call > summary .tool-call-chevron { transform: rotate(-45deg); }
+.tool-timeline .tool-call[open] > summary .tool-call-chevron { transform: rotate(45deg); }
 .tool-timeline { min-width: 0; margin: 0; padding: 0; list-style: none; }
 .tool-timeline > li { min-width: 0; padding-bottom: 2px; }
 .tool-timeline > li:last-child { padding-bottom: 0; }
 .tool-timeline .tool-call { margin: 0; border: 0; border-radius: 0; background: transparent; }
 .tool-timeline .tool-call summary { gap: 8px; padding: 4px 0; }
-.tool-timeline .tool-call summary strong { flex: 0 1 auto; }
+.tool-timeline .tool-call summary strong { flex: 1; font-size: 12px; }
 .tool-timeline .tool-call summary:hover, .tool-timeline .tool-call[open] summary { background: transparent; color: #202020; }
-.tool-timeline time { flex: none; color: #777; font-size: 10px; font-variant-numeric: tabular-nums; }
+.execution-meta { flex: none; color: #888; font-size: 11px; font-variant-numeric: tabular-nums; }
+.thinking-step { min-width: 0; padding: 2px 0 4px; color: #666; font-size: 12px; line-height: 1.7; }
+.thinking-step > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; }
+.thinking-step > summary::-webkit-details-marker { display: none; }
+.thinking-step > summary:hover { color: #202020; }
+.thinking-step > summary:focus-visible { outline: 2px solid #555; outline-offset: 3px; }
+.thinking-step > summary .tool-call-chevron { flex: none; margin-left: auto; margin-right: 2px; transform: rotate(-45deg); }
+.thinking-step[open] > summary .tool-call-chevron { transform: rotate(45deg); }
+.thinking-label span { color: #888; font-style: normal; }
+.thinking-content { margin-top: 5px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; text-align: left; }
+.tool-call-status { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #4b9e70; }
+.tool-call-status.running { background: #888; }
+.tool-call-status.error { background: #b85757; }
+.tool-output-lines { flex: none; color: #888; font-size: 11px; font-variant-numeric: tabular-nums; }
 .tool-detail-card { margin: 4px 0 4px; overflow: hidden; border: 1px solid #e7e7e7; border-radius: 7px; background: #f8f8f8; }
 .tool-detail-card pre { padding: 12px; border-top: 0; }
 
 .execution-response summary > .tool-call-chevron { opacity: 0; }
 .execution-response summary:hover > .tool-call-chevron, .execution-response summary:focus-visible > .tool-call-chevron { opacity: 1; }
+.execution-steps > summary > .tool-call-chevron, .thinking-step > summary > .tool-call-chevron { opacity: 1; }
+
+@media (max-width: 650px) {
+  .execution-steps > summary, .execution-summary { flex-wrap: wrap; gap: 6px; }
+}

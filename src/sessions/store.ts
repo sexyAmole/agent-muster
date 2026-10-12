@@ -1,10 +1,11 @@
-import { closeSync, copyFileSync, fstatSync, mkdirSync, openSync, readSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeSync, writeFileSync, appendFileSync } from 'node:fs';
+import { closeSync, copyFileSync, readFileSync, existsSync, fstatSync, mkdirSync, openSync, readSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeSync, writeFileSync, appendFileSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { AgentImage, AgentSession, SessionEvent } from '../types.js';
 import { projectDirectory } from '../projects/storage.js';
+import { mergeSessionEvents } from '../session-events.js';
 
 type SessionMetadata = Omit<AgentSession, 'events'>;
 type HistoryRecord = ({ type: 'session' } & SessionMetadata) | SessionEvent | { type: 'im_pushed'; eventId: number };
@@ -52,6 +53,7 @@ function* records<T = HistoryRecord>(file: string, reverse = false): Generator<T
 export class SessionStore {
   private files = new Map<string, string>();
   private metadataKeys = new Map<string, string>();
+  private pendingKeys = new Map<string, string>();
 
   constructor(private directory = join(homedir(), '.agent-muster')) {}
 
@@ -89,7 +91,7 @@ export class SessionStore {
     await this.migrate();
     for (const project of readdirSync(projects, { withFileTypes: true }).filter(entry => entry.isDirectory())) {
       const projectPath = join(projects, project.name);
-      for (const name of readdirSync(projectPath).filter(file => file.endsWith('.jsonl'))) {
+      for (const name of readdirSync(projectPath).filter(file => file.endsWith('.jsonl') && !file.endsWith('.raw.jsonl'))) {
         const source = join(projectPath, name);
         this.migrateRecords(source);
         const target = this.sessionFile(this.metadata(source));
@@ -109,12 +111,13 @@ export class SessionStore {
       const directory = join(projects, project.name, 'sessions');
       try { await stat(directory); }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
-      for (const name of readdirSync(directory).filter(file => file.endsWith('.jsonl'))) {
+      for (const name of readdirSync(directory).filter(file => file.endsWith('.jsonl') && !file.endsWith('.raw.jsonl'))) {
         const file = join(directory, name);
         this.migrateRecords(file);
         const metadata = this.metadata(file);
         this.files.set(metadata.id, file);
         this.metadataKeys.set(metadata.id, metadataKey(metadata));
+        this.recoverPending(metadata);
         sessions.push({ ...metadata, events: this.history(metadata.id, 10).events });
       }
     }
@@ -128,7 +131,9 @@ export class SessionStore {
     const key = metadataKey(metadata);
     const entries: HistoryRecord[] = [];
     if (this.metadataKeys.get(session.id) !== key) entries.push({ type: 'session', ...metadata });
-    if (event) entries.push(update ? { type: 'im_pushed', eventId: event.id } : event);
+    if (event && (event.type === 'raw_stdout' || event.type === 'raw_stderr')) {
+      appendFileSync(this.rawFile(file), `${JSON.stringify(event)}\n`);
+    } else if (event) entries.push(update ? { type: 'im_pushed', eventId: event.id } : event);
     if (entries.length) appendFileSync(file, entries.map(record => `${JSON.stringify(record)}\n`).join(''));
     this.files.set(session.id, file);
     this.metadataKeys.set(session.id, key);
@@ -136,20 +141,30 @@ export class SessionStore {
 
   history(id: string, limit?: number, before?: number): { events: SessionEvent[]; hasMore: boolean } {
     if (limit === 0) return { events: [], hasMore: false };
-    if (limit === undefined) return { events: [...this.eventsAfter(id, 0)], hasMore: false };
+    if (limit === undefined) return { events: mergeSessionEvents([...this.eventsAfter(id, 0)]), hasMore: false };
     const events: SessionEvent[] = [];
     const pushed = new Set<number>();
     let rounds = 0;
+    let hasMore = false;
     for (const record of records(this.files.get(id)!, true)) {
       if (record.type === 'im_pushed') { pushed.add(record.eventId); continue; }
       if (record.type === 'session') continue;
       const event = record;
       if (before !== undefined && event.id >= before) continue;
-      if (rounds === limit) return { events: events.reverse(), hasMore: true };
+      if (rounds === limit) { hasMore = true; break; }
       events.push(pushed.has(event.id) ? { ...event, pushedToIm: true } : event);
       if (event.type === 'message') rounds++;
     }
-    return { events: events.reverse(), hasMore: false };
+    const firstId = events.at(-1)?.id;
+    const rawFile = this.rawFile(this.files.get(id)!);
+    if (firstId !== undefined && existsSync(rawFile)) {
+      for (const event of records<SessionEvent>(rawFile, true)) {
+        if (before !== undefined && event.id >= before) continue;
+        if (event.id < firstId) break;
+        events.push(event);
+      }
+    }
+    return { events: mergeSessionEvents(events.reverse()), hasMore };
   }
 
   getEvent(id: string, eventId: number): SessionEvent | undefined {
@@ -159,6 +174,13 @@ export class SessionStore {
     for (const record of records(file, true)) {
       if (record.type === 'im_pushed') { if (record.eventId === eventId) pushed = true; continue; }
       if (record.type !== 'session' && record.id === eventId) return pushed ? { ...record, pushedToIm: true } : record;
+    }
+    const rawFile = this.rawFile(file);
+    if (existsSync(rawFile)) {
+      for (const event of records<SessionEvent>(rawFile, true)) {
+        if (event.id === eventId) return event;
+        if (event.id < eventId) break;
+      }
     }
     return undefined;
   }
@@ -170,16 +192,71 @@ export class SessionStore {
       if (record.type === 'im_pushed') { if (record.eventId > after) pushed.add(record.eventId); continue; }
       if (record.type !== 'session' && record.id <= after) break;
     }
-    for (const record of records(file)) {
-      if (record.type === 'session' || record.type === 'im_pushed') continue;
-      if (record.id > after) yield pushed.has(record.id) ? { ...record, pushedToIm: true } : record;
+    const normalized = (function* () {
+      for (const record of records(file)) {
+        if (record.type !== 'session' && record.type !== 'im_pushed') yield record;
+      }
+    })();
+    const rawFile = this.rawFile(file);
+    const raw = existsSync(rawFile) ? records<SessionEvent>(rawFile) : [][Symbol.iterator]();
+    let left = normalized.next();
+    let right = raw.next();
+    try {
+      while (!left.done || !right.done) {
+        const useLeft = right.done || (!left.done && left.value.id <= right.value.id);
+        const event = (useLeft ? left.value : right.value)!;
+        if (event.id > after) yield pushed.has(event.id) ? { ...event, pushedToIm: true } : event;
+        if (useLeft) left = normalized.next();
+        else right = raw.next();
+      }
+    } finally {
+      normalized.return(undefined);
+      raw.return?.(undefined);
     }
   }
 
   remove(id: string): void {
-    unlinkSync(this.files.get(id)!);
+    this.savePending(id, []);
+    const file = this.files.get(id)!;
+    unlinkSync(file);
+    const rawFile = this.rawFile(file);
+    if (existsSync(rawFile)) unlinkSync(rawFile);
     this.files.delete(id);
     this.metadataKeys.delete(id);
+  }
+
+  savePending(id: string, events: SessionEvent[]): void {
+    const file = `${this.files.get(id)!}.pending`;
+    if (!events.length) {
+      if (existsSync(file)) unlinkSync(file);
+      this.pendingKeys.delete(id);
+      return;
+    }
+    const key = JSON.stringify(events);
+    if (this.pendingKeys.get(id) === key) return;
+    const temporary = `${file}.tmp`;
+    writeFileSync(temporary, key);
+    renameSync(temporary, file);
+    this.pendingKeys.set(id, key);
+  }
+
+  private recoverPending(metadata: SessionMetadata): void {
+    const file = `${this.files.get(metadata.id)!}.pending`;
+    if (!existsSync(file)) return;
+    const pending = JSON.parse(readFileSync(file, 'utf8')) as SessionEvent[];
+    const events = this.history(metadata.id).events;
+    const completed = new Set(events.filter(event => !event.streaming).map(event => event.streamId));
+    let id = events.reduce((maximum, event) => Math.max(maximum, event.id), 0);
+    for (const event of pending) {
+      if (completed.has(event.streamId)) continue;
+      metadata.updatedAt = Math.max(metadata.updatedAt, event.timestamp);
+      this.save({ ...metadata, events: [] }, { ...event, id: ++id, streaming: false });
+    }
+    this.savePending(metadata.id, []);
+  }
+
+  private rawFile(file: string): string {
+    return file.replace(/\.jsonl$/, '.raw.jsonl');
   }
 
   private sessionFile(session: SessionMetadata): string {
