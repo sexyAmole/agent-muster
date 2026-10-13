@@ -3,11 +3,21 @@ import { EventEmitter } from 'node:events';
 import { stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { StringDecoder } from 'node:string_decoder';
 import { adapters, type AdapterResult } from '../agents/adapters.js';
 import { SessionStore } from './store.js';
 import { mergeSessionEvents } from './events.js';
+import { createLineReader } from './line-reader.js';
 import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, SessionEvent, SessionStatus, TokenUsage } from '../types.js';
+
+type SessionEventInput = Omit<SessionEvent, 'id' | 'timestamp' | 'pushedToIm'>;
+
+interface RunState {
+  id: string;
+  orders: Map<string, number>;
+  failed: boolean;
+  settled: boolean;
+  aborted: boolean;
+}
 
 function isWarning(text: string): boolean {
   return text.trim().split(/\r?\n/).every(line => /^\S+\s+WARN\b/.test(line));
@@ -108,7 +118,7 @@ export class SessionManager extends EventEmitter {
     catch (error) { console.error('保存会话失败：', error); }
   }
 
-  private append(session: AgentSession, type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, dingtalkConversation?: DingTalkConversation, feishuConversation?: FeishuConversation, images?: AgentImage[], attributes: Pick<SessionEvent, 'rawRecordId' | 'streamId' | 'order' | 'contentIndex' | 'streaming' | 'clearStreamIds'> = {}): SessionEvent {
+  private append(session: AgentSession, { type, text, detail, kind, comparison, dingtalkConversation, feishuConversation, images, ...attributes }: SessionEventInput): SessionEvent {
     const event: SessionEvent = {
       id: Math.max(0, ...session.events.map(event => event.id)) + 1,
       ...attributes,
@@ -134,7 +144,7 @@ export class SessionManager extends EventEmitter {
 
   private status(session: AgentSession, status: SessionStatus): void {
     session.status = status;
-    this.append(session, 'status', status);
+    this.append(session, { type: 'status', text: status });
   }
 
   private addUsage(session: AgentSession, usage: TokenUsage, total = false, rawRecordId?: number): void {
@@ -142,7 +152,7 @@ export class SessionManager extends EventEmitter {
       inputTokens: (session.usage?.inputTokens || 0) + usage.inputTokens,
       outputTokens: (session.usage?.outputTokens || 0) + usage.outputTokens,
     };
-    this.append(session, 'usage', JSON.stringify(session.usage), undefined, undefined, undefined, undefined, undefined, undefined, { rawRecordId });
+    this.append(session, { type: 'usage', text: JSON.stringify(session.usage), rawRecordId });
   }
 
   async create(agent: string, cwd: string, prompt: string, model?: string, dingtalkAppId?: string, dingtalkConversation?: DingTalkConversation, images?: AgentImage[], feishu?: { appId: string; conversation: FeishuConversation }): Promise<AgentSession> {
@@ -167,7 +177,7 @@ export class SessionManager extends EventEmitter {
       events: [],
     };
     this.sessions.set(session.id, session);
-    this.append(session, 'message', session.prompt, undefined, undefined, undefined, dingtalkConversation, feishu?.conversation, images);
+    this.append(session, { type: 'message', text: session.prompt, dingtalkConversation, feishuConversation: feishu?.conversation, images });
     this.start(session, session.prompt, images);
     return session;
   }
@@ -181,7 +191,7 @@ export class SessionManager extends EventEmitter {
     if (model !== undefined) session.model = model || undefined;
     if (dingtalkConversation) session.dingtalkConversation = dingtalkConversation;
     if (feishuConversation) session.feishuConversation = feishuConversation;
-    this.append(session, 'message', message.trim(), undefined, undefined, undefined, dingtalkConversation, feishuConversation, images);
+    this.append(session, { type: 'message', text: message.trim(), dingtalkConversation, feishuConversation, images });
     this.start(session, message.trim(), images);
     return session;
   }
@@ -189,14 +199,14 @@ export class SessionManager extends EventEmitter {
   recordDingTalkMessage(id: string, content: string): AgentSession {
     const session = this.sessions.get(id);
     if (!session) throw new Error('Session not found');
-    this.append(session, 'dingtalk_message', content);
+    this.append(session, { type: 'dingtalk_message', text: content });
     return session;
   }
 
   recordFeishuMessage(id: string, content: string): AgentSession {
     const session = this.sessions.get(id);
     if (!session) throw new Error('会话不存在');
-    this.append(session, 'feishu_message', content);
+    this.append(session, { type: 'feishu_message', text: content });
     return session;
   }
 
@@ -240,10 +250,67 @@ export class SessionManager extends EventEmitter {
     for (const id of this.processes.keys()) this.stop(id);
   }
 
+  private savePending(session: AgentSession): void {
+    try { this.store.savePending(session.id, session.events.filter(event => event.streaming)); }
+    catch (error) { console.error('保存未完成内容失败：', error); }
+  }
+
+  private recordResult(session: AgentSession, run: RunState, result: AdapterResult, rawRecordId: number): void {
+    const append = (event: SessionEventInput) => this.append(session, { rawRecordId, ...event });
+    const streamId = (id: string) => `${run.id}:${id}`;
+    if (result.settled) { run.settled = true; run.aborted = result.aborted === true; run.failed = result.failed === true; }
+    if (result.externalSessionId) {
+      session.externalSessionId = result.externalSessionId;
+      this.save(session);
+    }
+    if (result.clearStreamIds?.length) {
+      const clearStreamIds = result.clearStreamIds.map(streamId);
+      session.events = session.events.filter(event => !event.streaming || !clearStreamIds.includes(event.streamId!));
+      append({ type: 'status', text: session.status, clearStreamIds });
+    }
+    if (result.system) append({ type: 'system', text: result.system.text, detail: result.system.detail });
+    if (result.thinking) append({ type: 'thinking', text: result.thinking });
+    if (result.text) append({ type: 'output', text: result.text });
+    if (result.usage) this.addUsage(session, result.usage, result.usageIsTotal, rawRecordId);
+    for (const event of result.events || []) {
+      const id = event.streamId ? streamId(event.streamId) : undefined;
+      const previous = id ? session.events.find(item => item.streamId === id) : undefined;
+      if (event.streaming && previous?.text === event.text && previous.detail === event.detail && previous.contentIndex === event.contentIndex) continue;
+      if (event.orderKey && !run.orders.has(event.orderKey)) run.orders.set(event.orderKey, rawRecordId);
+      append({
+        type: event.type, text: event.text, detail: event.detail,
+        streamId: id, order: event.orderKey ? run.orders.get(event.orderKey) : undefined,
+        contentIndex: event.contentIndex, streaming: event.streaming,
+      });
+    }
+    for (const tool of result.tools || []) append({ type: 'tool', text: tool.name, detail: tool.detail });
+    for (const change of result.changes || []) {
+      const diff = change.diff || fileDiff(session.cwd, change.path);
+      append({ type: 'file_change', text: change.path, detail: diff, kind: change.kind, comparison: change.diff || !diff ? undefined : 'HEAD' });
+    }
+    if (result.error) { run.failed = result.failed ?? true; append({ type: 'error', text: result.error }); }
+    if (result.events?.some(event => !event.streaming) || result.clearStreamIds?.length) this.savePending(session);
+  }
+
+  private finishRun(session: AgentSession, child: ChildProcessWithoutNullStreams, run: RunState, code: number | null, settlementError?: string): void {
+    if (this.processes.get(session.id) !== child) return;
+    this.processes.delete(session.id);
+    session.pid = undefined;
+    if (session.status !== 'stopped' && session.status !== 'failed') {
+      if (settlementError && !run.settled && code === 0 && !run.failed) {
+        run.failed = true;
+        this.append(session, { type: 'error', text: settlementError });
+      }
+      this.status(session, run.aborted ? 'stopped' : code === 0 && !run.failed ? 'completed' : 'failed');
+    }
+    this.emit(`${session.id}:idle`);
+  }
+
   private start(session: AgentSession, prompt: string, images?: AgentImage[]): void {
     const adapter = adapters[session.agent];
     const launch = adapter.launch(prompt, session.externalSessionId, session.model, images);
     const read = adapter.createReader?.() || adapter.read;
+    const run: RunState = { id: randomUUID(), orders: new Map(), failed: false, settled: false, aborted: false };
     const child = spawn(launch.command, launch.args, {
       cwd: session.cwd,
       stdio: 'pipe',
@@ -255,109 +322,37 @@ export class SessionManager extends EventEmitter {
     this.status(session, 'running');
     child.stdin.end(launch.prompt === undefined ? undefined : `${launch.prompt}\n`);
 
-    let pending = '';
-    let stderrPending = '';
-    const stdoutDecoder = new StringDecoder('utf8');
-    const stderrDecoder = new StringDecoder('utf8');
-    let failed = false;
-    let settled = false;
-    let aborted = false;
-    const runId = randomUUID();
-    const orders = new Map<string, number>();
-    const streamId = (id: string) => `${runId}:${id}`;
-    const savePending = () => {
-      try { this.store.savePending(session.id, session.events.filter(event => event.streaming)); }
-      catch (error) { console.error('保存未完成内容失败：', error); }
-    };
-    const recordResult = (result: AdapterResult, rawRecordId: number) => {
-      const append = (type: SessionEvent['type'], text: string, detail?: string, kind?: string, comparison?: string, attributes: Pick<SessionEvent, 'streamId' | 'order' | 'contentIndex' | 'streaming' | 'clearStreamIds'> = {}) =>
-        this.append(session, type, text, detail, kind, comparison, undefined, undefined, undefined, { rawRecordId, ...attributes });
-      if (result.settled) { settled = true; aborted = result.aborted === true; failed = result.failed === true; }
-      if (result.externalSessionId) {
-        session.externalSessionId = result.externalSessionId;
-        this.save(session);
-      }
-      if (result.clearStreamIds?.length) {
-        const clearStreamIds = result.clearStreamIds.map(streamId);
-        session.events = session.events.filter(event => !event.streaming || !clearStreamIds.includes(event.streamId!));
-        append('status', session.status, undefined, undefined, undefined, { clearStreamIds });
-      }
-      if (result.system) append('system', result.system.text, result.system.detail);
-      if (result.thinking) append('thinking', result.thinking);
-      if (result.text) append('output', result.text);
-      if (result.usage) this.addUsage(session, result.usage, result.usageIsTotal, rawRecordId);
-      for (const event of result.events || []) {
-        const id = event.streamId ? streamId(event.streamId) : undefined;
-        const previous = id ? session.events.find(item => item.streamId === id) : undefined;
-        if (event.streaming && previous?.text === event.text && previous.detail === event.detail && previous.contentIndex === event.contentIndex) continue;
-        if (event.orderKey && !orders.has(event.orderKey)) orders.set(event.orderKey, rawRecordId);
-        append(event.type, event.text, event.detail, undefined, undefined, {
-          streamId: id, order: event.orderKey ? orders.get(event.orderKey) : undefined,
-          contentIndex: event.contentIndex, streaming: event.streaming,
-        });
-      }
-      for (const tool of result.tools || []) append('tool', tool.name, tool.detail);
-      for (const change of result.changes || []) {
-        const diff = change.diff || fileDiff(session.cwd, change.path);
-        append('file_change', change.path, diff, change.kind, change.diff || !diff ? undefined : 'HEAD');
-      }
-      if (result.error) { failed = result.failed ?? true; append('error', result.error); }
-      if (result.events?.some(event => !event.streaming) || result.clearStreamIds?.length) savePending();
-    };
-    const recordStdout = (line: string) => {
-      const raw = this.append(session, 'raw_stdout', line);
-      recordResult(read(line.trim()), raw.id);
-    };
-    const checkpoint = setInterval(savePending, 1000);
-    const recordStderr = (line: string) => {
-      const raw = this.append(session, 'raw_stderr', line);
+    const stdout = createLineReader(line => {
+      const raw = this.append(session, { type: 'raw_stdout', text: line });
+      this.recordResult(session, run, read(line.trim()), raw.id);
+    });
+    const stderr = createLineReader(line => {
+      const raw = this.append(session, { type: 'raw_stderr', text: line });
       if (!line.trim()) return;
       const error = adapter.readError?.(line);
-      if (error) failed = true;
-      this.append(session, isWarning(line) ? 'warning' : 'error', error || line, undefined, undefined, undefined, undefined, undefined, undefined, { rawRecordId: raw.id });
-    };
-    child.stdout.on('data', (chunk: Buffer) => {
-      pending += stdoutDecoder.write(chunk);
-      const lines = pending.split('\n');
-      pending = lines.pop() || '';
-      for (const line of lines) recordStdout(line);
+      if (error) run.failed = true;
+      this.append(session, { type: isWarning(line) ? 'warning' : 'error', text: error || line, rawRecordId: raw.id });
     });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderrPending += stderrDecoder.write(chunk);
-      const lines = stderrPending.split('\n');
-      stderrPending = lines.pop() || '';
-      for (const line of lines) recordStderr(line);
-    });
+    const checkpoint = setInterval(() => this.savePending(session), 1000);
+    child.stdout.on('data', stdout.write);
+    child.stderr.on('data', stderr.write);
     child.on('error', error => {
-      clearInterval(checkpoint);
-      this.append(session, 'error', error.message);
-      this.processes.delete(session.id);
-      session.pid = undefined;
+      run.failed = true;
+      this.append(session, { type: 'error', text: error.message });
       if (session.status !== 'stopped') this.status(session, 'failed');
-      this.emit(`${session.id}:idle`);
     });
-    child.on('close', code => {
-      pending += stdoutDecoder.end();
-      stderrPending += stderrDecoder.end();
-      if (stderrPending.length) recordStderr(stderrPending);
-      if (pending.length) recordStdout(pending);
+    child.once('close', code => {
       clearInterval(checkpoint);
+      stderr.end();
+      stdout.end();
       for (const event of session.events.filter(event => event.streaming)) {
-        this.append(session, event.type, event.text, event.detail, event.kind, event.comparison, undefined, undefined, undefined, {
+        this.append(session, {
+          type: event.type, text: event.text, detail: event.detail, kind: event.kind, comparison: event.comparison,
           rawRecordId: event.rawRecordId, streamId: event.streamId, order: event.order, contentIndex: event.contentIndex, streaming: false,
         });
       }
-      savePending();
-      this.processes.delete(session.id);
-      session.pid = undefined;
-      if (session.status !== 'stopped' && session.status !== 'failed') {
-        if (adapter.settlementError && !settled && code === 0 && !failed) {
-          failed = true;
-          this.append(session, 'error', adapter.settlementError);
-        }
-        this.status(session, aborted ? 'stopped' : code === 0 && !failed ? 'completed' : 'failed');
-      }
-      this.emit(`${session.id}:idle`);
+      this.savePending(session);
+      this.finishRun(session, child, run, code, adapter.settlementError);
     });
   }
 }
