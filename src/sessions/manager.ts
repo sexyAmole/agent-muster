@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { adapters, type AdapterResult } from '../agents/adapters.js';
 import { SessionStore } from './store.js';
-import { mergeSessionEvents } from '../session-events.js';
+import { mergeSessionEvents } from './events.js';
 import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, SessionEvent, SessionStatus, TokenUsage } from '../types.js';
 
 function isWarning(text: string): boolean {

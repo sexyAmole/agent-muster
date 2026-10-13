@@ -11,7 +11,7 @@ import { MessageImages } from './message-images';
 import { FileMentionTextarea } from './file-mention-textarea';
 import { RunLog } from './run-log';
 import { StreamText } from './stream-text';
-import { mergeSessionEvents } from '../../src/session-events';
+import { mergeSessionEvents } from '../../src/sessions/events';
 import type { AgentInfo as Agent, AgentImage } from '../../src/types';
 import './style.css';
 

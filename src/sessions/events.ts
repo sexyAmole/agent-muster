@@ -1,4 +1,4 @@
-import type { SessionEvent } from './types.js';
+import type { SessionEvent } from '../types.js';
 
 export function compareSessionEvents(a: Pick<SessionEvent, 'id' | 'order' | 'contentIndex'>, b: Pick<SessionEvent, 'id' | 'order' | 'contentIndex'>): number {
   return (a.order ?? a.id) - (b.order ?? b.id) || (a.contentIndex ?? 0) - (b.contentIndex ?? 0) || a.id - b.id;

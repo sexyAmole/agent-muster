@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { AgentImage, AgentSession, SessionEvent } from '../types.js';
 import { projectDirectory } from '../projects/storage.js';
-import { mergeSessionEvents } from '../session-events.js';
+import { mergeSessionEvents } from './events.js';
 
 type SessionMetadata = Omit<AgentSession, 'events'>;
 type HistoryRecord = ({ type: 'session' } & SessionMetadata) | SessionEvent | { type: 'im_pushed'; eventId: number };

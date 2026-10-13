@@ -8,7 +8,7 @@ const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const shell = process.platform === 'win32';
 
 async function getUpdate(): Promise<{ name: string; current: string; latest: string }> {
-  const { name, version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { name: string; version: string };
+  const { name, version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as { name: string; version: string };
   const { stdout } = await execute(npmCommand, ['view', `${name}@latest`, 'version', '--json', '--fetch-timeout=5000', '--fetch-retries=0'], { shell, timeout: 10000 });
   const latest: unknown = JSON.parse(stdout);
   if (typeof latest !== 'string' || !valid(latest)) throw new Error('npm 返回的版本号无效');
