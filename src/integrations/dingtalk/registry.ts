@@ -231,7 +231,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     const current = this.clients.get(app.id);
     if (current?.config.clientId === app.clientId && current.config.clientSecret === app.clientSecret) return;
     current?.disconnect();
-    const client = new DWClient({ clientId: app.clientId, clientSecret: app.clientSecret });
+    const client = new DWClient({ clientId: app.clientId, clientSecret: app.clientSecret, keepAlive: true });
     client.registerCallbackListener(TOPIC_ROBOT, event => {
       try {
         const message = JSON.parse(event.data) as IncomingRobotMessage;
