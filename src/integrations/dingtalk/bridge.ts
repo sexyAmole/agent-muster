@@ -3,7 +3,7 @@ import { handleCommand } from '../commands.js';
 import type { AgentRegistry } from '../../agents/registry.js';
 import { DingTalkRegistry, type DingTalkMessage } from './registry.js';
 import type { SessionManager } from '../../sessions/manager.js';
-import type { AgentImage, AgentSession, DingTalkConversation, SessionEvent } from '../../types.js';
+import type { AgentImage, AgentSession, ImBinding, SessionEvent } from '../../types.js';
 
 const terminalStatuses = new Set(['completed', 'failed', 'stopped']);
 
@@ -92,23 +92,22 @@ export class DingTalkBridge {
       if (!content && images.length) content = '请查看这张图片。';
       if (!content) return;
     }
-    const dingtalkConversation: DingTalkConversation = {
+    const im: ImBinding = { platform: 'dingtalk', appId, conversation: {
       type: message.conversationType === '2' ? 'group' : 'single',
       ...(message.conversationType === '2' ? { groupName: message.conversationTitle } : {}),
       senderName: message.senderNick,
       senderStaffId: message.senderStaffId,
-    };
+    } };
     const prompt = message.conversationType === '2'
       ? `${message.senderNick}（${message.senderStaffId}）在群聊中说：\n${content}`
       : content;
     const previousId = this.dingtalk.getSession(appId, conversation);
     let session = previousId ? this.sessions.get(previousId) : undefined;
-    if (session) this.sessions.linkDingTalkSession(session.id, appId);
     if (session && !terminalStatuses.has(session.status)) await waitForCompletion(this.sessions, session);
     const lastEventId = session?.events.at(-1)?.id || 0;
-    if (session) this.sessions.send(session.id, prompt, binding.model, dingtalkConversation, images);
+    if (session) this.sessions.send(session.id, prompt, binding.model, im, images);
     else {
-      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, appId, dingtalkConversation, images);
+      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images);
       await this.dingtalk.setSession(appId, conversation, session.id);
     }
     await waitForCompletion(this.sessions, session);

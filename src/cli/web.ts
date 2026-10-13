@@ -17,9 +17,9 @@ function openBrowser(url: string): void {
 }
 
 export async function startWeb(options: CliOptions, registry: AgentRegistry, sessions: SessionManager, projects: ProjectRegistry, dingtalk: DingTalkRegistry, feishu: FeishuRegistry): Promise<void> {
-  for (const { sessionId, appId } of dingtalk.sessionBindings()) sessions.linkDingTalkSession(sessionId, appId);
+  for (const { sessionId, appId } of dingtalk.sessionBindings()) sessions.linkImSession(sessionId, { platform: 'dingtalk', appId });
   new DingTalkBridge(dingtalk, registry, sessions, projects);
-  for (const { sessionId, appId } of feishu.sessionBindings()) sessions.linkFeishuSession(sessionId, appId);
+  for (const { sessionId, appId } of feishu.sessionBindings()) sessions.linkImSession(sessionId, { platform: 'feishu', appId });
   new FeishuBridge(feishu, registry, sessions, projects);
   const server = await startServer(options.port, registry, projects, sessions, dingtalk, feishu, options.dev);
   dingtalk.startSubscriptions();

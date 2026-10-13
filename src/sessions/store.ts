@@ -3,13 +3,41 @@ import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promi
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { AgentImage, AgentSession, SessionEvent } from '../types.js';
+import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, ImBinding, SessionEvent } from '../types.js';
 import { projectDirectory } from '../projects/storage.js';
 import { mergeSessionEvents } from './events.js';
 
 type SessionMetadata = Omit<AgentSession, 'events'>;
 type HistoryRecord = ({ type: 'session' } & SessionMetadata) | SessionEvent | { type: 'im_pushed'; eventId: number };
 type LegacyRecord = { session: SessionMetadata; event?: SessionEvent; pushedEventId?: number };
+
+type LegacyImFields = {
+  dingtalkAppId?: string;
+  feishuAppId?: string;
+  dingtalkConversation?: DingTalkConversation;
+  feishuConversation?: FeishuConversation;
+};
+type LegacyImEvent = { [Type in 'dingtalk_message' | 'feishu_message']: Omit<SessionEvent, 'type'> & { type: Type } }['dingtalk_message' | 'feishu_message'];
+type StoredRecord = HistoryRecord | LegacyRecord | LegacyImEvent;
+
+function migrateImRecord(record: HistoryRecord | Exclude<StoredRecord, LegacyRecord>): HistoryRecord {
+  const { dingtalkAppId, feishuAppId, dingtalkConversation, feishuConversation, ...rest } = record as typeof record & LegacyImFields;
+  if (rest.type === 'session') {
+    const im: ImBinding[] = [...rest.im || []];
+    if (dingtalkAppId) im.push({ platform: 'dingtalk', appId: dingtalkAppId, conversation: dingtalkConversation });
+    if (feishuAppId) im.push({ platform: 'feishu', appId: feishuAppId, conversation: feishuConversation });
+    return { ...rest, ...(im.length ? { im } : {}) };
+  }
+  if (rest.type === 'im_pushed') return rest;
+  if (rest.type === 'dingtalk_message' || rest.type === 'feishu_message') {
+    return { ...rest, type: 'im_message', im: rest.type === 'dingtalk_message'
+      ? { platform: 'dingtalk', conversation: dingtalkConversation }
+      : { platform: 'feishu', conversation: feishuConversation } };
+  }
+  if (dingtalkConversation) return { ...rest, im: { platform: 'dingtalk', conversation: dingtalkConversation } };
+  if (feishuConversation) return { ...rest, im: { platform: 'feishu', conversation: feishuConversation } };
+  return rest;
+}
 
 function metadataKey({ updatedAt, ...metadata }: SessionMetadata): string {
   return JSON.stringify(metadata);
@@ -124,24 +152,35 @@ export class SessionStore {
     return sessions;
   }
 
-  save(session: AgentSession, event?: SessionEvent, update = false): void {
+  saveMetadata(session: AgentSession): void {
     const { events, ...metadata } = session;
     const file = this.files.get(session.id) || this.sessionFile(metadata);
     if (!this.files.has(session.id)) mkdirSync(dirname(file), { recursive: true });
     const key = metadataKey(metadata);
-    const entries: HistoryRecord[] = [];
-    if (this.metadataKeys.get(session.id) !== key) entries.push({ type: 'session', ...metadata });
-    if (event && (event.type === 'raw_stdout' || event.type === 'raw_stderr')) {
-      appendFileSync(this.rawFile(file), `${JSON.stringify(event)}\n`);
-    } else if (event) entries.push(update ? { type: 'im_pushed', eventId: event.id } : event);
-    if (entries.length) appendFileSync(file, entries.map(record => `${JSON.stringify(record)}\n`).join(''));
+    if (this.metadataKeys.get(session.id) !== key) this.appendRecord(file, { type: 'session', ...metadata });
     this.files.set(session.id, file);
     this.metadataKeys.set(session.id, key);
   }
 
-  history(id: string, limit?: number, before?: number): { events: SessionEvent[]; hasMore: boolean } {
+  appendEvent(id: string, event: SessionEvent): void {
+    this.appendRecord(this.files.get(id)!, event);
+  }
+
+  appendRaw(id: string, event: SessionEvent): void {
+    this.appendRecord(this.rawFile(this.files.get(id)!), event);
+  }
+
+  markImPushed(id: string, eventId: number): void {
+    this.appendRecord(this.files.get(id)!, { type: 'im_pushed', eventId });
+  }
+
+  private appendRecord(file: string, record: HistoryRecord): void {
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  }
+
+  history(id: string, limit?: number, before?: number, includeRaw = true): { events: SessionEvent[]; hasMore: boolean } {
     if (limit === 0) return { events: [], hasMore: false };
-    if (limit === undefined) return { events: mergeSessionEvents([...this.eventsAfter(id, 0)]), hasMore: false };
+    if (limit === undefined) return { events: mergeSessionEvents([...this.eventsAfter(id, 0, includeRaw)]), hasMore: false };
     const events: SessionEvent[] = [];
     const pushed = new Set<number>();
     let rounds = 0;
@@ -150,6 +189,7 @@ export class SessionStore {
       if (record.type === 'im_pushed') { pushed.add(record.eventId); continue; }
       if (record.type === 'session') continue;
       const event = record;
+      if (!includeRaw && (event.type === 'raw_stdout' || event.type === 'raw_stderr')) continue;
       if (before !== undefined && event.id >= before) continue;
       if (rounds === limit) { hasMore = true; break; }
       events.push(pushed.has(event.id) ? { ...event, pushedToIm: true } : event);
@@ -157,7 +197,7 @@ export class SessionStore {
     }
     const firstId = events.at(-1)?.id;
     const rawFile = this.rawFile(this.files.get(id)!);
-    if (firstId !== undefined && existsSync(rawFile)) {
+    if (includeRaw && firstId !== undefined && existsSync(rawFile)) {
       for (const event of records<SessionEvent>(rawFile, true)) {
         if (before !== undefined && event.id >= before) continue;
         if (event.id < firstId) break;
@@ -165,6 +205,23 @@ export class SessionStore {
       }
     }
     return { events: mergeSessionEvents(events.reverse()), hasMore };
+  }
+
+  logs(id: string, limit: number, before?: number): { events: SessionEvent[]; hasMore: boolean } {
+    const file = this.files.get(id)!;
+    const rawFile = this.rawFile(file);
+    const events: SessionEvent[] = [];
+    for (const source of existsSync(rawFile) ? [file, rawFile] : [file]) {
+      let count = 0;
+      for (const record of records(source, true)) {
+        if (record.type !== 'raw_stdout' && record.type !== 'raw_stderr') continue;
+        if (before !== undefined && record.id >= before) continue;
+        events.push(record);
+        if (++count > limit) break;
+      }
+    }
+    events.sort((a, b) => b.id - a.id);
+    return { events: events.slice(0, limit).reverse(), hasMore: events.length > limit };
   }
 
   getEvent(id: string, eventId: number): SessionEvent | undefined {
@@ -185,7 +242,7 @@ export class SessionStore {
     return undefined;
   }
 
-  *eventsAfter(id: string, after: number): Generator<SessionEvent> {
+  *eventsAfter(id: string, after: number, includeRaw = true): Generator<SessionEvent> {
     const file = this.files.get(id)!;
     const pushed = new Set<number>();
     for (const record of records(file, true)) {
@@ -194,11 +251,11 @@ export class SessionStore {
     }
     const normalized = (function* () {
       for (const record of records(file)) {
-        if (record.type !== 'session' && record.type !== 'im_pushed') yield record;
+        if (record.type !== 'session' && record.type !== 'im_pushed' && (includeRaw || (record.type !== 'raw_stdout' && record.type !== 'raw_stderr'))) yield record;
       }
     })();
     const rawFile = this.rawFile(file);
-    const raw = existsSync(rawFile) ? records<SessionEvent>(rawFile) : [][Symbol.iterator]();
+    const raw = includeRaw && existsSync(rawFile) ? records<SessionEvent>(rawFile) : [][Symbol.iterator]();
     let left = normalized.next();
     let right = raw.next();
     try {
@@ -250,7 +307,8 @@ export class SessionStore {
     for (const event of pending) {
       if (completed.has(event.streamId)) continue;
       metadata.updatedAt = Math.max(metadata.updatedAt, event.timestamp);
-      this.save({ ...metadata, events: [] }, { ...event, id: ++id, streaming: false });
+      this.saveMetadata({ ...metadata, events: [] });
+      this.appendEvent(metadata.id, { ...event, id: ++id, streaming: false });
     }
     this.savePending(metadata.id, []);
   }
@@ -281,23 +339,29 @@ export class SessionStore {
   }
 
   private migrateRecords(file: string): void {
-    for (const record of records<HistoryRecord | LegacyRecord>(file)) {
-      if ('type' in record) return;
-      break;
+    const requiresMigration = (record: StoredRecord): boolean => !('type' in record)
+      || record.type === 'dingtalk_message' || record.type === 'feishu_message'
+      || ['dingtalkAppId', 'feishuAppId', 'dingtalkConversation', 'feishuConversation'].some(key => key in record);
+    let required = false;
+    for (const record of records<StoredRecord>(file)) {
+      if (requiresMigration(record)) { required = true; break; }
     }
+    if (!required) return;
     const temporary = `${file}.${process.pid}.tmp`;
     const descriptor = openSync(temporary, 'w');
+    const write = (record: Exclude<StoredRecord, LegacyRecord>) => writeSync(descriptor, `${JSON.stringify(migrateImRecord(record))}\n`);
     let previousKey: string | undefined;
     try {
-      for (const record of records<LegacyRecord>(file)) {
+      for (const record of records<StoredRecord>(file)) {
+        if ('type' in record) { write(record); continue; }
         const key = metadataKey(record.session);
-        if (key !== previousKey) writeSync(descriptor, `${JSON.stringify({ type: 'session', ...record.session })}\n`);
-        if (record.event) writeSync(descriptor, `${JSON.stringify(record.event)}\n`);
-        if (record.pushedEventId !== undefined) writeSync(descriptor, `${JSON.stringify({ type: 'im_pushed', eventId: record.pushedEventId })}\n`);
+        if (key !== previousKey) write({ type: 'session', ...record.session });
+        if (record.event) write(record.event);
+        if (record.pushedEventId !== undefined) write({ type: 'im_pushed', eventId: record.pushedEventId });
         previousKey = key;
       }
     } finally { closeSync(descriptor); }
-    copyFileSync(file, `${file}.bak`);
+    copyFileSync(file, `${file}.${Date.now()}.bak`);
     renameSync(temporary, file);
   }
 

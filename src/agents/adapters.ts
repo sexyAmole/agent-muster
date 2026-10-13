@@ -16,7 +16,7 @@ export interface AdapterEvent {
   streaming?: boolean;
 }
 
-export interface AdapterResult {
+interface ParsedResult {
   text?: string;
   thinking?: string;
   system?: { text: string; detail?: string };
@@ -33,13 +33,68 @@ export interface AdapterResult {
   clearStreamIds?: string[];
 }
 
-export interface Adapter {
+interface ProtocolAdapter {
   id: string;
   launch(prompt: string, externalSessionId?: string, model?: string, images?: AgentImage[]): Launch;
-  read(line: string): AdapterResult;
-  createReader?(): Adapter['read'];
+  read(line: string): ParsedResult;
+  createReader?(): ProtocolAdapter['read'];
   readError?(line: string): string | undefined;
   settlementError?: string;
+}
+
+export type AgentEvent =
+  | (Omit<AdapterEvent, 'type'> & { type: 'system' | 'output' | 'thinking' | 'tool' | 'error' | 'warning' })
+  | { type: 'file_change'; path: string; kind: string; diff?: string }
+  | { type: 'usage'; usage: TokenUsage; total?: boolean };
+
+export interface AdapterResult {
+  events: AgentEvent[];
+  externalSessionId?: string;
+  settled?: boolean;
+  aborted?: boolean;
+  failed?: boolean;
+  clearStreamIds?: string[];
+}
+
+export interface Adapter {
+  id: string;
+  launch: ProtocolAdapter['launch'];
+  createReader(): (line: string, channel: 'stdout' | 'stderr') => AdapterResult;
+  settlementError?: string;
+}
+
+function normalizeResult(result: ParsedResult): AdapterResult {
+  const events: AgentEvent[] = [];
+  if (result.system) events.push({ type: 'system', ...result.system });
+  if (result.thinking) events.push({ type: 'thinking', text: result.thinking });
+  if (result.text) events.push({ type: 'output', text: result.text });
+  if (result.usage) events.push({ type: 'usage', usage: result.usage, total: result.usageIsTotal });
+  events.push(...result.events || []);
+  for (const tool of result.tools || []) events.push({ type: 'tool', text: tool.name, detail: tool.detail });
+  for (const change of result.changes || []) events.push({ type: 'file_change', ...change });
+  if (result.error) events.push({ type: 'error', text: result.error });
+  return {
+    events, externalSessionId: result.externalSessionId, settled: result.settled, aborted: result.aborted,
+    failed: result.error ? result.failed ?? true : result.settled ? result.failed : undefined, clearStreamIds: result.clearStreamIds,
+  };
+}
+
+function createAdapter(protocol: ProtocolAdapter): Adapter {
+  return {
+    id: protocol.id,
+    launch: protocol.launch,
+    settlementError: protocol.settlementError,
+    createReader() {
+      const read = protocol.createReader?.() || protocol.read;
+      return (line, channel) => {
+        if (channel === 'stdout') return normalizeResult(read(line.trim()));
+        if (!line.trim()) return { events: [] };
+        const error = protocol.readError?.(line);
+        const warning = line.trim().split(/\r?\n/).every(value => /^\S+\s+WARN\b/.test(value));
+        return { events: [{ type: warning ? 'warning' : 'error', text: error || line }], failed: error ? true : undefined };
+      };
+    },
+  };
 }
 
 interface ToolCall {
@@ -78,7 +133,7 @@ function json(line: string): Record<string, unknown> | undefined {
   try { return object(JSON.parse(line)); } catch { return { type: 'plain', text: line }; }
 }
 
-const codex: Adapter = {
+const codex: ProtocolAdapter = {
   id: 'codex',
   launch(prompt, externalSessionId, model, images) {
     const imageArgs = images?.flatMap(image => ['--image', image.path]) || [];
@@ -123,7 +178,7 @@ const codex: Adapter = {
   },
 };
 
-const claude: Adapter = {
+const claude: ProtocolAdapter = {
   id: 'claude',
   launch(prompt, externalSessionId, model, images) {
     return {
@@ -167,7 +222,7 @@ const claude: Adapter = {
   },
 };
 
-const pi: Adapter & { createResultReader(): Adapter['read'] } = {
+const pi: ProtocolAdapter & { createResultReader(): ProtocolAdapter['read'] } = {
   id: 'pi',
   launch(prompt, externalSessionId, model, images) {
     return {
@@ -179,7 +234,7 @@ const pi: Adapter & { createResultReader(): Adapter['read'] } = {
   read(line) {
     const event = json(line);
     if (!event || event.type === 'plain') return {};
-    const result: ReturnType<Adapter['read']> = {};
+    const result: ParsedResult = {};
     if (event.type === 'session') return { ...result, externalSessionId: string(event.id) };
     if (event.type === 'agent_settled') return { ...result, settled: true, aborted: event.aborted === true };
     if (event.type === 'tool_execution_end') return { ...result, tools: [{
@@ -339,7 +394,7 @@ const pi: Adapter & { createResultReader(): Adapter['read'] } = {
   },
 };
 
-const kimi: Adapter = {
+const kimi: ProtocolAdapter = {
   id: 'kimi',
   launch(prompt, externalSessionId, model) {
     return {
@@ -367,7 +422,7 @@ const kimi: Adapter = {
   },
 };
 
-const gemini: Adapter = {
+const gemini: ProtocolAdapter = {
   id: 'gemini',
   launch(prompt, externalSessionId, model, images) {
     return {
@@ -425,7 +480,7 @@ const gemini: Adapter = {
   },
 };
 
-const opencode: Adapter = {
+const opencode: ProtocolAdapter = {
   id: 'opencode',
   launch(prompt, externalSessionId, model, images) {
     return {
@@ -478,7 +533,7 @@ const opencode: Adapter = {
   },
 };
 
-const cursor: Adapter = {
+const cursor: ProtocolAdapter = {
   id: 'cursor',
   launch(prompt, externalSessionId, model, images) {
     if (images?.length) throw new Error('当前 Cursor CLI 接入不支持图片附件输入');
@@ -516,4 +571,6 @@ const cursor: Adapter = {
   },
 };
 
-export const adapters: Record<string, Adapter> = { codex, claude, pi, kimi, gemini, opencode, cursor };
+export const adapters: Record<string, Adapter> = Object.fromEntries(
+  [codex, claude, pi, kimi, gemini, opencode, cursor].map(protocol => [protocol.id, createAdapter(protocol)]),
+);

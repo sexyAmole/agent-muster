@@ -46,6 +46,12 @@ export interface DingTalkConversation {
 
 export type FeishuConversation = { type: 'single' | 'group'; senderId: string };
 
+export type ImContext =
+  | { platform: 'dingtalk'; conversation?: DingTalkConversation }
+  | { platform: 'feishu'; conversation?: FeishuConversation };
+
+export type ImBinding = ImContext & { appId: string };
+
 export interface SessionEvent {
   id: number;
   rawRecordId?: number;
@@ -54,25 +60,21 @@ export interface SessionEvent {
   contentIndex?: number;
   streaming?: boolean;
   clearStreamIds?: string[];
-  type: 'system' | 'thinking' | 'output' | 'status' | 'error' | 'warning' | 'message' | 'dingtalk_message' | 'feishu_message' | 'tool' | 'file_change' | 'usage' | 'raw_stdout' | 'raw_stderr';
+  type: 'system' | 'thinking' | 'output' | 'status' | 'error' | 'warning' | 'message' | 'im_message' | 'tool' | 'file_change' | 'usage' | 'raw_stdout' | 'raw_stderr';
   text: string;
   detail?: string;
   kind?: string;
   comparison?: string;
   timestamp: number;
   pushedToIm?: boolean;
-  dingtalkConversation?: DingTalkConversation;
-  feishuConversation?: FeishuConversation;
+  im?: ImContext;
   images?: Pick<AgentImage, 'path' | 'mimeType'>[];
 }
 
 export interface AgentSession {
   id: string;
   agent: string;
-  dingtalkAppId?: string;
-  feishuAppId?: string;
-  dingtalkConversation?: DingTalkConversation;
-  feishuConversation?: FeishuConversation;
+  im?: ImBinding[];
   cwd: string;
   prompt: string;
   model?: string;

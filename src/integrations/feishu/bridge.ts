@@ -3,7 +3,7 @@ import { handleCommand } from '../commands.js';
 import type { AgentRegistry } from '../../agents/registry.js';
 import { FeishuRegistry, type FeishuMessage } from './registry.js';
 import type { SessionManager } from '../../sessions/manager.js';
-import type { AgentImage, AgentSession, FeishuConversation, SessionEvent } from '../../types.js';
+import type { AgentImage, AgentSession, ImBinding, SessionEvent } from '../../types.js';
 
 const terminalStatuses = new Set(['completed', 'failed', 'stopped']);
 type PostElement =
@@ -108,17 +108,16 @@ export class FeishuBridge {
       return;
     }
     if (!content && images.length) content = '请查看这张图片。';
-    const conversation: FeishuConversation = { type: message.chat_type === 'group' ? 'group' : 'single', senderId };
+    const im: ImBinding = { platform: 'feishu', appId, conversation: { type: message.chat_type === 'group' ? 'group' : 'single', senderId } };
     const prompt = message.chat_type === 'group' ? `${senderId} 在群聊中说：\n${content}` : content;
     const previousId = this.feishu.getSession(appId, message.chat_id);
     let session = previousId ? this.sessions.get(previousId) : undefined;
     if (session && (this.sessions.isRunning(session.id) || !terminalStatuses.has(session.status))) await waitForCompletion(this.sessions, session);
     const lastEventId = session?.events.at(-1)?.id || 0;
     if (session) {
-      this.sessions.linkFeishuSession(session.id, appId);
-      this.sessions.send(session.id, prompt, binding.model, undefined, images, conversation);
+      this.sessions.send(session.id, prompt, binding.model, im, images);
     } else {
-      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, undefined, undefined, images, { appId, conversation });
+      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images);
       await this.feishu.setSession(appId, message.chat_id, session.id);
     }
     await waitForCompletion(this.sessions, session);
