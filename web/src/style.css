@@ -137,10 +137,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .run-log-content { flex: 1; min-height: 0; overflow: auto; padding: 0 16px 16px; }
 @keyframes run-log-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @media (prefers-reduced-motion: reduce) { .run-log-drawer[open] { animation: none; } }
-.run-log-content > div { padding: 8px 0; border-bottom: 1px solid #eee; }
-.run-log-content > div:last-child { border: 0; }
+.run-log-content > div, .run-log-content > details { padding: 8px 0; border-bottom: 1px solid #eee; }
+.run-log-content > div:last-child, .run-log-content > details:last-child { border: 0; }
 .run-log-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.run-log-content span { color: #999; font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.run-log-content summary { cursor: pointer; color: #777; overflow-wrap: anywhere; font: 10px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.run-log-content summary:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
 .run-log-content pre { overflow-wrap: anywhere; margin: 5px 0 0; white-space: pre-wrap; font: 10px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .conversation-scroll { min-height: 0; flex: 1; overflow: auto; background: #fff; }
 .chat-thread { width: min(880px, 100%); display: flex; flex-direction: column; gap: 34px; margin: 0 auto; padding: 34px 34px 80px; }

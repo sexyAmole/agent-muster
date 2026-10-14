@@ -68,7 +68,7 @@ export const RunLog = memo(function RunLog({ sessionId, copied, onCopy }: Props)
       <div className="run-log-header"><h2 id={titleId}>运行日志</h2><button className="copy-button" aria-label="关闭运行日志" title="关闭运行日志" onClick={() => setOpen(false)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg></button></div>
       {open && <div className="run-log-content" tabIndex={0}>
       <div className="run-log-toolbar"><button className="reply-push" disabled={!logs.length} onClick={() => void onCopy(logs.map(event => event.text).join('\n'), 'run-log')}>{copied ? '已复制' : '复制已加载日志'}</button>{hasMore && <button className="history-load" disabled={loading} onClick={() => void loadLogs(logs[0]?.id)}>{loading ? '加载中…' : '加载更早日志'}</button>}</div>
-      {logs.map(event => <div key={event.id}><span>{event.timestamp !== undefined && `${timestampFormat.format(event.timestamp)} · `}{event.type}</span><pre>{event.text}</pre></div>)}
+      {logs.map(event => <details key={event.id}><summary>{event.timestamp !== undefined && `${timestampFormat.format(event.timestamp)} · `}{event.type}</summary><pre>{event.text}</pre></details>)}
       {loading && !logs.length && <p>加载中…</p>}
       {!loading && !logs.length && <p>{supported ? '尚未找到 Agent 本地会话记录。' : '此 Agent 不支持读取本地 JSONL 会话记录。'}</p>}
       </div>}
