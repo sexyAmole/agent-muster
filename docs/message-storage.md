@@ -15,14 +15,20 @@
 
 | 模块 | 职责 | 不应承担的职责 |
 | --- | --- | --- |
-| `src/agents/adapters.ts` | 启动参数、stdout/stderr 解析、标准事件输出、协议去重及流式整理 | 文件读写、项目筛选、历史分页 |
+| `src/agents/adapters.ts` | Agent 适配器注册与统一导出 | 实现具体 Agent 协议 |
+| `src/agents/adapters/<agent>.ts` | 启动参数、协议解析、去重及流式整理 | 文件读写、项目筛选、历史分页 |
+| `src/agents/adapters/shared.ts` | 共享类型、解析工具、标准事件归一化与通道处理 | 实现具体 Agent 协议 |
 | `src/sessions/manager.ts` | 会话生命周期、事件编号、原始记录关联、用量累计、缓存及广播 | 解析各 Agent 的原生消息结构 |
 | `src/sessions/store.ts` | 文件定位、追加写入、历史读取、推送标记合并、快照恢复及迁移 | 执行 Agent、调用 IM SDK、决定界面布局 |
 | `src/sessions/events.ts` | 按流标识合并事件及按展示顺序排序 | 解析协议或访问文件 |
 | `src/integrations/*/bridge.ts` | 平台消息转换、会话路由、平台回复 | 直接写入会话 JSONL |
 | 前端 | 消费共享类型、替换流式快照、按界面用途展示事件 | 自行解析 Agent 原生 stdout |
 
-Adapter 对外返回 `AdapterResult`，消息内容统一位于 `events: AgentEvent[]`。`externalSessionId`、`settled`、`aborted`、`failed` 和 `clearStreamIds` 是执行控制信息。Adapter 内部的 `ParsedResult` 不属于持久格式或前端接口。
+Adapter 对外返回 `AdapterResult`，消息内容统一位于 `events: AgentEvent[]`。`externalSessionId`、`settled`、`aborted`、`failed` 和 `clearStreamIds` 是执行控制信息，`skipRawLog` 控制当前原始行是否保存。Adapter 内部的 `ParsedResult` 不属于持久格式或前端接口。
+
+所有协议适配器统一实现 `createReader()`，每次执行创建独立的逐行解析函数。可选的 `createRawReader()` 创建原始数据块解析函数，接收 UTF-8 解码后的文本块和 `stdout`/`stderr` 通道；在分行前调用，不等待 LF，不执行 `trim()`。数据块边界由进程输出决定，不保证是完整协议消息；适配器负责缓存、拼接和去重。
+
+原始数据块解析结果同样经过标准事件归一化、存储和推送流程；可通过 `streamId` 输出流式快照，并由逐行解析返回同一标识的完成事件。此时原始行可能尚未形成，派生事件可以没有 `rawRecordId`，首次出现的事件编号用于展示排序。原始日志仍按行保存；新增入口不会将全部原始日志直接推送到 Web。
 
 ## 3. 目录与文件
 
@@ -115,6 +121,8 @@ JSONL 使用 UTF-8，每行一个 JSON 对象，并以 LF 结尾。文本中的�
 ## 5. 原始日志与写入流程
 
 原始日志使用 `SessionEvent` 结构，`type` 仅为 `raw_stdout` 或 `raw_stderr`。`text` 保存 UTF-8 解码、按 LF 分行后的原文，不包含分隔符 LF；CR 等其余字符按原样保留。输入结束时的最后一段非空内容即使没有 LF，也会形成一条记录。
+
+适配器可通过 `skipRawLog` 指示跳过当前原始行的保存，业务事件仍正常解析和写入。Pi 的 user/system 消息仅保留 `message_start` 原始记录，不保存该消息的 `message_update` 和 `message_end`；system 业务事件仍从 `message_end` 提取，assistant 消息的原始记录保持完整。
 
 ```json
 {"id":2,"type":"raw_stdout","text":"{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"项目包含服务端和前端。\"}}","timestamp":1791800000200}

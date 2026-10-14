@@ -263,7 +263,7 @@ export class SessionManager extends EventEmitter {
     catch (error) { console.error('保存未完成内容失败：', error); }
   }
 
-  private recordResult(session: AgentSession, run: RunState, result: AdapterResult, rawRecordId: number): void {
+  private recordResult(session: AgentSession, run: RunState, result: AdapterResult, rawRecordId?: number): void {
     const append = (event: SessionEventInput) => this.append(session, { rawRecordId, ...event });
     const streamId = (id: string) => `${run.id}:${id}`;
     if (result.settled) { run.settled = true; run.aborted = result.aborted === true; run.failed = result.failed === true; }
@@ -289,7 +289,7 @@ export class SessionManager extends EventEmitter {
       const id = event.streamId ? streamId(event.streamId) : undefined;
       const previous = id ? session.events.find(item => item.streamId === id) : undefined;
       if (event.streaming && previous?.text === event.text && previous.detail === event.detail && previous.contentIndex === event.contentIndex) continue;
-      if (event.orderKey && !run.orders.has(event.orderKey)) run.orders.set(event.orderKey, rawRecordId);
+      if (event.orderKey && !run.orders.has(event.orderKey)) run.orders.set(event.orderKey, rawRecordId ?? Math.max(0, ...session.events.map(item => item.id)) + 1);
       append({
         type: event.type, text: event.text, detail: event.detail,
         streamId: id, order: event.orderKey ? run.orders.get(event.orderKey) : undefined,
@@ -318,6 +318,7 @@ export class SessionManager extends EventEmitter {
     const adapter = adapters[session.agent];
     const launch = adapter.launch(prompt, session.externalSessionId, session.model, images);
     const read = adapter.createReader();
+    const readRaw = adapter.createRawReader?.();
     const run: RunState = { id: randomUUID(), orders: new Map(), failed: false, settled: false, aborted: false };
     const child = spawn(launch.command, launch.args, {
       cwd: session.cwd,
@@ -331,9 +332,10 @@ export class SessionManager extends EventEmitter {
     child.stdin.end(launch.prompt === undefined ? undefined : `${launch.prompt}\n`);
 
     const consume = (channel: 'stdout' | 'stderr') => createLineReader(line => {
-      const raw = this.recordRaw(session, channel, line);
-      this.recordResult(session, run, read(line, channel), raw.id);
-    });
+      const result = read(line, channel);
+      const raw = result.skipRawLog ? undefined : this.recordRaw(session, channel, line);
+      this.recordResult(session, run, result, raw?.id);
+    }, readRaw ? chunk => this.recordResult(session, run, readRaw(chunk, channel)) : undefined);
     const stdout = consume('stdout');
     const stderr = consume('stderr');
     const checkpoint = setInterval(() => this.savePending(session), 1000);
