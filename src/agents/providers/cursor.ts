@@ -1,7 +1,7 @@
 import { realpath, rm, readFile } from 'node:fs/promises';
 import { delimiter, sep, join, basename, resolve } from 'node:path';
 import { executablePath } from '../executable.js';
-import { execFileAsync, object, string, detail, json, toolText } from './shared.js';
+import { fullAutoMode, autoReviewMode, planMode, execFileAsync, object, string, detail, json, toolText } from './shared.js';
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import type { AdapterEvent, AgentProvider } from './shared.js';
@@ -10,6 +10,8 @@ const cursorDirectory = join(homedir(), '.local', 'share', 'cursor-agent');
 
 export const cursor: AgentProvider = {
   id: 'cursor',
+  sandboxSupported: true,
+  permissionModes: [fullAutoMode, { id: 'ask', name: '只读问答', description: '使用 Agent 原生只读问答模式' }, planMode, autoReviewMode],
   name: 'Cursor',
   command: 'cursor-agent',
   installation: {
@@ -53,11 +55,13 @@ export const cursor: AgentProvider = {
     const directory = process.env.CURSOR_CONFIG_DIR ? resolve(process.env.CURSOR_CONFIG_DIR) : join(homedir(), '.cursor');
     return findJsonl(join(directory, 'projects'), file => basename(file) === `${session.externalSessionId}.jsonl`);
   },
-  launch(prompt, externalSessionId, model, images) {
+  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto', sandboxEnabled = true } = {}) {
     if (images?.length) throw new Error('当前 Cursor CLI 接入不支持图片附件输入');
+    const permissionArgs = permissionMode === 'ask' || permissionMode === 'plan' ? ['--mode', permissionMode]
+      : [permissionMode === 'auto-review' ? '--auto-review' : '--force'];
     return {
       command: 'cursor-agent',
-      args: ['--print', '--force', '--output-format', 'stream-json', '--stream-partial-output', ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : []), '--', prompt],
+      args: ['--print', '--trust', '--sandbox', sandboxEnabled ? 'enabled' : 'disabled', ...permissionArgs, '--output-format', 'stream-json', '--stream-partial-output', ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : []), '--', prompt],
     };
   },
   createReader() {

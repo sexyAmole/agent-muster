@@ -1,6 +1,15 @@
 export type SessionStatus = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'stopped';
 
+export interface PermissionMode {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export interface AgentInfo {
+  sandboxSupported: boolean;
+  sandboxEnabled: boolean;
+  permissionModes: PermissionMode[];
   id: string;
   name: string;
   command: string;
@@ -91,6 +100,7 @@ export interface AgentSession {
   cwd: string;
   prompt: string;
   model?: string;
+  permissionMode?: string;
   usage?: TokenUsage;
   externalSessionId?: string;
   pid?: number;

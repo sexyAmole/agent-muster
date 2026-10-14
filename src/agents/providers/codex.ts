@@ -4,7 +4,7 @@ import { findJsonl } from '../jsonl.js';
 import { join, basename, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { object, string, tokens, hasTokens, detail, json } from './shared.js';
+import { fullAutoMode, autoReviewMode, object, string, tokens, hasTokens, detail, json } from './shared.js';
 import type { AgentProvider, ParsedResult } from './shared.js';
 
 interface CodexModel {
@@ -47,6 +47,8 @@ function codexModels(): Promise<CodexModel[]> {
 
 export const codex: AgentProvider = {
   id: 'codex',
+  sandboxSupported: true,
+  permissionModes: [fullAutoMode, { id: 'read-only', name: '只读', description: '使用只读沙箱，禁止修改项目文件' }, { id: 'workspace-write', name: '项目内自动执行', description: '允许修改当前项目，越界操作直接拒绝' }, autoReviewMode],
   name: 'Codex',
   command: 'codex',
   installation: { kind: 'npm', packageName: '@openai/codex' },
@@ -63,13 +65,16 @@ export const codex: AgentProvider = {
     const directory = process.env.CODEX_HOME ? resolve(process.env.CODEX_HOME) : join(homedir(), '.codex');
     return findJsonl(join(directory, 'sessions'), file => basename(file).endsWith(`-${session.externalSessionId}.jsonl`));
   },
-  launch(prompt, externalSessionId, model, images) {
+  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto', sandboxEnabled = true } = {}) {
+    const sandbox = permissionMode === 'read-only' || permissionMode === 'workspace-write' ? permissionMode
+      : permissionMode === 'auto-review' || sandboxEnabled ? 'workspace-write' : 'danger-full-access';
+    const executionArgs = ['-c', `sandbox_mode=${JSON.stringify(sandbox)}`, ...(permissionMode === 'auto-review' ? ['--approve-for-me'] : ['-c', 'approval_policy="never"'])];
     const imageArgs = images?.flatMap(image => ['--image', image.path]) || [];
     return {
       command: 'codex',
       args: externalSessionId
-        ? ['exec', 'resume', ...imageArgs, '--json', '--skip-git-repo-check', ...(model ? ['--model', model] : []), externalSessionId, '-']
-        : ['exec', ...imageArgs, '--json', '--skip-git-repo-check', ...(model ? ['--model', model] : []), '-'],
+        ? [...executionArgs, 'exec', 'resume', ...imageArgs, '--json', '--skip-git-repo-check', ...(model ? ['--model', model] : []), externalSessionId, '-']
+        : [...executionArgs, 'exec', ...imageArgs, '--json', '--skip-git-repo-check', ...(model ? ['--model', model] : []), '-'],
       prompt,
     };
   },

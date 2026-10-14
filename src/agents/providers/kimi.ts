@@ -1,11 +1,13 @@
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import { basename, dirname, join, resolve } from 'node:path';
-import { execFileAsync, object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
+import { fullAutoMode, execFileAsync, object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
 import type { AdapterEvent, AgentProvider } from './shared.js';
 
 export const kimi: AgentProvider = {
   id: 'kimi',
+  sandboxSupported: false,
+  permissionModes: [fullAutoMode],
   name: 'Kimi',
   command: 'kimi',
   installation: { kind: 'npm', packageName: '@moonshot-ai/kimi-code' },

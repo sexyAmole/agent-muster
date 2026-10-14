@@ -1,8 +1,10 @@
-import { execFileAsync, object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
+import { fullAutoMode, readOnlyMode, execFileAsync, object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
 import type { AgentProvider } from './shared.js';
 
 export const opencode: AgentProvider = {
   id: 'opencode',
+  sandboxSupported: false,
+  permissionModes: [fullAutoMode, readOnlyMode],
   name: 'OpenCode',
   command: 'opencode',
   installation: { kind: 'npm', packageName: 'opencode-ai' },
@@ -19,10 +21,11 @@ export const opencode: AgentProvider = {
     const { stdout } = await execFileAsync('opencode', ['debug', 'config'], { timeout: 10000 });
     return (JSON.parse(stdout) as { model?: string }).model;
   },
-  launch(prompt, externalSessionId, model, images) {
+  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto' } = {}) {
     return {
       command: 'opencode',
-      args: ['run', '--format', 'json', ...(externalSessionId ? ['--session', externalSessionId] : []), ...(model ? ['--model', model] : []), ...(images?.flatMap(image => ['--file', image.path]) || [])],
+      ...(permissionMode === 'read-only' ? { env: { ...process.env, OPENCODE_PERMISSION: JSON.stringify({ '*': 'deny', bash: 'deny', edit: 'deny', task: 'deny', read: 'allow', glob: 'allow', grep: 'allow', list: 'allow', external_directory: 'deny' }) } } : {}),
+      args: ['run', ...(permissionMode === 'full-auto' ? ['--auto'] : []), '--format', 'json', ...(externalSessionId ? ['--session', externalSessionId] : []), ...(model ? ['--model', model] : []), ...(images?.flatMap(image => ['--file', image.path]) || [])],
       prompt,
     };
   },

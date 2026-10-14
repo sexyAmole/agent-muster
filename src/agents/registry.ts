@@ -1,3 +1,4 @@
+import { getSandboxEnabled } from './settings.js';
 import { executablePath } from './executable.js';
 import { providers } from './providers/index.js';
 import { execFileAsync } from './providers/shared.js';
@@ -24,14 +25,14 @@ export class AgentRegistry {
         definition.models().catch(() => []),
         definition.configuredModel().catch(() => undefined),
       ]) : [[], undefined];
-      return { id: definition.id, name: definition.name, command: definition.command, installed, version, versionError, models, defaultModel };
+      return { sandboxSupported: definition.sandboxSupported, sandboxEnabled: definition.sandboxSupported && getSandboxEnabled(definition.id), permissionModes: definition.permissionModes, id: definition.id, name: definition.name, command: definition.command, installed, version, versionError, models, defaultModel };
     }));
     this.agents = new Map(agents.map(agent => [agent.id, agent]));
     return agents;
   }
 
   list(): AgentInfo[] {
-    return [...this.agents.values()];
+    return [...this.agents.values()].map(agent => ({ ...agent, sandboxEnabled: agent.sandboxSupported && getSandboxEnabled(agent.id) }));
   }
 
   get(id: string): AgentInfo | undefined {

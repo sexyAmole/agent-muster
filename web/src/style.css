@@ -358,14 +358,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .execution-response { min-width: 0; display: flex; flex-direction: column; gap: 8px; text-align: left; }
 .execution-steps { min-width: 0; color: #777; }
-.execution-steps > summary, .execution-summary { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #e7e7e7; font-size: 12px; list-style: none; cursor: pointer; }
+.execution-steps > summary { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #e7e7e7; font-size: 12px; list-style: none; cursor: pointer; }
 .execution-steps > summary::-webkit-details-marker { display: none; }
-.execution-steps > summary:hover, .execution-summary:hover { color: #202020; }
-.execution-steps > summary .tool-call-chevron, .execution-summary .tool-call-chevron { width: 5px; height: 5px; flex: none; margin-left: auto; margin-right: 2px; border-color: #aaa; transform: rotate(-45deg); opacity: 1; }
-.execution-steps[open] > summary .tool-call-chevron, .execution-steps.expanded > .execution-summary .tool-call-chevron { transform: rotate(45deg); }
+.execution-steps > summary:hover { color: #202020; }
+.execution-steps > summary .tool-call-chevron { width: 5px; height: 5px; flex: none; margin-left: auto; margin-right: 2px; border-color: #aaa; transform: rotate(-45deg); opacity: 1; }
+.execution-steps[open] > summary .tool-call-chevron { transform: rotate(45deg); }
 .execution-content { min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 8px 0 4px; }
-.execution-summary { width: 100%; border-top: 0; border-right: 0; border-left: 0; border-radius: 0; background: transparent; color: inherit; font-family: inherit; text-align: left; }
-.execution-steps.collapsed > .execution-content > :not(.assistant-turn) { display: none; }
 .execution-content:empty { display: none; }
 .execution-content > .file-change { margin-block: 0; }
 
@@ -401,5 +399,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .execution-steps > summary > .tool-call-chevron, .thinking-step > summary > .tool-call-chevron { opacity: 1; }
 
 @media (max-width: 650px) {
-  .execution-steps > summary, .execution-summary { flex-wrap: wrap; gap: 6px; }
+  .execution-steps > summary { flex-wrap: wrap; gap: 6px; }
 }
+
+.agent-sandbox { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 13px; }
+.agent-sandbox-note { color: #777; font-size: 12px; line-height: 1.5; }
+.permission-select { min-width: 0; max-width: 160px; }
+.permission-select .select-control { max-width: 100%; }
+.composer-actions { flex-wrap: wrap; }
+
+.agent-sandbox-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 0 4px 8px; border: 0; background: transparent; color: #555; font-size: 12px; cursor: pointer; }
+.agent-sandbox-track { display: block; width: 30px; height: 18px; padding: 2px; border-radius: 10px; background: #ccc; transition: background 0.15s; }
+.agent-sandbox-track::after { content: ''; display: block; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.agent-sandbox-switch[aria-checked="true"] .agent-sandbox-track { background: #333; }
+.agent-sandbox-switch[aria-checked="true"] .agent-sandbox-track::after { transform: translateX(12px); }
+.agent-sandbox-switch:disabled { opacity: 0.5; cursor: not-allowed; }

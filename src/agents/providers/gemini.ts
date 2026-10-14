@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import { join, basename } from 'node:path';
-import { object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
+import { fullAutoMode, object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
 import type { AdapterEvent, AgentProvider, ParsedResult } from './shared.js';
 
 function readGeminiResult(event: Record<string, unknown>): ParsedResult {
@@ -22,6 +22,8 @@ function readGeminiResult(event: Record<string, unknown>): ParsedResult {
 
 export const gemini: AgentProvider = {
   id: 'gemini',
+  sandboxSupported: true,
+  permissionModes: [fullAutoMode, { id: 'auto-edit', name: '自动编辑', description: '自动批准编辑工具；其他需要人工审批的操作会被拒绝' }],
   name: 'Gemini CLI',
   command: 'gemini',
   installation: { kind: 'npm', packageName: '@google/gemini-cli' },
@@ -36,10 +38,10 @@ export const gemini: AgentProvider = {
   async sessionLogFile(session) {
     return findJsonl(join(homedir(), '.gemini', 'tmp'), file => basename(file).startsWith('session-') && basename(file).includes(session.externalSessionId!.slice(0, 8)), session.externalSessionId);
   },
-  launch(prompt, externalSessionId, model, images) {
+  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto', sandboxEnabled = true } = {}) {
     return {
       command: 'gemini',
-      args: ['--output-format', 'stream-json', '--approval-mode', 'auto_edit', '--skip-trust', ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : []), '-p', [prompt, ...(images?.map(image => `@${image.path}`) || [])].join('\n')],
+      args: ['--output-format', 'stream-json', '--approval-mode', permissionMode === 'auto-edit' ? 'auto_edit' : 'yolo', `--sandbox=${sandboxEnabled}`, '--skip-trust', ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : []), '-p', [prompt, ...(images?.map(image => `@${image.path}`) || [])].join('\n')],
     };
   },
 

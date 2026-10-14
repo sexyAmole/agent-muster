@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import { join, basename, resolve } from 'node:path';
-import { execFileAsync, object, string, tokens, hasTokens, detail, json } from './shared.js';
+import { fullAutoMode, readOnlyMode, execFileAsync, object, string, tokens, hasTokens, detail, json } from './shared.js';
 import type { AgentProvider, ProtocolReader, ParsedResult, AdapterEvent } from './shared.js';
 
 function contextWindow(value: string): number | undefined {
@@ -43,6 +43,8 @@ function readPiResult(line: string): ParsedResult {
 
 export const pi: AgentProvider & { createResultReader(): ProtocolReader } = {
   id: 'pi',
+  sandboxSupported: false,
+  permissionModes: [fullAutoMode, readOnlyMode],
   name: 'Pi',
   command: 'pi',
   installation: { kind: 'npm', packageName: '@earendil-works/pi-coding-agent' },
@@ -63,10 +65,10 @@ export const pi: AgentProvider & { createResultReader(): ProtocolReader } = {
     const project = `--${resolve(session.cwd).replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
     return findJsonl(join(agentDir, 'sessions', project), file => basename(file).endsWith(`_${session.externalSessionId}.jsonl`));
   },
-  launch(prompt, externalSessionId, model, images) {
+  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto' } = {}) {
     return {
       command: 'pi',
-      args: ['--mode', 'json', ...(externalSessionId ? ['--session', externalSessionId] : []), ...(model ? ['--model', model] : []), ...(images?.map(image => `@${image.path}`) || [])],
+      args: ['--mode', 'json', ...(permissionMode === 'read-only' ? ['--no-extensions', '--no-mcp', '--tools', 'read,grep,find,ls'] : []), ...(externalSessionId ? ['--session', externalSessionId] : []), ...(model ? ['--model', model] : []), ...(images?.map(image => `@${image.path}`) || [])],
       prompt,
     };
   },

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { AgentAction, AgentImage, AgentSession, ModelInfo, TokenUsage } from '../../types.js';
+import type { AgentAction, AgentImage, AgentSession, ModelInfo, PermissionMode, TokenUsage } from '../../types.js';
 
 export const execFileAsync = promisify(execFile);
 
@@ -8,7 +8,18 @@ export interface Launch {
   command: string;
   args: string[];
   prompt?: string;
+  env?: NodeJS.ProcessEnv;
 }
+
+export interface ExecutionOptions {
+  permissionMode?: string;
+  sandboxEnabled?: boolean;
+}
+
+export const fullAutoMode: PermissionMode = { id: 'full-auto', name: '全自动', description: '无需人工审批，仍受沙箱和明确的拒绝规则约束' };
+export const readOnlyMode: PermissionMode = { id: 'read-only', name: '只读', description: '仅使用读取和搜索工具，不执行命令或修改文件' };
+export const autoReviewMode: PermissionMode = { id: 'auto-review', name: '自动审核', description: '由 Agent 自动审核操作；无法批准的操作会被拒绝，当前不支持人工审批' };
+export const planMode: PermissionMode = { id: 'plan', name: '只读规划', description: '使用 Agent 原生规划模式分析任务' };
 
 export interface AdapterEvent {
   type: 'output' | 'thinking' | 'tool';
@@ -39,7 +50,7 @@ export type ProtocolReader = (line: string) => ParsedResult;
 
 export interface ProtocolAdapter {
   id: string;
-  launch(prompt: string, externalSessionId?: string, model?: string, images?: AgentImage[]): Launch;
+  launch(prompt: string, externalSessionId?: string, model?: string, images?: AgentImage[], options?: ExecutionOptions): Launch;
   createReader(): ProtocolReader;
   createRawReader?(): (chunk: string, channel: 'stdout' | 'stderr') => ParsedResult;
   readError?(line: string): string | undefined;
@@ -57,6 +68,8 @@ export type AgentInstallation =
   };
 
 export interface AgentProvider extends ProtocolAdapter {
+  sandboxSupported: boolean;
+  permissionModes: PermissionMode[];
   name: string;
   command: string;
   installation: AgentInstallation;

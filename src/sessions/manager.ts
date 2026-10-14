@@ -1,3 +1,4 @@
+import { getSandboxEnabled, validatePermissionMode } from '../agents/settings.js';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { stat } from 'node:fs/promises';
@@ -32,6 +33,7 @@ export class SessionManager extends EventEmitter {
 
   async load(): Promise<void> {
     for (const session of await this.store.load()) {
+      session.permissionMode ??= 'full-auto';
       if (session.status === 'running' || session.status === 'starting') {
         session.status = 'stopped';
         session.pid = undefined;
@@ -145,7 +147,8 @@ export class SessionManager extends EventEmitter {
     this.append(session, { type: 'usage', text: JSON.stringify(session.usage) });
   }
 
-  async create(agent: string, cwd: string, prompt: string, model?: string, im?: ImBinding, images?: AgentImage[]): Promise<AgentSession> {
+  async create(agent: string, cwd: string, prompt: string, model?: string, im?: ImBinding, images?: AgentImage[], permissionMode?: string | null): Promise<AgentSession> {
+    validatePermissionMode(agent, permissionMode);
     if (!adapters[agent]) throw new Error('Unsupported agent');
     if (!prompt.trim()) throw new Error('Prompt is required');
     if (!isAbsolute(cwd) || !(await stat(cwd).then(value => value.isDirectory()).catch(() => false))) {
@@ -157,6 +160,7 @@ export class SessionManager extends EventEmitter {
       agent,
       ...(im ? { im: [im] } : {}),
       model,
+      permissionMode: permissionMode || 'full-auto',
       cwd: resolve(cwd),
       prompt: prompt.trim(),
       status: 'starting',
@@ -170,12 +174,14 @@ export class SessionManager extends EventEmitter {
     return session;
   }
 
-  send(id: string, message: string, model?: string, im?: ImBinding, images?: AgentImage[]): AgentSession {
+  send(id: string, message: string, model?: string, im?: ImBinding, images?: AgentImage[], permissionMode?: string | null): AgentSession {
     const session = this.sessions.get(id);
     if (!session) throw new Error('Session not found');
     if (!message.trim()) throw new Error('Message is required');
     if (this.processes.has(id)) throw new Error('Wait for the current task to finish or stop it');
     if (!session.externalSessionId) throw new Error('This agent did not create a resumable session');
+    validatePermissionMode(session.agent, permissionMode);
+    if (permissionMode !== undefined) session.permissionMode = permissionMode || 'full-auto';
     if (model !== undefined) session.model = model || undefined;
     if (im) this.linkImSession(id, im);
     this.append(session, { type: 'message', text: message.trim(), im, images });
@@ -284,7 +290,7 @@ export class SessionManager extends EventEmitter {
 
   private start(session: AgentSession, prompt: string, images?: AgentImage[]): void {
     const adapter = adapters[session.agent];
-    const launch = adapter.launch(prompt, session.externalSessionId, session.model, images);
+    const launch = adapter.launch(prompt, session.externalSessionId, session.model, images, { permissionMode: session.permissionMode, sandboxEnabled: getSandboxEnabled(session.agent) });
     const read = adapter.createReader();
     const readRaw = adapter.createRawReader?.();
     const run: RunState = { id: randomUUID(), orders: new Map(), failed: false, settled: false, aborted: false };
@@ -292,7 +298,7 @@ export class SessionManager extends EventEmitter {
       cwd: session.cwd,
       stdio: 'pipe',
       detached: process.platform !== 'win32',
-      env: session.agent === 'opencode' ? { ...process.env, PWD: session.cwd } : process.env,
+      env: session.agent === 'opencode' ? { ...(launch.env || process.env), PWD: session.cwd } : launch.env || process.env,
     });
     this.processes.set(session.id, child);
     session.pid = child.pid;

@@ -119,12 +119,10 @@ function executionRounds(session: Session): ExecutionRound[] {
   return rounds;
 }
 
-function ExecutionSteps({ round, stepCount, commandCount, persistentOutputs = false, children }: { round: ExecutionRound; stepCount: number; commandCount: number; persistentOutputs?: boolean; children: React.ReactNode }) {
+function ExecutionSteps({ round, stepCount, commandCount, children }: { round: ExecutionRound; stepCount: number; commandCount: number; children: React.ReactNode }) {
   const [now, setNow] = useState(Date.now());
   const detailsRef = useRef<HTMLDetailsElement>(null);
-  const [expanded, setExpanded] = useState(round.active);
   useEffect(() => {
-    setExpanded(round.active);
     if (detailsRef.current) detailsRef.current.open = round.active;
     if (!round.active) return;
     setNow(Date.now());
@@ -137,9 +135,7 @@ function ExecutionSteps({ round, stepCount, commandCount, persistentOutputs = fa
   const state = round.end && round.end.text !== 'completed' ? statusLabel[round.end.text as Status] : '';
   const summary = <><span>执行过程{stepCount > 0 && ` · ${stepCount} 步`}</span>{commandCount > 0 && <span className="execution-meta">· {commandCount} 个命令</span>}{duration && <span className="execution-meta">· {duration}</span>}{state && <span className="execution-meta">· {state}</span>}<span className="tool-call-chevron" aria-hidden="true" /></>;
   const content = <div className="execution-content">{children}{round.active && <div className="thinking-step" role="status"><span className="thinking-label">思考中…</span></div>}</div>;
-  return persistentOutputs
-    ? <div className={`execution-steps ${expanded ? 'expanded' : 'collapsed'}`}><button type="button" className="execution-summary" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{summary}</button>{content}</div>
-    : <details ref={detailsRef} className="execution-steps" open={round.active}><summary>{summary}</summary>{content}</details>;
+  return <details ref={detailsRef} className="execution-steps" open={round.active}><summary>{summary}</summary>{content}</details>;
 }
 
 function conversationText(session: Session): string {
@@ -217,6 +213,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     return summary ? { ...summary, events: [] } : null;
   });
   const [agent, setAgent] = useState(agents.find(item => item.installed)?.id || '');
+  const [permissionMode, setPermissionMode] = useState(sessions.find(session => session.id === selectedId)?.permissionMode || 'full-auto');
   const [model, setModel] = useState(sessions.find(session => session.id === selectedId)?.model || '');
   const [message, setMessage] = useState('');
   const [images, setImages] = useState<ComposerImage[]>([]);
@@ -246,6 +243,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   }, [agents, agent]);
 
   useEffect(() => { setModel(selected?.model || ''); }, [selected?.id, selected?.model]);
+  useEffect(() => { setPermissionMode(selected?.permissionMode || 'full-auto'); }, [selected?.id, selected?.agent, selected?.permissionMode, agent]);
 
   useEffect(() => {
     if (!selectedId) { setSelected(null); return; }
@@ -389,10 +387,11 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       setImages(uploaded);
       const imageIds = uploaded.map(image => image.id);
       if (selected) {
-        const session = await api<SessionSummary>(`/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify({ content, model, imageIds }) });
+        const session = await api<SessionSummary>(`/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify({ content, model, imageIds, permissionMode }) });
         onSessionUpdate(session);
+        setSelected(current => current?.id === session.id ? { ...current, ...session } : current);
       } else {
-        const session = await api<SessionSummary>('/api/sessions', { method: 'POST', body: JSON.stringify({ agent, cwd: pane.cwd, prompt: content, model, imageIds }) });
+        const session = await api<SessionSummary>('/api/sessions', { method: 'POST', body: JSON.stringify({ agent, cwd: pane.cwd, prompt: content, model, imageIds, permissionMode }) });
         onSessionCreated(index, session);
       }
       setMessage('');
@@ -473,16 +472,15 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
 
     return executionRounds(selected).map(round => {
       const items = conversationItems({ ...selected, events: round.events, status: round.end ? round.end.text as Status : selected.status });
-      const finalOutput = round.end || (round.active && selected.agent === 'pi') ? [...round.events].reverse().find(event => event.type === 'output') : undefined;
+      const finalOutput = round.end ? [...round.events].reverse().find(event => event.type === 'output') : undefined;
       const steps = items.filter(item => Array.isArray(item) || (item !== finalOutput && item.type !== 'im_message' && item.type !== 'error'));
-      const timeline = selected.agent === 'pi' ? items.filter(item => Array.isArray(item) || (item.type !== 'im_message' && item.type !== 'error')) : steps;
-      const stepEvents = (selected.agent === 'pi' ? timeline : steps).flatMap(item => Array.isArray(item) ? item : [item]).filter(item => selected.agent !== 'pi' || item.type !== 'output');
+      const stepEvents = steps.flatMap(item => Array.isArray(item) ? item : [item]);
       const results = items.filter(item => !Array.isArray(item) && (item === finalOutput || item.type === 'im_message' || item.type === 'error'));
       return <React.Fragment key={round.id}>
         {round.message && renderItem(round.message)}
         <div className="execution-response">
-          <ExecutionSteps round={round} persistentOutputs={selected.agent === 'pi'} stepCount={stepEvents.length} commandCount={stepEvents.filter(event => event.type === 'tool').length}>{timeline.map(item => renderItem(item, !Array.isArray(item) && !item.streaming && item === finalOutput))}</ExecutionSteps>
-          {results.filter(item => selected.agent !== 'pi' || Array.isArray(item) || item.type !== 'output').map(item => renderItem(item, !Array.isArray(item) && !item.streaming && item === finalOutput))}
+          <ExecutionSteps round={round} stepCount={stepEvents.length} commandCount={stepEvents.filter(event => event.type === 'tool').length}>{steps.map(item => renderItem(item, !Array.isArray(item) && !item.streaming && item === finalOutput))}</ExecutionSteps>
+          {results.map(item => renderItem(item, !Array.isArray(item) && !item.streaming && item === finalOutput))}
         </div>
       </React.Fragment>;
     });
@@ -528,7 +526,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
           {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
           <FileMentionTextarea project={composerProject} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={setMessage} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求，@ 搜索文件' : '描述要完成的任务，@ 搜索文件'} disabled={busy || composerDisabled} rows={2} />
           <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
-          <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}<label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={value => setModel(value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label></div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
+          <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}<label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={value => setModel(value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>{agentInfo && <label className="permission-select"><Select aria-label={`窗口 ${index + 1} 权限模式`} title={agentInfo.permissionModes.find(item => item.id === permissionMode)?.description} value={permissionMode} disabled={busy || composerDisabled || !agentInfo.installed} onChange={setPermissionMode}>{agentInfo.permissionModes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}</div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
         </div>
         {selected && <div className="context-status" title={selected.usage ? `累计输入 ${selected.usage.inputTokens.toLocaleString()} Token，累计输出 ${selected.usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>{usedTokens === undefined && !contextWindow ? '上下文数据未提供' : `累计消耗 ${usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`} · 单次窗口 ${contextWindow ? `${tokenCount(contextWindow)} Token` : '未提供'}`}</div>}
       </div>

@@ -2,11 +2,13 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import { join, basename, resolve } from 'node:path';
-import { object, string, tokens, hasTokens, detail, json } from './shared.js';
+import { fullAutoMode, autoReviewMode, planMode, object, string, tokens, hasTokens, detail, json } from './shared.js';
 import type { AdapterEvent, AgentProvider } from './shared.js';
 
 export const claude: AgentProvider = {
   id: 'claude',
+  sandboxSupported: true,
+  permissionModes: [fullAutoMode, planMode, { id: 'accept-edits', name: '自动接受编辑', description: '自动批准项目文件编辑；其他需要人工审批的操作会被拒绝' }, autoReviewMode],
   name: 'Claude Code',
   command: 'claude',
   installation: { kind: 'npm', packageName: '@anthropic-ai/claude-code' },
@@ -21,10 +23,12 @@ export const claude: AgentProvider = {
     const directory = process.env.CLAUDE_CONFIG_DIR ? resolve(process.env.CLAUDE_CONFIG_DIR) : join(homedir(), '.claude');
     return findJsonl(join(directory, 'projects'), file => basename(file) === `${session.externalSessionId}.jsonl`);
   },
-  launch(prompt, externalSessionId, model, images) {
+  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto', sandboxEnabled = true } = {}) {
+    const permission = ({ plan: 'plan', 'accept-edits': 'acceptEdits', 'auto-review': 'auto', 'full-auto': 'bypassPermissions' } as Record<string, string>)[permissionMode];
+    const settings = { sandbox: { enabled: sandboxEnabled, ...(sandboxEnabled ? { allowUnsandboxedCommands: false, failIfUnavailable: true } : {}) } };
     return {
       command: 'claude',
-      args: ['-p', '--verbose', '--output-format', 'stream-json', '--include-partial-messages', '--permission-mode', 'auto', ...(images?.length ? ['--input-format', 'stream-json'] : []), ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : [])],
+      args: ['-p', '--verbose', '--output-format', 'stream-json', '--include-partial-messages', '--permission-mode', permission, '--permission-prompts', 'none', '--settings', JSON.stringify(settings), ...(images?.length ? ['--input-format', 'stream-json'] : []), ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : [])],
       prompt: images?.length ? JSON.stringify({
         type: 'user', message: { role: 'user', content: [
           { type: 'text', text: prompt },
