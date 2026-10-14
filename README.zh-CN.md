@@ -1,5 +1,5 @@
 # Agent Muster
-<img width="100%" height="auto" alt="Image" src="https://github.com/user-attachments/assets/ab4dc1cb-b7ae-4186-a006-13f321ca6f5b" />
+![Agent Muster](./docs/screenshots/multi-pane.jpg)
 
 [English](./README.md) | 简体中文
 
@@ -12,6 +12,32 @@
 - 选择 Agent 和模型，实时查看回复、工具调用、执行状态及可用的 Token 用量。
 - 保存项目和对话记录，支持继续对话和停止正在运行的任务。
 - 通过独立的 IM 集成页面，将钉钉和飞书应用接入本地 Agent。
+
+## 功能截图
+
+### 创建任务与选择 Agent
+
+在同一个输入区域选择项目、Agent 和模型，支持添加图片；Agent 选择器显示对应图标。
+
+![创建任务与选择 Agent](./docs/screenshots/agent-selector.jpg)
+
+### 多窗口布局
+
+支持单窗、双栏和四宫格，每个窗口独立选择项目与 Agent。下图展示四宫格的新对话界面。
+
+![四宫格对话布局](./docs/screenshots/multi-pane.jpg)
+
+### Agent 管理
+
+集中查看本机 Agent 的安装状态、版本和命令路径，并提供安装、更新和卸载入口。
+
+![Agent 管理](./docs/screenshots/agent-management.jpg)
+
+### IM 集成
+
+通过钉钉和飞书页签管理应用接入，从「扫码创建应用」开始配置。下图展示尚未接入应用时的界面。
+
+![钉钉与飞书接入入口](./docs/screenshots/im-integration.jpg)
 
 ## 环境要求
 

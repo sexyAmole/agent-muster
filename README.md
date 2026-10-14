@@ -1,5 +1,5 @@
 # Agent Muster
-<img width="100%" height="auto" alt="Image" src="https://github.com/user-attachments/assets/ab4dc1cb-b7ae-4186-a006-13f321ca6f5b" />
+![Agent Muster](./docs/screenshots/multi-pane.jpg)
 
 English | [简体中文](./README.zh-CN.md)
 
@@ -12,6 +12,32 @@ Manage local AI coding agents, projects, and conversations in your browser. Send
 - Select agents and models, and view live replies, tool calls, execution status, and available token usage.
 - Save projects and conversation history, resume conversations, and stop running tasks.
 - Connect DingTalk and Feishu applications to local agents through the dedicated IM integration page.
+
+## Screenshots
+
+### Create tasks and select agents
+
+Select a project, agent, and model in the composer, with support for image attachments. Agent icons appear in the selector.
+
+![Task composer and agent selector](./docs/screenshots/agent-selector.jpg)
+
+### Multiple conversation panes
+
+Switch between one, two, or four panes, each with its own project and agent selection. The screenshot shows four panes ready for new conversations.
+
+![Four-pane conversation layout](./docs/screenshots/multi-pane.jpg)
+
+### Agent management
+
+View installed agents, CLI versions, and executable paths, with controls to install, update, or uninstall agents.
+
+![Agent management](./docs/screenshots/agent-management.jpg)
+
+### IM integration
+
+Manage integrations through the DingTalk and Feishu tabs and start setup with the QR-code application creation button. The screenshot shows the page before any applications are connected.
+
+![DingTalk and Feishu integration entry point](./docs/screenshots/im-integration.jpg)
 
 ## Requirements
 
