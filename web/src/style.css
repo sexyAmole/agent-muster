@@ -253,6 +253,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .im-app-info strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .im-binding { display: flex; align-items: center; gap: 10px; flex: none; color: #888; font-size: 11px; }
 .im-binding .select-control { width: 180px; flex: none; }
+.im-row-actions { display: flex; flex: none; gap: 8px; }
+.im-action-popover { display: flex; flex-direction: column; gap: 10px; }
+.im-action-popover .im-binding { width: 100%; justify-content: space-between; }
+.im-action-popover .im-binding .select-control { width: 180px; max-width: calc(100% - 46px); }
 .im-delete-button { flex: none; padding: 8px 10px; border: 1px solid #e8d4d4; border-radius: 5px; background: #fff; color: #963c3c; font-size: 12px; }
 .im-sync-button { flex: none; padding: 8px 10px; border: 1px solid #d9d9d9; border-radius: 5px; background: #fff; color: #292929; font-size: 12px; }
 .im-sync-button:hover:not(:disabled) { background: #f3f3f3; }
@@ -314,6 +318,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .im-prototype { padding: 25px 14px; }
   .im-intro h1 { font-size: 20px; }
   .im-robot-row { flex-wrap: wrap; }
+  .im-row-actions { position: relative; width: 100%; justify-content: flex-end; }
+  .im-row-actions .im-action-menu { position: static; }
+  .im-row-actions .im-action-popover { max-width: 100%; }
   .im-binding { width: 100%; justify-content: space-between; }
   .im-binding .select-control { width: min(180px, 65%); }
 }
@@ -330,26 +337,38 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .agent-intro { margin: 9px 0 0; color: #777; font-size: 12px; line-height: 1.6; }
 .agent-feedback { margin-bottom: 16px; color: #526f5a; font-size: 12px; }
 .agent-feedback:empty { display: none; }
-.agent-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.agent-entry { min-width: 0; display: flex; flex-direction: column; padding: 20px; border: 1px solid #e8e8e8; border-radius: 7px; background: #fff; }
-.agent-entry-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-list { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid #e8e8e8; border-radius: 7px; background: #fff; }
+.agent-entry { min-width: 0; padding: 12px 16px; }
+.agent-entry + .agent-entry { border-top: 1px solid #e8e8e8; }
+.agent-entry-row { display: flex; align-items: flex-start; gap: 16px; }
+.agent-entry-info { flex: 1; min-width: 0; }
+.agent-entry-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; cursor: pointer; }
+.agent-entry-heading::-webkit-details-marker, .agent-action-menu > summary::-webkit-details-marker, .im-action-menu > summary::-webkit-details-marker { display: none; }
+.agent-chevron { width: 6px; height: 6px; flex: none; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(-45deg); }
+.agent-entry-info[open] .agent-chevron, .agent-action-menu .agent-chevron { transform: rotate(45deg); }
+.im-action-chevron { width: 6px; height: 6px; flex: none; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg); }
+.agent-action-menu, .im-action-menu { position: relative; flex: none; }
+.agent-action-menu > summary, .im-action-menu > summary { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 10px; border: 1px solid #e8e8e8; border-radius: 5px; color: #555; font-size: 12px; cursor: pointer; }
+.agent-action-menu > summary:hover, .im-action-menu > summary:hover { background: #f5f5f5; }
+.agent-action-popover, .im-action-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 10; width: 220px; padding: 12px; border: 1px solid #e8e8e8; border-radius: 7px; background: #fff; box-shadow: 0 4px 16px #0000000d; }
+.im-action-popover { width: 260px; }
 .agent-entry-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .agent-entry-name > .agent-icon { width: 28px; height: 28px; padding: 4px; border-radius: 7px; }
 .agent-entry-heading strong { font-size: 14px; }
 .agent-install-status { padding: 4px 7px; border-radius: 4px; background: #f2f2f2; color: #888; font-size: 10px; }
 .agent-install-status.installed { background: #edf3ee; color: #526f5a; }
-.agent-details { display: flex; flex-direction: column; gap: 10px; margin: 18px 0; font-size: 11px; }
+.agent-details { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 4px 18px; font-size: 11px; }
 .agent-details > div { min-width: 0; display: flex; gap: 14px; }
 .agent-details dt { flex: none; width: 28px; color: #888; }
 .agent-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .agent-path { color: #777; font: 10px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.agent-entry-error { margin: 0 0 15px; color: #963c3c; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; }
-.agent-entry-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; }
+.agent-entry-error { margin: 8px 0 0; color: #963c3c; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; }
+.agent-entry-actions { display: flex; flex-direction: column; gap: 8px; }
+.agent-action-popover .agent-sandbox { margin: 0 0 12px; }
 .agent-entry-actions button:disabled { opacity: .5; }
 .agent-operation-output { margin-top: 20px; padding: 12px; border: 1px solid #e8e8e8; border-radius: 7px; background: #fff; font-size: 12px; }
 .agent-operation-output summary { cursor: pointer; }
 .agent-operation-output pre { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
-@media (max-width: 900px) { .agent-list { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 650px) { .agent-panel { padding: 25px 14px; } .agent-panel .im-intro { align-items: flex-start; } }
 
 .history-load { align-self: center; padding: 6px 12px; border: 1px solid #e8e8e8; border-radius: 5px; background: #fff; color: #666; font-size: 12px; }

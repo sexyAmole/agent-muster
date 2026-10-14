@@ -9,6 +9,7 @@ import QRCode from 'qrcode';
 import { moveLegacyPath } from '../storage.js';
 import type { ConversationSettings } from '../commands.js';
 import type { AgentImage } from '../../types.js';
+import { validatePermissionMode } from '../../agents/settings.js';
 
 const rootDirectory = join(homedir(), '.agent-muster');
 const directory = join(rootDirectory, 'im', 'feishu');
@@ -16,7 +17,7 @@ const dataFile = join(directory, 'apps.json');
 const imageDirectory = join(directory, 'images');
 type Application = {
   id: string; clientId: string; clientSecret: string; name: string | null; icon: string | null;
-  project: string | null; agent: string | null; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
+  project: string | null; agent: string | null; permissionMode?: string; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
 };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; appId?: string; reason?: string };
 type Registration = { controller: AbortController; expiresAt?: number; result: PollResult };
@@ -43,7 +44,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
 
   getBinding(id: string, conversation?: string) {
     const app = this.apps.find(item => item.id === id);
-    return app ? { project: app.project, agent: app.agent, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
+    return app ? { project: app.project, agent: app.agent, permissionMode: app.permissionMode, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
   }
 
   getSession(id: string, chatId: string) {
@@ -204,13 +205,22 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     await this.send(id, chatId, content, 'markdown');
   }
 
-  async bind(id: string, binding: { project?: string | null; agent?: string | null }, projects: string[], agents: string[]) {
+  async bind(id: string, binding: { project?: string | null; agent?: string | null; permissionMode?: string }, projects: string[], agents: string[]) {
     if (binding.project !== undefined && binding.project !== null && !projects.includes(binding.project)) throw new Error('项目不存在');
     if (binding.agent !== undefined && binding.agent !== null && !agents.includes(binding.agent)) throw new Error('Agent 不可用');
     const app = this.getApp(id);
+    if (binding.permissionMode !== undefined) {
+      const agent = binding.agent !== undefined ? binding.agent : app.agent;
+      if (!agent) throw new Error('请先选择 Agent');
+      validatePermissionMode(agent, binding.permissionMode);
+    }
     if ((binding.project !== undefined && binding.project !== app.project) || (binding.agent !== undefined && binding.agent !== app.agent)) { app.conversations = {}; app.conversationSettings = {}; }
     if (binding.project !== undefined) app.project = binding.project;
-    if (binding.agent !== undefined) app.agent = binding.agent;
+    if (binding.agent !== undefined) {
+      if (binding.agent !== app.agent) delete app.permissionMode;
+      app.agent = binding.agent;
+    }
+    if (binding.permissionMode !== undefined) app.permissionMode = binding.permissionMode;
     await this.persist();
     return this.list().find(item => item.id === id)!;
   }

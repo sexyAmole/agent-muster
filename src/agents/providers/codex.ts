@@ -83,8 +83,8 @@ export const codex: AgentProvider = {
       ['thread.started', event => ({ externalSessionId: string(event.thread_id) })],
       ['turn.completed', event => {
         const usage = object(event.usage);
-        if (usage && hasTokens(usage, ['input_tokens', 'output_tokens'])) return { usage: { inputTokens: tokens(usage.input_tokens), outputTokens: tokens(usage.output_tokens) }, usageIsTotal: true };
-        return {};
+        if (usage && hasTokens(usage, ['input_tokens', 'output_tokens'])) return { settled: true, usage: { inputTokens: tokens(usage.input_tokens), outputTokens: tokens(usage.output_tokens) }, usageIsTotal: true };
+        return { settled: true };
       }],
       ['item.completed', event => {
         const item = object(event.item);

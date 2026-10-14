@@ -73,7 +73,7 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       if (!registry.get(session.agent)?.installed) throw new Error('此 Agent 已卸载，请先重新安装');
       if (model !== undefined && (typeof model !== 'string' || (model && !registry.get(session.agent)?.models.some(item => item.id === model)))) throw new Error('Invalid model');
       const images = await sessions.readImages(imageIds, session.agent);
-      response.json(sessionMetadata(sessions.send(request.params.id, content, model, undefined, images, permissionMode)));
+      response.json(sessionMetadata(await sessions.send(request.params.id, content, model, undefined, images, permissionMode)));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.post('/sessions/:id/dingtalk/messages', async (request, response) => {

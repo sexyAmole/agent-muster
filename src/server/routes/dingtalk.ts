@@ -27,10 +27,11 @@ export function createDingTalkRouter(dingtalk: DingTalkRegistry, projects: Proje
   });
   router.patch('/dingtalk/apps/:id', async (request, response) => {
     try {
-      const { project, agent } = request.body || {};
+      const { project, agent, permissionMode } = request.body || {};
       if (project !== undefined && project !== null && typeof project !== 'string') throw new Error('项目无效');
       if (agent !== undefined && agent !== null && typeof agent !== 'string') throw new Error('Agent 无效');
-      response.json(await dingtalk.bind(request.params.id, { project, agent }, projects.list(), registry.list().filter(item => item.installed).map(item => item.id)));
+      if (permissionMode !== undefined && typeof permissionMode !== 'string') throw new Error('权限模式无效');
+      response.json(await dingtalk.bind(request.params.id, { project, agent, permissionMode }, projects.list(), registry.list().filter(item => item.installed).map(item => item.id)));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.delete('/dingtalk/apps/:id', async (request, response) => {

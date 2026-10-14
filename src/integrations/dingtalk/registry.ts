@@ -9,6 +9,7 @@ import type { ConversationSettings } from '../commands.js';
 import { DWClient, TOPIC_ROBOT, type RobotMessage } from 'dingtalk-stream';
 import { EnvHttpProxyAgent, fetch } from 'undici';
 import type { AgentImage } from '../../types.js';
+import { validatePermissionMode } from '../../agents/settings.js';
 
 const rootDirectory = join(homedir(), '.agent-muster');
 const directory = join(rootDirectory, 'im', 'dingtalk');
@@ -31,7 +32,7 @@ type AccessTokenResponse = { accessToken?: string; expireIn?: number };
 type InnerAppsResponse = { appList?: { name?: string; icon?: string; robotInfo?: { robotCode?: string } }[]; code?: string };
 type ConversationTarget = { robotCode: string } & ({ type: '1'; userId: string } | { type: '2'; openConversationId: string });
 type SendMessageResponse = { processQueryKey?: string; message?: string; invalidStaffIdList?: string[]; flowControlledStaffIdList?: string[] };
-type Application = { id: string; clientId: string; clientSecret: string; name: string | null; iconMime: string | null; project: string | null; agent: string | null; conversations: Record<string, string>; conversationTargets?: Record<string, ConversationTarget>; conversationSettings?: Record<string, ConversationSettings> };
+type Application = { id: string; clientId: string; clientSecret: string; name: string | null; iconMime: string | null; project: string | null; agent: string | null; permissionMode?: string; conversations: Record<string, string>; conversationTargets?: Record<string, ConversationTarget>; conversationSettings?: Record<string, ConversationSettings> };
 type RobotMessageBase = Omit<RobotMessage, 'msgtype' | 'text'> & { conversationTitle?: string };
 type RobotImage = { downloadCode?: string; pictureDownloadCode?: string };
 type IncomingRobotMessage = RobotMessageBase & (
@@ -69,8 +70,8 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     await moveLegacyPath(join(rootDirectory, 'dingtalk-images'), imageDirectory);
     try {
       const stored = JSON.parse(await readFile(dataFile, 'utf8')) as Application[];
-      this.apps = stored.map(({ id, clientId, clientSecret, name, iconMime, project, agent, conversations, conversationTargets, conversationSettings }) => ({
-        id, clientId, clientSecret, name: name || null, iconMime: iconMime || null, project, agent: agent || null, conversations: conversations || {}, conversationTargets, conversationSettings,
+      this.apps = stored.map(({ id, clientId, clientSecret, name, iconMime, project, agent, conversations, conversationTargets, conversationSettings, permissionMode }) => ({
+        id, clientId, clientSecret, name: name || null, iconMime: iconMime || null, project, agent: agent || null, conversations: conversations || {}, conversationTargets, conversationSettings, permissionMode,
       }));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -78,7 +79,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
   }
 
   list() {
-    return this.apps.map(({ id, clientId, name, iconMime, project, agent }) => ({ id, clientId, name, icon: iconMime ? `/api/dingtalk/apps/${id}/icon` : null, project, agent }));
+    return this.apps.map(({ id, clientId, name, iconMime, project, agent, permissionMode }) => ({ id, clientId, name, icon: iconMime ? `/api/dingtalk/apps/${id}/icon` : null, project, agent, permissionMode }));
   }
 
   async getIcon(id: string) {
@@ -89,7 +90,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
 
   getBinding(id: string, conversation?: string) {
     const app = this.apps.find(item => item.id === id);
-    return app ? { project: app.project, agent: app.agent, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
+    return app ? { project: app.project, agent: app.agent, permissionMode: app.permissionMode, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
   }
 
   getSession(id: string, conversation: string): string | undefined {
@@ -284,20 +285,29 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     finally { registration.polling = undefined; }
   }
 
-  async bind(id: string, binding: { project?: string | null; agent?: string | null }, projects: string[], agents: string[]) {
+  async bind(id: string, binding: { project?: string | null; agent?: string | null; permissionMode?: string }, projects: string[], agents: string[]) {
     if (binding.project !== undefined && binding.project !== null && !projects.includes(binding.project)) throw new Error('项目不存在');
     if (binding.agent !== undefined && binding.agent !== null && !agents.includes(binding.agent)) throw new Error('Agent 不可用');
     const app = this.apps.find(item => item.id === id);
     if (!app) throw new Error('钉钉应用不存在');
+    if (binding.permissionMode !== undefined) {
+      const agent = binding.agent !== undefined ? binding.agent : app.agent;
+      if (!agent) throw new Error('请先选择 Agent');
+      validatePermissionMode(agent, binding.permissionMode);
+    }
     if ((binding.project !== undefined && binding.project !== app.project) || (binding.agent !== undefined && binding.agent !== app.agent)) {
       app.conversations = {};
       app.conversationSettings = {};
       app.conversationTargets = {};
     }
     if (binding.project !== undefined) app.project = binding.project;
-    if (binding.agent !== undefined) app.agent = binding.agent;
+    if (binding.agent !== undefined) {
+      if (binding.agent !== app.agent) delete app.permissionMode;
+      app.agent = binding.agent;
+    }
+    if (binding.permissionMode !== undefined) app.permissionMode = binding.permissionMode;
     await this.persist();
-    return { id: app.id, clientId: app.clientId, name: app.name, icon: app.iconMime ? `/api/dingtalk/apps/${app.id}/icon` : null, project: app.project, agent: app.agent };
+    return { id: app.id, clientId: app.clientId, name: app.name, icon: app.iconMime ? `/api/dingtalk/apps/${app.id}/icon` : null, project: app.project, agent: app.agent, permissionMode: app.permissionMode };
   }
 
   async remove(id: string): Promise<void> {
@@ -371,7 +381,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     app.name = match.name;
     app.iconMime = mime;
     await this.persist();
-    return { id: app.id, clientId: app.clientId, name: app.name, icon: `/api/dingtalk/apps/${app.id}/icon?v=${Date.now()}`, project: app.project, agent: app.agent };
+    return { id: app.id, clientId: app.clientId, name: app.name, icon: `/api/dingtalk/apps/${app.id}/icon?v=${Date.now()}`, project: app.project, agent: app.agent, permissionMode: app.permissionMode };
   }
 
   private async getAccessToken(app: Application): Promise<string> {

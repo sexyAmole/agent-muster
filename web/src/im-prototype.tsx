@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { AppIcon } from './app-icon';
 import { Select } from './select';
 import { Tabs } from './tabs';
 import { useErrorMessage } from './message';
+import type { AgentInfo } from '../../src/types';
 
-export type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
-type Agent = { id: string; name: string; installed: boolean };
+export type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; permissionMode?: string; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
+type Agent = Pick<AgentInfo, 'id' | 'name' | 'installed' | 'permissionModes'>;
 type Registration = { id: string; userCode?: string; verificationUrl: string; qrCode: string; expiresAt: number; interval: number };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; reason?: string };
 type Props = { active: boolean; feishuApps: Application[]; onFeishuAppsChange: Dispatch<SetStateAction<Application[]>>; projects: string[]; agents: Agent[]; projectLabel: (path: string) => string };
@@ -22,6 +23,13 @@ export function ImPrototype(props: Props) {
   return <div className="im-prototype"><Tabs value={provider} onChange={setProvider} aria-label="IM 平台" items={[{ value: 'dingtalk', label: '钉钉' }, { value: 'feishu', label: '飞书' }]}>
     <ImIntegration key={provider} {...props} provider={provider} />
   </Tabs></div>;
+}
+
+function ImActionMenu({ label, appName, children }: { label: string; appName: string; children: ReactNode }) {
+  return <details className="im-action-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+    <summary aria-label={`${appName} ${label}`}>{label}<span className="im-action-chevron" aria-hidden="true" /></summary>
+    <div className="im-action-popover">{children}</div>
+  </details>;
 }
 
 function ImIntegration({ active, feishuApps, onFeishuAppsChange, projects, agents, projectLabel, provider }: Props & { provider: 'dingtalk' | 'feishu' }) {
@@ -116,7 +124,7 @@ function ImIntegration({ active, feishuApps, onFeishuAppsChange, projects, agent
     finally { if (attempt === registrationAttempt.current) setBusy(false); }
   }
 
-  async function bind(id: string, binding: { project?: string | null; agent?: string | null }) {
+  async function bind(id: string, binding: { project?: string | null; agent?: string | null; permissionMode?: string }) {
     try {
       const updated = await request<Application>(`/api/${provider}/apps/${id}`, { method: 'PATCH', body: JSON.stringify(binding) });
       setApps(current => current.map(app => app.id === id ? updated : app));
@@ -147,14 +155,23 @@ function ImIntegration({ active, feishuApps, onFeishuAppsChange, projects, agent
   return <div>
     <div className="im-intro"><h1>{platform}接入</h1><button className="im-primary-button" onClick={() => void startRegistration()}>扫码创建应用</button></div>
     <div className="im-robot-list">
-      {apps.length ? apps.map(app => <div className="im-robot-entry" key={app.id}>
+      {apps.length ? apps.map(app => {
+        const agentInfo = agents.find(agent => agent.id === app.agent);
+        return <div className="im-robot-entry" key={app.id}>
         <div className="im-robot-row"><div className="im-robot-mark"><AppIcon src={app.icon} platform={platform} /></div><div className="im-app-info"><strong>{app.name || app.clientId}</strong>{app.connectionStatus && <small className="im-connection-status">{{ idle: '未连接', connecting: '连接中', connected: '消息监听已连接', reconnecting: '重新连接中', failed: '消息监听连接失败' }[app.connectionStatus]}</small>}</div>
-          <label className="im-binding">项目<Select aria-label={`绑定 ${app.name || app.clientId} 的项目`} value={app.project || ''} onChange={value => void bind(app.id, { project: value || null })}><option value="">未绑定</option>{projects.map(path => <option key={path} value={path}>{projectLabel(path)}</option>)}</Select></label>
-          <label className="im-binding">Agent<Select aria-label={`选择 ${app.name || app.clientId} 的 Agent`} value={app.agent || ''} onChange={value => void bind(app.id, { agent: value || null })}><option value="">未选择</option>{agents.map(agent => <option key={agent.id} value={agent.id} disabled={!agent.installed}>{agent.name}{agent.installed ? '' : '（未安装）'}</option>)}</Select></label>
-          <button className="im-sync-button" disabled={syncingId !== null} aria-label={`同步 ${app.name || app.clientId} 的名称和图标`} onClick={() => void syncApp(app.id)}>{syncingId === app.id ? '同步中…' : '一键同步'}</button>
-          <button className="im-delete-button" disabled={deletingId !== null} aria-label={`删除 ${app.name || app.clientId} 的 IM 接入`} onClick={() => void deleteApp(app)}>{deletingId === app.id ? '删除中…' : '删除'}</button>
+          <div className="im-row-actions">
+            <ImActionMenu label="Agent 操作" appName={app.name || app.clientId}>
+              <label className="im-binding">项目<Select aria-label={`绑定 ${app.name || app.clientId} 的项目`} value={app.project || ''} onChange={value => void bind(app.id, { project: value || null })}><option value="">未绑定</option>{projects.map(path => <option key={path} value={path}>{projectLabel(path)}</option>)}</Select></label>
+              <label className="im-binding">Agent<Select aria-label={`选择 ${app.name || app.clientId} 的 Agent`} value={app.agent || ''} onChange={value => void bind(app.id, { agent: value || null })}><option value="">未选择</option>{agents.map(agent => <option key={agent.id} value={agent.id} disabled={!agent.installed}>{agent.name}{agent.installed ? '' : '（未安装）'}</option>)}</Select></label>
+              <label className="im-binding">权限<Select aria-label={`设置 ${app.name || app.clientId} 的权限模式`} value={app.permissionMode || 'full-auto'} disabled={!agentInfo?.installed} title={agentInfo?.permissionModes.find(mode => mode.id === (app.permissionMode || 'full-auto'))?.description} onChange={value => void bind(app.id, { permissionMode: value })}>{agentInfo?.permissionModes.map(mode => <option key={mode.id} value={mode.id}>{mode.name}</option>)}</Select></label>
+            </ImActionMenu>
+            <ImActionMenu label="应用操作" appName={app.name || app.clientId}>
+              <button className="im-sync-button" disabled={syncingId !== null} aria-label={`同步 ${app.name || app.clientId} 的名称和图标`} onClick={() => void syncApp(app.id)}>{syncingId === app.id ? '同步中…' : '一键同步'}</button>
+              <button className="im-delete-button" disabled={deletingId !== null} aria-label={`删除 ${app.name || app.clientId} 的 IM 接入`} onClick={() => void deleteApp(app)}>{deletingId === app.id ? '删除中…' : '删除'}</button>
+            </ImActionMenu>
+          </div>
         </div>
-      </div>) : <div className="im-empty">暂无{platform}应用</div>}
+      </div>; }) : <div className="im-empty">暂无{platform}应用</div>}
     </div>
     {open && <div className="im-scan-layer" role="presentation"><button className="im-scan-backdrop" aria-label="关闭扫码窗口" onClick={closeRegistration} /><section className="im-scan-dialog" role="dialog" aria-modal="true" aria-labelledby="im-scan-title"><button className="im-scan-close" aria-label="关闭" onClick={closeRegistration}>×</button><h2 id="im-scan-title">使用{platform}扫码创建应用</h2>
       {busy && <p className="im-scan-message">正在获取授权二维码…</p>}

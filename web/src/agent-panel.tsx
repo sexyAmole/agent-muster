@@ -75,13 +75,22 @@ export function AgentPanel({ active, onChange }: Props) {
     <div className="agent-feedback" role="status" aria-live="polite">{operation ? `正在${actionLabels[operation.action]} ${agents.find(agent => agent.id === operation.id)?.name}，请等待完成…` : message}</div>
     {loading && !agents.length && <p className="im-empty">正在读取 Agent 信息…</p>}
     <div className="agent-list">{agents.map(agent => <article className="agent-entry" key={agent.id}>
-      <div className="agent-entry-heading"><span className="agent-entry-name"><AgentIcon agent={agent.id} /><strong>{agent.name}</strong></span><span className={`agent-install-status ${agent.installed ? 'installed' : ''}`}>{agent.installed ? '已安装' : '未安装'}</span></div>
-      <dl className="agent-details"><div><dt>版本</dt><dd title={agent.versionError}>{agent.installed ? agent.version || '读取失败' : '—'}</dd></div><div><dt>命令</dt><dd><code>{agent.command}</code></dd></div>{agent.path && <div><dt>路径</dt><dd className="agent-path" title={agent.path}>{agent.path}</dd></div>}</dl>
-      {agent.sandboxSupported && <div className="agent-sandbox"><span>内置沙箱</span><button type="button" role="switch" className="agent-sandbox-switch" aria-label={`${agent.name} 内置沙箱`} aria-checked={agent.sandboxEnabled} disabled={!agent.installed || loading || Boolean(operation) || Boolean(savingId)} onClick={() => void saveSandbox(agent, !agent.sandboxEnabled)}><span className="agent-sandbox-track" aria-hidden="true" />{agent.sandboxEnabled ? '已开启' : '已关闭'}</button></div>}
-      {agent.sandboxSupported && <p className="agent-sandbox-note">{savingId === agent.id ? '正在保存…' : '对下一次执行生效；会话中的只读或项目范围限制仍然保留。'}</p>}
+      <div className="agent-entry-row">
+        <details className="agent-entry-info">
+          <summary className="agent-entry-heading"><span className="agent-entry-name"><span className="agent-chevron" aria-hidden="true" /><AgentIcon agent={agent.id} /><strong>{agent.name}</strong></span><span className={`agent-install-status ${agent.installed ? 'installed' : ''}`}>{agent.installed ? '已安装' : '未安装'}</span></summary>
+          <dl className="agent-details"><div><dt>版本</dt><dd title={agent.versionError}>{agent.installed ? agent.version || '读取失败' : '—'}</dd></div><div><dt>命令</dt><dd><code>{agent.command}</code></dd></div>{agent.path && <div><dt>路径</dt><dd className="agent-path" title={agent.path}>{agent.path}</dd></div>}</dl>
+        </details>
+        <details className="agent-action-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+          <summary aria-label={`${agent.name} 操作`}>操作<span className="agent-chevron" aria-hidden="true" /></summary>
+          <div className="agent-action-popover">
+            {agent.sandboxSupported && <div className="agent-sandbox"><span>内置沙箱</span><button type="button" role="switch" className="agent-sandbox-switch" aria-label={`${agent.name} 内置沙箱`} aria-checked={agent.sandboxEnabled} disabled={!agent.installed || loading || Boolean(operation) || Boolean(savingId)} onClick={() => void saveSandbox(agent, !agent.sandboxEnabled)}><span className="agent-sandbox-track" aria-hidden="true" />{agent.sandboxEnabled ? '已开启' : '已关闭'}</button></div>}
+            {agent.sandboxSupported && savingId === agent.id && <p className="agent-sandbox-note">正在保存…</p>}
+            <div className="agent-entry-actions">{agent.installed ? <><button className="im-sync-button" disabled={loading || Boolean(savingId) || Boolean(operation) || !agent.management} onClick={() => void run(agent, 'update')}>{operation?.id === agent.id && operation.action === 'update' ? '更新中…' : '更新至最新版'}</button><button className="im-delete-button" disabled={loading || Boolean(savingId) || Boolean(operation) || !agent.management} onClick={() => void run(agent, 'uninstall')}>{operation?.id === agent.id && operation.action === 'uninstall' ? '卸载中…' : '卸载'}</button></> : <button className="im-primary-button" disabled={loading || Boolean(savingId) || Boolean(operation) || !agent.management} onClick={() => void run(agent, 'install')}>{operation?.id === agent.id && operation.action === 'install' ? '安装中…' : '安装'}</button>}</div>
+          </div>
+        </details>
+      </div>
       {agent.versionError && <p className="agent-entry-error">版本读取失败：{agent.versionError}</p>}
       {agent.managementError && <p className="agent-entry-error">{agent.managementError}</p>}
-      <div className="agent-entry-actions">{agent.installed ? <><button className="im-sync-button" disabled={loading || Boolean(savingId) || Boolean(operation) || !agent.management} onClick={() => void run(agent, 'update')}>{operation?.id === agent.id && operation.action === 'update' ? '更新中…' : '更新至最新版'}</button><button className="im-delete-button" disabled={loading || Boolean(savingId) || Boolean(operation) || !agent.management} onClick={() => void run(agent, 'uninstall')}>{operation?.id === agent.id && operation.action === 'uninstall' ? '卸载中…' : '卸载'}</button></> : <button className="im-primary-button" disabled={loading || Boolean(savingId) || Boolean(operation) || !agent.management} onClick={() => void run(agent, 'install')}>{operation?.id === agent.id && operation.action === 'install' ? '安装中…' : '安装'}</button>}</div>
     </article>)}</div>
     {output && <details className="agent-operation-output"><summary>操作输出</summary><pre>{output}</pre></details>}
   </section>;

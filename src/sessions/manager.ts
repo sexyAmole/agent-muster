@@ -1,6 +1,6 @@
 import { getSandboxEnabled, validatePermissionMode } from '../agents/settings.js';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -174,10 +174,13 @@ export class SessionManager extends EventEmitter {
     return session;
   }
 
-  send(id: string, message: string, model?: string, im?: ImBinding, images?: AgentImage[], permissionMode?: string | null): AgentSession {
+  async send(id: string, message: string, model?: string, im?: ImBinding, images?: AgentImage[], permissionMode?: string | null): Promise<AgentSession> {
     const session = this.sessions.get(id);
     if (!session) throw new Error('Session not found');
     if (!message.trim()) throw new Error('Message is required');
+    const child = this.processes.get(id);
+    if (child && session.status === 'completed') await once(child, 'close');
+    if (this.sessions.get(id) !== session) throw new Error('Session not found');
     if (this.processes.has(id)) throw new Error('Wait for the current task to finish or stop it');
     if (!session.externalSessionId) throw new Error('This agent did not create a resumable session');
     validatePermissionMode(session.agent, permissionMode);
@@ -272,6 +275,9 @@ export class SessionManager extends EventEmitter {
     }
     if (result.failed !== undefined) run.failed = result.failed;
     if (result.events.some(event => 'streaming' in event && event.streaming === false) || result.clearStreamIds?.length) this.savePending(session);
+    if (result.settled && session.status === 'running') {
+      this.status(session, run.aborted ? 'stopped' : run.failed ? 'failed' : 'completed');
+    }
   }
 
   private finishRun(session: AgentSession, child: ChildProcessWithoutNullStreams, run: RunState, code: number | null, settlementError?: string): void {

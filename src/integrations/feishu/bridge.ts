@@ -115,9 +115,9 @@ export class FeishuBridge {
     if (session && (this.sessions.isRunning(session.id) || !terminalStatuses.has(session.status))) await waitForCompletion(this.sessions, session);
     const lastEventId = session?.events.at(-1)?.id || 0;
     if (session) {
-      this.sessions.send(session.id, prompt, binding.model, im, images);
+      await this.sessions.send(session.id, prompt, binding.model, im, images, binding.permissionMode);
     } else {
-      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images);
+      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images, binding.permissionMode);
       await this.feishu.setSession(appId, message.chat_id, session.id);
     }
     await waitForCompletion(this.sessions, session);
