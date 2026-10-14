@@ -30,14 +30,15 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
     }
     response.json(sessions.history(session.id, limit, before));
   });
-  router.get('/sessions/:id/logs', (request, response) => {
+  router.get('/sessions/:id/logs', async (request, response) => {
     if (!sessions.get(request.params.id)) { response.status(404).json({ error: '会话不存在' }); return; }
     const limit = Number(request.query.limit);
     const before = request.query.before === undefined ? undefined : Number(request.query.before);
     if (!Number.isInteger(limit) || limit <= 0 || limit > 100 || (before !== undefined && (!Number.isSafeInteger(before) || before <= 0))) {
       response.status(400).json({ error: '日志分页参数无效' }); return;
     }
-    response.json(sessions.logs(request.params.id, limit, before));
+    try { response.json(await sessions.logs(request.params.id, limit, before)); }
+    catch (error) { response.status(500).json({ error: (error as Error).message }); }
   });
   router.get('/sessions/:id/messages/:eventId/images/:index', (request, response) => {
     if (!sessions.get(request.params.id)) { response.status(404).json({ error: '会话不存在' }); return; }
@@ -138,7 +139,7 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       lastEventId = Math.max(lastEventId, event.id);
       response.write(`id: ${lastEventId}\ndata: ${JSON.stringify(event)}\n\n`);
     };
-    for (const event of sessions.eventsAfter(session.id, after, false)) send(event);
+    for (const event of sessions.eventsAfter(session.id, after)) send(event);
     const listener = (event: SessionEvent) => send(event);
     sessions.on(session.id, listener);
     const heartbeat = setInterval(() => response.write(': keepalive\n\n'), 15000);

@@ -1,8 +1,24 @@
-import { object, string, tokens, hasTokens, detail, json } from './shared.js';
-import type { ProtocolAdapter, FileChange } from './shared.js';
+import { execFileAsync, object, string, tokens, hasTokens, detail, json } from './shared.js';
+import type { AgentProvider } from './shared.js';
 
-export const opencode: ProtocolAdapter = {
+export const opencode: AgentProvider = {
   id: 'opencode',
+  name: 'OpenCode',
+  command: 'opencode',
+  installation: { kind: 'npm', packageName: 'opencode-ai' },
+  async models() {
+    const { stdout } = await execFileAsync('opencode', ['models', '--verbose'], { timeout: 10000, maxBuffer: 5_000_000 });
+    return stdout.trim().split(/\r?\n(?=[\w.-]+\/[^\s]+\r?$)/m).map(entry => {
+      const end = entry.indexOf('\n');
+      const id = entry.slice(0, end).trim();
+      const model = JSON.parse(entry.slice(end + 1)) as { name: string; limit: { context: number } };
+      return { id, name: `${model.name} (${id})`, contextWindow: model.limit.context };
+    });
+  },
+  async configuredModel() {
+    const { stdout } = await execFileAsync('opencode', ['debug', 'config'], { timeout: 10000 });
+    return (JSON.parse(stdout) as { model?: string }).model;
+  },
   launch(prompt, externalSessionId, model, images) {
     return {
       command: 'opencode',
@@ -25,22 +41,7 @@ export const opencode: ProtocolAdapter = {
       if (event.type === 'text') return { externalSessionId, text: string(part?.text) };
       if (event.type === 'tool_use') {
         const state = object(part?.state);
-        const input = object(state?.input);
-        const path = string(input?.filePath);
-        const metadata = object(state?.metadata);
-        const filediff = object(metadata?.filediff);
-        const changes: FileChange[] = [];
-        if (state?.status === 'completed') {
-          if (path && (part?.tool === 'write' || part?.tool === 'edit')) changes.push({ path, kind: 'update', diff: string(filediff?.diff) });
-          if (part?.tool === 'apply_patch' && Array.isArray(metadata?.files)) {
-            for (const value of metadata.files) {
-              const file = object(value);
-              const path = string(file?.filePath);
-              if (path) changes.push({ path, kind: string(file?.type) || 'update', diff: string(file?.patch) });
-            }
-          }
-        }
-        return { externalSessionId, tools: [{ name: string(part?.tool) || 'tool', detail: detail(state) }], changes };
+        return { externalSessionId, tools: [{ name: string(part?.tool) || 'tool', detail: detail(state) }] };
       }
       if (event.type === 'step_finish') {
         const usage = object(part?.tokens);

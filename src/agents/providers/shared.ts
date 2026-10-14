@@ -1,4 +1,8 @@
-import type { AgentImage, TokenUsage } from '../../types.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import type { AgentAction, AgentImage, AgentSession, ModelInfo, TokenUsage } from '../../types.js';
+
+export const execFileAsync = promisify(execFile);
 
 export interface Launch {
   command: string;
@@ -19,11 +23,9 @@ export interface AdapterEvent {
 export interface ParsedResult {
   text?: string;
   thinking?: string;
-  system?: { text: string; detail?: string };
   externalSessionId?: string;
   error?: string;
   tools?: ToolCall[];
-  changes?: FileChange[];
   usage?: TokenUsage;
   usageIsTotal?: boolean;
   settled?: boolean;
@@ -31,7 +33,6 @@ export interface ParsedResult {
   failed?: boolean;
   events?: AdapterEvent[];
   clearStreamIds?: string[];
-  skipRawLog?: boolean;
 }
 
 export type ProtocolReader = (line: string) => ParsedResult;
@@ -45,9 +46,27 @@ export interface ProtocolAdapter {
   settlementError?: string;
 }
 
+export type AgentInstallation =
+  | { kind: 'npm'; packageName: string }
+  | {
+    kind: 'cursor';
+    supported: boolean;
+    unsupportedMessage: string;
+    owns(path: string, target: string): boolean;
+    run(action: AgentAction, path?: string): Promise<string>;
+  };
+
+export interface AgentProvider extends ProtocolAdapter {
+  name: string;
+  command: string;
+  installation: AgentInstallation;
+  models(): Promise<ModelInfo[]>;
+  configuredModel(): Promise<string | undefined>;
+  sessionLogFile?(session: AgentSession): Promise<string | undefined>;
+}
+
 export type AgentEvent =
-  | (Omit<AdapterEvent, 'type'> & { type: 'system' | 'output' | 'thinking' | 'tool' | 'error' | 'warning' })
-  | { type: 'file_change'; path: string; kind: string; diff?: string }
+  | (Omit<AdapterEvent, 'type'> & { type: 'output' | 'thinking' | 'tool' | 'error' | 'warning' })
   | { type: 'usage'; usage: TokenUsage; total?: boolean };
 
 export interface AdapterResult {
@@ -57,7 +76,6 @@ export interface AdapterResult {
   aborted?: boolean;
   failed?: boolean;
   clearStreamIds?: string[];
-  skipRawLog?: boolean;
 }
 
 export interface Adapter {
@@ -70,18 +88,15 @@ export interface Adapter {
 
 function normalizeResult(result: ParsedResult): AdapterResult {
   const events: AgentEvent[] = [];
-  if (result.system) events.push({ type: 'system', ...result.system });
   if (result.thinking) events.push({ type: 'thinking', text: result.thinking });
   if (result.text) events.push({ type: 'output', text: result.text });
   if (result.usage) events.push({ type: 'usage', usage: result.usage, total: result.usageIsTotal });
   events.push(...result.events || []);
   for (const tool of result.tools || []) events.push({ type: 'tool', text: tool.name, detail: tool.detail });
-  for (const change of result.changes || []) events.push({ type: 'file_change', ...change });
   if (result.error) events.push({ type: 'error', text: result.error });
   return {
     events, externalSessionId: result.externalSessionId, settled: result.settled, aborted: result.aborted,
     failed: result.error ? result.failed ?? true : result.settled ? result.failed : undefined, clearStreamIds: result.clearStreamIds,
-    skipRawLog: result.skipRawLog,
   };
 }
 
@@ -112,12 +127,6 @@ export function createAdapter(protocol: ProtocolAdapter): Adapter {
 interface ToolCall {
   name: string;
   detail?: string;
-}
-
-export interface FileChange {
-  path: string;
-  kind: string;
-  diff?: string;
 }
 
 export function object(value: unknown): Record<string, unknown> | undefined {

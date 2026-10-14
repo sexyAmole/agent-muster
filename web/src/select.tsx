@@ -7,12 +7,13 @@ type SelectProps = {
   onChange: (value: string) => void;
   children: ReactNode;
   triggerLabel?: ReactNode;
+  renderIcon?: (value: string) => ReactNode;
   title?: string;
   disabled?: boolean;
   'aria-label': string;
 };
 
-export function Select({ value, onChange, children, triggerLabel, title, disabled, 'aria-label': label }: SelectProps) {
+export function Select({ value, onChange, children, triggerLabel, renderIcon, title, disabled, 'aria-label': label }: SelectProps) {
   const options = Children.toArray(children).filter(isValidElement<OptionHTMLAttributes<HTMLOptionElement>>).map(option => ({
     value: String(option.props.value),
     label: option.props.children,
@@ -93,11 +94,13 @@ export function Select({ value, onChange, children, triggerLabel, title, disable
           choose(activeIndex);
         }
       }}>
+      {renderIcon && <span className="select-icon">{renderIcon(value)}</span>}
       <span className="select-value">{triggerLabel ?? options[selectedIndex]?.label}</span>
       <svg className="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
     </button>
     {expanded && createPortal(<div ref={menuRef} id={menuId} className="select-menu" role="listbox" aria-label={label} style={position} onMouseDown={event => event.preventDefault()}>
       {options.map((option, index) => <button key={option.value} id={`${menuId}-${index}`} type="button" role="option" tabIndex={-1} aria-selected={option.value === value} disabled={option.disabled} className={`select-option${activeIndex === index ? ' active' : ''}`} onPointerMove={() => !option.disabled && setActiveIndex(index)} onClick={() => choose(index)}>
+        {renderIcon && <span className="select-icon">{renderIcon(option.value)}</span>}
         <span>{option.label}</span>
         {option.value === value && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>}
       </button>)}

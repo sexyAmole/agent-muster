@@ -1,15 +1,16 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { adapters, type AdapterResult } from '../agents/adapters.js';
+import { adapters, type AdapterResult } from '../agents/providers/index.js';
 import { SessionStore } from './store.js';
 import { mergeSessionEvents } from './events.js';
+import { readSessionLogs } from '../agents/session-logs.js';
 import { createLineReader } from './line-reader.js';
 import type { AgentImage, AgentSession, ImBinding, ImContext, SessionEvent, SessionStatus, TokenUsage } from '../types.js';
 
-type SessionEventInput = Omit<SessionEvent, 'id' | 'timestamp' | 'pushedToIm' | 'type'> & { type: Exclude<SessionEvent['type'], 'raw_stdout' | 'raw_stderr'> };
+type SessionEventInput = Omit<SessionEvent, 'id' | 'timestamp' | 'pushedToIm' | 'type' | 'kind' | 'comparison'> & { type: Exclude<SessionEvent['type'], 'raw_stdout' | 'raw_stderr' | 'system' | 'file_change'> };
 
 interface RunState {
   id: string;
@@ -17,20 +18,6 @@ interface RunState {
   failed: boolean;
   settled: boolean;
   aborted: boolean;
-}
-
-function fileDiff(cwd: string, path: string): string | undefined {
-  const file = resolve(cwd, path);
-  const localPath = relative(cwd, file);
-  if (localPath.startsWith('..') || isAbsolute(localPath)) return undefined;
-  const repository = spawnSync('git', ['-C', cwd, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8', timeout: 2000 });
-  if (repository.status !== 0 || repository.stdout.trim() !== 'true') return undefined;
-  const tracked = spawnSync('git', ['-C', cwd, 'ls-files', '--error-unmatch', '--', localPath], { encoding: 'utf8', timeout: 2000 });
-  const args = tracked.status === 0
-    ? ['-C', cwd, 'diff', '--no-ext-diff', 'HEAD', '--', localPath]
-    : ['-C', cwd, 'diff', '--no-ext-diff', '--no-index', '--', process.platform === 'win32' ? 'NUL' : '/dev/null', file];
-  const result = spawnSync('git', args, { encoding: 'utf8', timeout: 2000, maxBuffer: 1_000_000 });
-  return result.error ? undefined : result.stdout?.trim() || undefined;
 }
 
 export class SessionManager extends EventEmitter {
@@ -67,22 +54,23 @@ export class SessionManager extends EventEmitter {
 
   history(id: string, limit?: number, before?: number) {
     if (!this.sessions.has(id)) throw new Error('会话不存在');
-    const page = this.store.history(id, limit, before, false);
+    const page = this.store.history(id, limit, before);
     if (limit !== 0 && before === undefined) page.events = mergeSessionEvents([...page.events, ...this.sessions.get(id)!.events.filter(event => event.streaming)]);
     return page;
   }
 
   logs(id: string, limit: number, before?: number) {
-    if (!this.sessions.has(id)) throw new Error('会话不存在');
-    return this.store.logs(id, limit, before);
+    const session = this.sessions.get(id);
+    if (!session) throw new Error('会话不存在');
+    return readSessionLogs(session, limit, before);
   }
 
   getEvent(id: string, eventId: number): SessionEvent | undefined {
     return this.store.getEvent(id, eventId);
   }
 
-  *eventsAfter(id: string, after: number, includeRaw = true): Generator<SessionEvent> {
-    yield* this.store.eventsAfter(id, after, includeRaw);
+  *eventsAfter(id: string, after: number): Generator<SessionEvent> {
+    yield* this.store.eventsAfter(id, after);
     for (const event of this.sessions.get(id)?.events || []) {
       if (event.streaming) yield event;
     }
@@ -115,15 +103,13 @@ export class SessionManager extends EventEmitter {
     catch (error) { console.error('保存会话失败：', error); }
   }
 
-  private append(session: AgentSession, { type, text, detail, kind, comparison, im, images, ...attributes }: SessionEventInput): SessionEvent {
+  private append(session: AgentSession, { type, text, detail, im, images, ...attributes }: SessionEventInput): SessionEvent {
     const event: SessionEvent = {
       id: Math.max(0, ...session.events.map(event => event.id)) + 1,
       ...attributes,
       type,
-      text: type === 'system' || attributes.streamId ? text : text.slice(0, 50000),
-      ...(detail === undefined ? {} : { detail: type === 'system' || type === 'tool' ? detail : detail.slice(0, 50000) }),
-      ...(kind === undefined ? {} : { kind }),
-      ...(comparison === undefined ? {} : { comparison }),
+      text: attributes.streamId ? text : text.slice(0, 50000),
+      ...(detail === undefined ? {} : { detail: type === 'tool' ? detail : detail.slice(0, 50000) }),
       timestamp: Date.now(),
       ...(im ? { im } : {}),
       ...(images?.length ? { images: images.map(({ path, mimeType }) => ({ path, mimeType })) } : {}),
@@ -134,19 +120,6 @@ export class SessionManager extends EventEmitter {
       try { this.store.appendEvent(session.id, event); }
       catch (error) { console.error('保存会话事件失败：', error); }
     }
-    this.publish(session, event);
-    return event;
-  }
-
-  private recordRaw(session: AgentSession, channel: 'stdout' | 'stderr', text: string): SessionEvent {
-    const event: SessionEvent = {
-      id: Math.max(0, ...session.events.map(event => event.id)) + 1,
-      type: channel === 'stdout' ? 'raw_stdout' : 'raw_stderr', text, timestamp: Date.now(),
-    };
-    session.updatedAt = event.timestamp;
-    this.save(session);
-    try { this.store.appendRaw(session.id, event); }
-    catch (error) { console.error('保存 Agent 原始日志失败：', error); }
     this.publish(session, event);
     return event;
   }
@@ -164,12 +137,12 @@ export class SessionManager extends EventEmitter {
     this.append(session, { type: 'status', text: status });
   }
 
-  private addUsage(session: AgentSession, usage: TokenUsage, total = false, rawRecordId?: number): void {
+  private addUsage(session: AgentSession, usage: TokenUsage, total = false): void {
     session.usage = total ? usage : {
       inputTokens: (session.usage?.inputTokens || 0) + usage.inputTokens,
       outputTokens: (session.usage?.outputTokens || 0) + usage.outputTokens,
     };
-    this.append(session, { type: 'usage', text: JSON.stringify(session.usage), rawRecordId });
+    this.append(session, { type: 'usage', text: JSON.stringify(session.usage) });
   }
 
   async create(agent: string, cwd: string, prompt: string, model?: string, im?: ImBinding, images?: AgentImage[]): Promise<AgentSession> {
@@ -263,8 +236,8 @@ export class SessionManager extends EventEmitter {
     catch (error) { console.error('保存未完成内容失败：', error); }
   }
 
-  private recordResult(session: AgentSession, run: RunState, result: AdapterResult, rawRecordId?: number): void {
-    const append = (event: SessionEventInput) => this.append(session, { rawRecordId, ...event });
+  private recordResult(session: AgentSession, run: RunState, result: AdapterResult): void {
+    const append = (event: SessionEventInput) => this.append(session, event);
     const streamId = (id: string) => `${run.id}:${id}`;
     if (result.settled) { run.settled = true; run.aborted = result.aborted === true; run.failed = result.failed === true; }
     if (result.externalSessionId) {
@@ -278,18 +251,13 @@ export class SessionManager extends EventEmitter {
     }
     for (const event of result.events) {
       if (event.type === 'usage') {
-        this.addUsage(session, event.usage, event.total, rawRecordId);
-        continue;
-      }
-      if (event.type === 'file_change') {
-        const diff = event.diff || fileDiff(session.cwd, event.path);
-        append({ type: 'file_change', text: event.path, detail: diff, kind: event.kind, comparison: event.diff || !diff ? undefined : 'HEAD' });
+        this.addUsage(session, event.usage, event.total);
         continue;
       }
       const id = event.streamId ? streamId(event.streamId) : undefined;
       const previous = id ? session.events.find(item => item.streamId === id) : undefined;
       if (event.streaming && previous?.text === event.text && previous.detail === event.detail && previous.contentIndex === event.contentIndex) continue;
-      if (event.orderKey && !run.orders.has(event.orderKey)) run.orders.set(event.orderKey, rawRecordId ?? Math.max(0, ...session.events.map(item => item.id)) + 1);
+      if (event.orderKey && !run.orders.has(event.orderKey)) run.orders.set(event.orderKey, Math.max(0, ...session.events.map(item => item.id)) + 1);
       append({
         type: event.type, text: event.text, detail: event.detail,
         streamId: id, order: event.orderKey ? run.orders.get(event.orderKey) : undefined,
@@ -332,9 +300,7 @@ export class SessionManager extends EventEmitter {
     child.stdin.end(launch.prompt === undefined ? undefined : `${launch.prompt}\n`);
 
     const consume = (channel: 'stdout' | 'stderr') => createLineReader(line => {
-      const result = read(line, channel);
-      const raw = result.skipRawLog ? undefined : this.recordRaw(session, channel, line);
-      this.recordResult(session, run, result, raw?.id);
+      this.recordResult(session, run, read(line, channel));
     }, readRaw ? chunk => this.recordResult(session, run, readRaw(chunk, channel)) : undefined);
     const stdout = consume('stdout');
     const stderr = consume('stderr');
@@ -350,9 +316,9 @@ export class SessionManager extends EventEmitter {
       clearInterval(checkpoint);
       stderr.end();
       stdout.end();
-      for (const event of session.events.filter((event): event is SessionEvent & { type: SessionEventInput['type'] } => Boolean(event.streaming) && event.type !== 'raw_stdout' && event.type !== 'raw_stderr')) {
+      for (const event of session.events.filter((event): event is SessionEvent & { type: SessionEventInput['type'] } => Boolean(event.streaming) && event.type !== 'raw_stdout' && event.type !== 'raw_stderr' && event.type !== 'system' && event.type !== 'file_change')) {
         this.append(session, {
-          type: event.type, text: event.text, detail: event.detail, kind: event.kind, comparison: event.comparison,
+          type: event.type, text: event.text, detail: event.detail,
           rawRecordId: event.rawRecordId, streamId: event.streamId, order: event.order, contentIndex: event.contentIndex, streaming: false,
         });
       }

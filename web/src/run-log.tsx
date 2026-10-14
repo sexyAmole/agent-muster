@@ -1,19 +1,20 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useId, useRef, useState } from 'react';
 import { useErrorMessage } from './message';
 
-type LogEvent = { id: number; type: string; text: string; detail?: string; timestamp: number };
+import type { SessionLog, SessionLogPage } from '../../src/types';
 type Props = {
-  agent: string;
   sessionId: string;
   copied: boolean;
   onCopy: (text: string, target: 'run-log') => Promise<void>;
 };
 const timestampFormat = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-export const RunLog = memo(function RunLog({ sessionId, agent, copied, onCopy }: Props) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+export const RunLog = memo(function RunLog({ sessionId, copied, onCopy }: Props) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const [open, setOpen] = useState(false);
-  const [logs, setLogs] = useState<LogEvent[]>([]);
+  const [logs, setLogs] = useState<SessionLog[]>([]);
+  const [supported, setSupported] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -27,11 +28,12 @@ export const RunLog = memo(function RunLog({ sessionId, agent, copied, onCopy }:
     setLoading(true);
     try {
       const response = await fetch(`/api/sessions/${sessionId}/logs?limit=50${before === undefined ? '' : `&before=${before}`}`, { signal: controller.signal });
-      const page = await response.json() as { events: LogEvent[]; hasMore: boolean; error?: string };
+      const page = await response.json() as SessionLogPage & { error?: string };
       if (!response.ok) throw new Error(page.error || '读取日志失败');
       if (controller.signal.aborted) return;
       setLogs(previous => before === undefined ? page.events : [...page.events, ...previous]);
       setHasMore(page.hasMore);
+      setSupported(page.supported);
     } catch (reason) {
       if (!controller.signal.aborted) setError((reason as Error).message);
     } finally {
@@ -50,24 +52,26 @@ export const RunLog = memo(function RunLog({ sessionId, agent, copied, onCopy }:
   }, [open, sessionId]);
 
   useEffect(() => {
-    if (!open) return;
-    function closeOutside(event: PointerEvent) {
-      const element = detailsRef.current;
-      if (element && event.target instanceof Node && !element.contains(event.target)) element.open = false;
-    }
-    document.addEventListener('pointerdown', closeOutside);
-    return () => document.removeEventListener('pointerdown', closeOutside);
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open) dialog.showModal();
+    else dialog.close();
   }, [open]);
 
-  return <details ref={detailsRef} className="run-log" onToggle={event => setOpen(event.currentTarget.open)} onBlur={event => {
-    if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
-  }}>
-    <summary aria-label="运行日志" title="运行日志"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 7h8M8 12h8M8 17h5" /></svg></summary>
-    {open && <div className="run-log-content" tabIndex={0}>
+  return <div className="run-log">
+    <button className="copy-button" aria-label="运行日志" title="运行日志" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 7h8M8 12h8M8 17h5" /></svg></button>
+    <dialog ref={dialogRef} className="run-log-drawer" aria-labelledby={titleId} onCancel={() => setOpen(false)} onClose={() => setOpen(false)} onClick={event => {
+      if (event.target !== event.currentTarget) return;
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) setOpen(false);
+    }}>
+      <div className="run-log-header"><h2 id={titleId}>运行日志</h2><button className="copy-button" aria-label="关闭运行日志" title="关闭运行日志" onClick={() => setOpen(false)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg></button></div>
+      {open && <div className="run-log-content" tabIndex={0}>
       <div className="run-log-toolbar"><button className="reply-push" disabled={!logs.length} onClick={() => void onCopy(logs.map(event => event.text).join('\n'), 'run-log')}>{copied ? '已复制' : '复制已加载日志'}</button>{hasMore && <button className="history-load" disabled={loading} onClick={() => void loadLogs(logs[0]?.id)}>{loading ? '加载中…' : '加载更早日志'}</button>}</div>
-      {logs.map(event => <div key={event.id}><span>{timestampFormat.format(event.timestamp)} · {event.type === 'raw_stdout' ? 'stdout' : event.type === 'raw_stderr' ? 'stderr' : event.type}</span><pre>{event.text}{event.detail !== undefined && `\n${event.detail}`}</pre></div>)}
+      {logs.map(event => <div key={event.id}><span>{event.timestamp !== undefined && `${timestampFormat.format(event.timestamp)} · `}{event.type}</span><pre>{event.text}</pre></div>)}
       {loading && !logs.length && <p>加载中…</p>}
-      {!loading && !logs.length && <p>{agent === 'pi' ? '暂无运行记录，新执行的内容将在这里记录。' : '暂无原始运行日志，新执行的内容将在这里记录。'}</p>}
-    </div>}
-  </details>;
+      {!loading && !logs.length && <p>{supported ? '尚未找到 Agent 本地会话记录。' : '此 Agent 不支持读取本地 JSONL 会话记录。'}</p>}
+      </div>}
+    </dialog>
+  </div>;
 });

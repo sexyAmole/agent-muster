@@ -1,8 +1,26 @@
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { findJsonl } from '../jsonl.js';
+import { join, basename, resolve } from 'node:path';
 import { object, string, tokens, hasTokens, detail, json } from './shared.js';
-import type { ProtocolAdapter } from './shared.js';
+import type { AgentProvider } from './shared.js';
 
-export const claude: ProtocolAdapter = {
+export const claude: AgentProvider = {
   id: 'claude',
+  name: 'Claude Code',
+  command: 'claude',
+  installation: { kind: 'npm', packageName: '@anthropic-ai/claude-code' },
+  async models() {
+    return ['sonnet', 'opus', 'haiku', 'fable'].map(id => ({ id, name: id }));
+  },
+  async configuredModel() {
+    const config = JSON.parse(await readFile(join(homedir(), '.claude', 'settings.json'), 'utf8')) as { model?: string };
+    return config.model;
+  },
+  async sessionLogFile(session) {
+    const directory = process.env.CLAUDE_CONFIG_DIR ? resolve(process.env.CLAUDE_CONFIG_DIR) : join(homedir(), '.claude');
+    return findJsonl(join(directory, 'projects'), file => basename(file) === `${session.externalSessionId}.jsonl`);
+  },
   launch(prompt, externalSessionId, model, images) {
     return {
       command: 'claude',

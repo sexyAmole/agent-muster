@@ -71,6 +71,19 @@ export interface SessionEvent {
   images?: Pick<AgentImage, 'path' | 'mimeType'>[];
 }
 
+export interface SessionLog {
+  id: number;
+  text: string;
+  type?: string;
+  timestamp?: number;
+}
+
+export interface SessionLogPage {
+  supported: boolean;
+  events: SessionLog[];
+  hasMore: boolean;
+}
+
 export interface AgentSession {
   id: string;
   agent: string;

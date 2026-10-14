@@ -31,6 +31,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .select-option { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; padding: 7px 9px; border: 0; border-radius: 4px; background: transparent; color: #333; font-size: 12px; text-align: left; }
 .select-option > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .select-option > svg { flex: none; }
+.select-input > .select-icon, .select-option > .select-icon { display: flex; align-items: center; flex: none; }
+.select-icon > svg, .select-icon > .agent-icon { width: 20px; height: 20px; }
+.select-icon:empty { display: none; }
 .select-option.active:not(:disabled) { background: #f2f2f2; }
 .select-option:disabled { color: #aaa; }
 
@@ -81,7 +84,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .conversation-item:hover { background: #ededed; }
 .conversation-item.selected { background: #e3e3e3; color: #222; }
-.conversation-app-icon { position: absolute; left: 10px; width: 20px; height: 20px; border-radius: 5px; object-fit: cover; }
+.agent-icon { display: block; width: 20px; height: 20px; flex: none; padding: 2px; border-radius: 5px; background: #f2f2f2; object-fit: contain; }
+.conversation-icon { position: absolute; left: 8px; width: 20px; height: 20px; }
+.conversation-app-icon, .conversation-icon > .feishu-app-mark { width: 20px; height: 20px; border-radius: 5px; object-fit: cover; }
+.conversation-icon > .conversation-agent-badge { position: absolute; right: -3px; bottom: -3px; width: 12px; height: 12px; padding: 1px; border: 1px solid #f6f6f6; border-radius: 3px; background: #fff; }
 .pane-marker { width: 18px; height: 18px; display: grid; place-items: center; flex: none; border: 1px solid #bbb; border-radius: 4px; color: #555; font-size: 10px; }
 .conversation-text { min-width: 0; flex: 1; }
 .conversation-text strong, .conversation-text small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -122,12 +128,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .output-actions { display: flex; align-items: center; gap: 6px; }
 .copy-button { flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid #e3e3e3; border-radius: 4px; background: #fff; color: #555; }
 .copy-button:hover { background: #f4f4f4; }
-.run-log { position: relative; flex: none; }
-.run-log summary { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid #e3e3e3; border-radius: 4px; color: #666; list-style: none; cursor: pointer; }
-.run-log summary:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
-.run-log summary::-webkit-details-marker { display: none; }
-.run-log[open] summary, .run-log summary:hover { background: #f4f4f4; }
-.run-log-content { position: absolute; top: 34px; right: 0; z-index: 5; width: min(450px, 70vw); max-height: 350px; overflow: auto; padding: 14px; border: 1px solid #ddd; border-radius: 7px; background: #fff; box-shadow: 0 12px 35px #0002; }
+.run-log { flex: none; }
+.run-log-drawer { position: fixed; inset: 0 0 0 auto; width: min(560px, 100vw); max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-left: 1px solid #e3e3e3; background: #fff; color: #181818; box-shadow: -12px 0 35px #0002; }
+.run-log-drawer[open] { display: flex; flex-direction: column; animation: run-log-slide-in .2s ease-out; }
+.run-log-drawer::backdrop { background: #0005; }
+.run-log-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #eee; }
+.run-log-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.run-log-content { flex: 1; min-height: 0; overflow: auto; padding: 0 16px 16px; }
+@keyframes run-log-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { .run-log-drawer[open] { animation: none; } }
 .run-log-content > div { padding: 8px 0; border-bottom: 1px solid #eee; }
 .run-log-content > div:last-child { border: 0; }
 .run-log-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -194,7 +203,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .chat-compose-wrap { flex: none; padding: 12px 30px 24px; background: #fff; }
 .composer-project-row { position: relative; width: min(856px, calc(100% - 24px)); height: 46px; display: flex; align-items: center; gap: 10px; margin: 0 auto -8px; padding: 0 15px 8px; border-radius: 16px 16px 0 0; background: #ededed; color: #333; }
 .composer-project-row .project-folder { width: 13px; height: 10px; }
-.project-select { position: relative; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.project-select { position: relative; min-width: 0; display: flex; align-items: center; }
 .project-select .select-control { max-width: 220px; }
 .chat-composer { position: relative; width: min(880px, 100%); margin: 0 auto; padding: 13px 15px 10px; border: 1px solid #ddd; border-radius: 20px; background: #f7f7f7; color: #333; }
 .chat-composer:focus-within { border-color: #bbb; }
@@ -301,7 +310,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .assistant-turn { padding-right: 0; }
   .user-bubble { max-width: 88%; }
   .chat-compose-wrap { padding: 10px 12px 14px; }
-  .run-log-content { width: min(350px, 88vw); }
   .im-prototype { padding: 25px 14px; }
   .im-intro h1 { font-size: 20px; }
   .im-robot-row { flex-wrap: wrap; }
@@ -324,6 +332,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .agent-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .agent-entry { min-width: 0; display: flex; flex-direction: column; padding: 20px; border: 1px solid #e8e8e8; border-radius: 7px; background: #fff; }
 .agent-entry-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-entry-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent-entry-name > .agent-icon { width: 28px; height: 28px; padding: 4px; border-radius: 7px; }
 .agent-entry-heading strong { font-size: 14px; }
 .agent-install-status { padding: 4px 7px; border-radius: 4px; background: #f2f2f2; color: #888; font-size: 10px; }
 .agent-install-status.installed { background: #edf3ee; color: #526f5a; }

@@ -1,5 +1,9 @@
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { findJsonl } from '../jsonl.js';
+import { join, basename } from 'node:path';
 import { object, string, tokens, hasTokens, detail, json } from './shared.js';
-import type { ProtocolAdapter, ParsedResult, FileChange } from './shared.js';
+import type { AgentProvider, ParsedResult } from './shared.js';
 
 function readGeminiResult(line: string): ParsedResult {
   const event = json(line);
@@ -20,8 +24,22 @@ function readGeminiResult(line: string): ParsedResult {
   return {};
 }
 
-export const gemini: ProtocolAdapter = {
+export const gemini: AgentProvider = {
   id: 'gemini',
+  name: 'Gemini CLI',
+  command: 'gemini',
+  installation: { kind: 'npm', packageName: '@google/gemini-cli' },
+  async models() {
+    return ['auto-gemini-3', 'auto-gemini-2.5', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'].map(id => ({ id, name: id }));
+  },
+  async configuredModel() {
+    if (process.env.GEMINI_MODEL) return process.env.GEMINI_MODEL;
+    const config = JSON.parse(await readFile(join(homedir(), '.gemini', 'settings.json'), 'utf8')) as { model?: { name?: string } };
+    return config.model?.name;
+  },
+  async sessionLogFile(session) {
+    return findJsonl(join(homedir(), '.gemini', 'tmp'), file => basename(file).startsWith('session-') && basename(file).includes(session.externalSessionId!.slice(0, 8)), session.externalSessionId);
+  },
   launch(prompt, externalSessionId, model, images) {
     return {
       command: 'gemini',
@@ -31,26 +49,12 @@ export const gemini: ProtocolAdapter = {
 
   createReader() {
     let text = '';
-    const edits = new Map<string, FileChange>();
     return line => {
       const event = json(line);
       const result = readGeminiResult(line);
       if (event?.type === 'message' && event.role === 'assistant') {
         text += result.text || '';
         return {};
-      }
-      if (event?.type === 'tool_use') {
-        const path = string(object(event.parameters)?.file_path);
-        const id = string(event.tool_id);
-        if (path && id && (event.tool_name === 'write_file' || event.tool_name === 'replace')) {
-          edits.set(id, { path, kind: 'update' });
-        }
-      }
-      if (event?.type === 'tool_result') {
-        const id = string(event.tool_id);
-        const change = id ? edits.get(id) : undefined;
-        if (id) edits.delete(id);
-        if (change && event.status === 'success') result.changes = [change];
       }
       if (event?.type === 'tool_use' || event?.type === 'result' || (event?.type === 'error' && event.severity === 'error')) {
         result.text = text || undefined;

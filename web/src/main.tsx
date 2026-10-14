@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ImPrototype, type Application } from './im-prototype';
 import { AppIcon } from './app-icon';
+import { AgentIcon } from './agent-icon';
 import { AgentPanel } from './agent-panel';
 import { MessageProvider, useErrorMessage } from './message';
 import { MessageImages } from './message-images';
@@ -482,7 +483,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
           : <><strong>新对话</strong>{multi && <p>窗口 {index + 1} · 从侧边栏选择对话</p>}</>}{dingtalkBinding?.conversation && <p className="chat-source">{dingtalkBinding.conversation.type === 'group' ? '群聊' : '单聊'}{dingtalkBinding.conversation.type === 'group' && dingtalkBinding.conversation.groupName && ` · 群名称：${dingtalkBinding.conversation.groupName}`} · 提问人：<span title={dingtalkBinding.conversation.senderStaffId}>{dingtalkBinding.conversation.senderName}</span></p>}{feishuBinding?.conversation && <p className="chat-source">飞书 · {feishuBinding.conversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{feishuBinding.conversation.senderId}</p>}</div>
         <div className="output-actions">
           {selected && <button className="copy-button" onClick={() => void copyConversation()} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'} title={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === 'conversation' ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}
-          {selected && <RunLog key={selected.id} sessionId={selected.id} agent={selected.agent} copied={copiedTarget === 'run-log'} onCopy={copyText} />}
+          {selected && <RunLog key={selected.id} sessionId={selected.id} copied={copiedTarget === 'run-log'} onCopy={copyText} />}
           {layoutControls && <div className="pane-layout-switch">{layoutControls}</div>}
         </div>
       </div>
@@ -499,13 +500,12 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       <div className="chat-compose-wrap">
         {!selected && <div className="composer-project-row">
           <span className="project-select">
-            <span className="project-folder" aria-hidden="true" />
-            <Select aria-label={`窗口 ${index + 1} 选择项目`} value={composerProject} disabled={busy} onChange={value => onProjectChange(index, value)}>
+            <Select aria-label={`窗口 ${index + 1} 选择项目`} value={composerProject} renderIcon={() => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8V6a2 2 0 0 1 2-2h5l2 4h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z" /><path d="M3 8h9" /></svg>} disabled={busy} onChange={value => onProjectChange(index, value)}>
               {!composerProject && <option value="">选择项目</option>}
               {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects)}</option>)}
             </Select>
           </span>
-          <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
+          <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
         </div>}
         <div className="chat-composer">
           {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
@@ -702,7 +702,7 @@ function App() {
                 const feishuBinding = session.im?.find(binding => binding.platform === 'feishu');
                 const feishuIcon = feishuApps.find(app => app.id === feishuBinding?.appId)?.icon;
                 return <div className="conversation-row" key={session.id}><button className={`conversation-item ${activeSessionId === session.id ? 'selected' : ''}`} onClick={() => openConversation(session)} title={session.prompt}>
-                  {dingtalkBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}{feishuBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<span className="conversation-text"><strong>{session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{(session.status === 'starting' || session.status === 'running') && <span className="conversation-loading" role="status" aria-label={statusLabel[session.status]} />}{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
+                  <span className="conversation-icon">{dingtalkBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}{feishuBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<AgentIcon agent={session.agent} className={dingtalkBinding || feishuBinding ? 'conversation-agent-badge' : undefined} /></span><span className="conversation-text"><strong>{session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{(session.status === 'starting' || session.status === 'running') && <span className="conversation-loading" role="status" aria-label={statusLabel[session.status]} />}{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
                 </button><button className="sidebar-delete conversation-delete" onClick={() => void deleteSession(session)} aria-label={`删除对话 ${session.prompt}`} title="删除对话"><ActionIcon type="delete" /></button></div>;
               }) : <p className="project-empty">还没有对话</p>}
             </div>}

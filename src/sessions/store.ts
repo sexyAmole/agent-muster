@@ -166,10 +166,6 @@ export class SessionStore {
     this.appendRecord(this.files.get(id)!, event);
   }
 
-  appendRaw(id: string, event: SessionEvent): void {
-    this.appendRecord(this.rawFile(this.files.get(id)!), event);
-  }
-
   markImPushed(id: string, eventId: number): void {
     this.appendRecord(this.files.get(id)!, { type: 'im_pushed', eventId });
   }
@@ -178,9 +174,9 @@ export class SessionStore {
     appendFileSync(file, `${JSON.stringify(record)}\n`);
   }
 
-  history(id: string, limit?: number, before?: number, includeRaw = true): { events: SessionEvent[]; hasMore: boolean } {
+  history(id: string, limit?: number, before?: number): { events: SessionEvent[]; hasMore: boolean } {
     if (limit === 0) return { events: [], hasMore: false };
-    if (limit === undefined) return { events: mergeSessionEvents([...this.eventsAfter(id, 0, includeRaw)]), hasMore: false };
+    if (limit === undefined) return { events: mergeSessionEvents([...this.eventsAfter(id, 0)]), hasMore: false };
     const events: SessionEvent[] = [];
     const pushed = new Set<number>();
     let rounds = 0;
@@ -189,39 +185,13 @@ export class SessionStore {
       if (record.type === 'im_pushed') { pushed.add(record.eventId); continue; }
       if (record.type === 'session') continue;
       const event = record;
-      if (!includeRaw && (event.type === 'raw_stdout' || event.type === 'raw_stderr')) continue;
+      if (event.type === 'raw_stdout' || event.type === 'raw_stderr') continue;
       if (before !== undefined && event.id >= before) continue;
       if (rounds === limit) { hasMore = true; break; }
       events.push(pushed.has(event.id) ? { ...event, pushedToIm: true } : event);
       if (event.type === 'message') rounds++;
     }
-    const firstId = events.at(-1)?.id;
-    const rawFile = this.rawFile(this.files.get(id)!);
-    if (includeRaw && firstId !== undefined && existsSync(rawFile)) {
-      for (const event of records<SessionEvent>(rawFile, true)) {
-        if (before !== undefined && event.id >= before) continue;
-        if (event.id < firstId) break;
-        events.push(event);
-      }
-    }
     return { events: mergeSessionEvents(events.reverse()), hasMore };
-  }
-
-  logs(id: string, limit: number, before?: number): { events: SessionEvent[]; hasMore: boolean } {
-    const file = this.files.get(id)!;
-    const rawFile = this.rawFile(file);
-    const events: SessionEvent[] = [];
-    for (const source of existsSync(rawFile) ? [file, rawFile] : [file]) {
-      let count = 0;
-      for (const record of records(source, true)) {
-        if (record.type !== 'raw_stdout' && record.type !== 'raw_stderr') continue;
-        if (before !== undefined && record.id >= before) continue;
-        events.push(record);
-        if (++count > limit) break;
-      }
-    }
-    events.sort((a, b) => b.id - a.id);
-    return { events: events.slice(0, limit).reverse(), hasMore: events.length > limit };
   }
 
   getEvent(id: string, eventId: number): SessionEvent | undefined {
@@ -232,43 +202,19 @@ export class SessionStore {
       if (record.type === 'im_pushed') { if (record.eventId === eventId) pushed = true; continue; }
       if (record.type !== 'session' && record.id === eventId) return pushed ? { ...record, pushedToIm: true } : record;
     }
-    const rawFile = this.rawFile(file);
-    if (existsSync(rawFile)) {
-      for (const event of records<SessionEvent>(rawFile, true)) {
-        if (event.id === eventId) return event;
-        if (event.id < eventId) break;
-      }
-    }
     return undefined;
   }
 
-  *eventsAfter(id: string, after: number, includeRaw = true): Generator<SessionEvent> {
+  *eventsAfter(id: string, after: number): Generator<SessionEvent> {
     const file = this.files.get(id)!;
     const pushed = new Set<number>();
     for (const record of records(file, true)) {
       if (record.type === 'im_pushed') { if (record.eventId > after) pushed.add(record.eventId); continue; }
       if (record.type !== 'session' && record.id <= after) break;
     }
-    const normalized = (function* () {
-      for (const record of records(file)) {
-        if (record.type !== 'session' && record.type !== 'im_pushed' && (includeRaw || (record.type !== 'raw_stdout' && record.type !== 'raw_stderr'))) yield record;
-      }
-    })();
-    const rawFile = this.rawFile(file);
-    const raw = includeRaw && existsSync(rawFile) ? records<SessionEvent>(rawFile) : [][Symbol.iterator]();
-    let left = normalized.next();
-    let right = raw.next();
-    try {
-      while (!left.done || !right.done) {
-        const useLeft = right.done || (!left.done && left.value.id <= right.value.id);
-        const event = (useLeft ? left.value : right.value)!;
-        if (event.id > after) yield pushed.has(event.id) ? { ...event, pushedToIm: true } : event;
-        if (useLeft) left = normalized.next();
-        else right = raw.next();
-      }
-    } finally {
-      normalized.return(undefined);
-      raw.return?.(undefined);
+    for (const record of records(file)) {
+      if (record.type === 'session' || record.type === 'im_pushed' || record.type === 'raw_stdout' || record.type === 'raw_stderr') continue;
+      if (record.id > after) yield pushed.has(record.id) ? { ...record, pushedToIm: true } : record;
     }
   }
 

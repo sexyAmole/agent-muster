@@ -1,5 +1,14 @@
-import { object, string, tokens, hasTokens, detail, json } from './shared.js';
-import type { ProtocolAdapter, ProtocolReader, ParsedResult, AdapterEvent } from './shared.js';
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { findJsonl } from '../jsonl.js';
+import { join, basename, resolve } from 'node:path';
+import { execFileAsync, object, string, tokens, hasTokens, detail, json } from './shared.js';
+import type { AgentProvider, ProtocolReader, ParsedResult, AdapterEvent } from './shared.js';
+
+function contextWindow(value: string): number | undefined {
+  const match = /^(\d+(?:\.\d+)?)([KM])?$/.exec(value);
+  return match ? Math.round(Number(match[1]) * (match[2] === 'M' ? 1_000_000 : match[2] === 'K' ? 1_000 : 1)) : undefined;
+}
 
 function readPiResult(line: string): ParsedResult {
   const event = json(line);
@@ -13,15 +22,6 @@ function readPiResult(line: string): ParsedResult {
   }] };
   if (event.type === 'message_end') {
     const message = object(event.message);
-    if (message?.role === 'system') {
-      const text = typeof message.content === 'string' ? message.content : (Array.isArray(message.content) ? message.content : []).map(part => {
-        const block = object(part);
-        return block?.type === 'text' ? string(block.text) : undefined;
-      }).filter(Boolean).join('\n');
-      return { ...result, system: { text, detail: detail({
-        sections: message.sections, toolsAdded: message.toolsAdded, toolsRemoved: message.toolsRemoved, replace: message.replace, timestamp: message.timestamp,
-      }) } };
-    }
     if (message?.role !== 'assistant') return result;
     const content = Array.isArray(message.content) ? message.content : [];
     const text = content.map(part => {
@@ -41,8 +41,28 @@ function readPiResult(line: string): ParsedResult {
   return result;
 }
 
-export const pi: ProtocolAdapter & { createResultReader(): ProtocolReader } = {
+export const pi: AgentProvider & { createResultReader(): ProtocolReader } = {
   id: 'pi',
+  name: 'Pi',
+  command: 'pi',
+  installation: { kind: 'npm', packageName: '@earendil-works/pi-coding-agent' },
+  async models() {
+    const { stdout } = await execFileAsync('pi', ['--list-models'], { timeout: 5000 });
+    return stdout.trim().split(/\r?\n/).slice(1).flatMap(line => {
+      const [provider, model, limit] = line.trim().split(/\s+/);
+      if (!provider || !model) return [];
+      return [{ id: `${provider}/${model}`, name: `${provider}/${model}`, contextWindow: contextWindow(limit) }];
+    });
+  },
+  async configuredModel() {
+    const config = JSON.parse(await readFile(join(homedir(), '.pi', 'agent', 'settings.json'), 'utf8')) as { defaultProvider?: string; defaultModel?: string };
+    return config.defaultProvider && config.defaultModel ? `${config.defaultProvider}/${config.defaultModel}` : undefined;
+  },
+  async sessionLogFile(session) {
+    const agentDir = process.env.PI_CODING_AGENT_DIR ? resolve(process.env.PI_CODING_AGENT_DIR) : join(homedir(), '.pi', 'agent');
+    const project = `--${resolve(session.cwd).replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
+    return findJsonl(join(agentDir, 'sessions', project), file => basename(file).endsWith(`_${session.externalSessionId}.jsonl`));
+  },
   launch(prompt, externalSessionId, model, images) {
     return {
       command: 'pi',
@@ -60,7 +80,7 @@ export const pi: ProtocolAdapter & { createResultReader(): ProtocolReader } = {
       const event = json(line);
       if (event?.type === 'message_end') {
         const message = object(event.message);
-        if ((message?.role === 'assistant' || message?.role === 'system') && typeof message.timestamp === 'number') {
+        if (message?.role === 'assistant' && typeof message.timestamp === 'number') {
           const key = `${message.role}:${message.timestamp}`;
           if (messages.has(key)) return {};
           messages.add(key);
@@ -91,7 +111,6 @@ export const pi: ProtocolAdapter & { createResultReader(): ProtocolReader } = {
   createReader() {
     const read = pi.createResultReader();
     let messageKey: string | undefined;
-    let messageRole: string | undefined;
     let messageNumber = 0;
     const content: Record<string, unknown>[] = [];
     const streams = new Set<string>();
@@ -115,18 +134,13 @@ export const pi: ProtocolAdapter & { createResultReader(): ProtocolReader } = {
     return line => {
       const event = json(line);
       if (!event || event.type === 'plain') return {};
-      if (event.type === 'message_start') {
-        messageRole = string(object(event.message)?.role);
-        if (messageRole === 'user' || messageRole === 'system') return {};
-      }
-      if (event.type === 'message_start' && messageRole === 'assistant') {
+      if (event.type === 'message_start' && object(event.message)?.role === 'assistant') {
         messageKey = `message:${++messageNumber}`;
         content.length = 0;
         streams.clear();
         return { events: [] };
       }
       if (event.type === 'message_update') {
-        if (messageRole === 'user' || messageRole === 'system') return { skipRawLog: true };
         if (!messageKey) return {};
         const update = object(event.assistantMessageEvent)!;
         const index = update.contentIndex as number;
@@ -135,21 +149,16 @@ export const pi: ProtocolAdapter & { createResultReader(): ProtocolReader } = {
           content[index] = { type, [type]: '' };
         } else if (update.type === 'text_delta' || update.type === 'thinking_delta') {
           const type = update.type === 'text_delta' ? 'text' : 'thinking';
-          content[index][type] = (content[index][type] as string) + (update.delta as string);
+          content[index][type] = (content[index][type] as string) + update.delta;
         } else if (update.type === 'text_end' || update.type === 'thinking_end') {
           const type = update.type === 'text_end' ? 'text' : 'thinking';
           content[index] = { type, [type]: update.content };
         } else if (update.type === 'toolcall_end') content[index] = object(update.toolCall)!;
         else if (update.type === 'toolcall_start') content[index] = { type: 'toolCall', id: update.id, name: update.toolName, partialArguments: '' };
-        else if (update.type === 'toolcall_delta') content[index].partialArguments = (content[index].partialArguments as string) + (update.delta as string);
+        else if (update.type === 'toolcall_delta') content[index].partialArguments = (content[index].partialArguments as string) + update.delta;
         return { events: blocks(content, true) };
       }
       const result = read(line);
-      if (event.type === 'message_end') {
-        messageRole = undefined;
-        const role = object(event.message)?.role;
-        if (role === 'user' || role === 'system') return { ...result, skipRawLog: true };
-      }
       if (event.type === 'message_end' && object(event.message)?.role === 'assistant') {
         const message = object(event.message)!;
         const key = typeof message.timestamp === 'number' ? `assistant:${message.timestamp}` : undefined;

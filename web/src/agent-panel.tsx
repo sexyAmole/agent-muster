@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useErrorMessage } from './message';
+import { AgentIcon } from './agent-icon';
 import type { AgentAction, AgentInfo, ManagedAgent } from '../../src/types';
 
 type Props = { active: boolean; onChange: (agents: AgentInfo[]) => void };
@@ -63,7 +64,7 @@ export function AgentPanel({ active, onChange }: Props) {
     <div className="agent-feedback" role="status" aria-live="polite">{operation ? `正在${actionLabels[operation.action]} ${agents.find(agent => agent.id === operation.id)?.name}，请等待完成…` : message}</div>
     {loading && !agents.length && <p className="im-empty">正在读取 Agent 信息…</p>}
     <div className="agent-list">{agents.map(agent => <article className="agent-entry" key={agent.id}>
-      <div className="agent-entry-heading"><strong>{agent.name}</strong><span className={`agent-install-status ${agent.installed ? 'installed' : ''}`}>{agent.installed ? '已安装' : '未安装'}</span></div>
+      <div className="agent-entry-heading"><span className="agent-entry-name"><AgentIcon agent={agent.id} /><strong>{agent.name}</strong></span><span className={`agent-install-status ${agent.installed ? 'installed' : ''}`}>{agent.installed ? '已安装' : '未安装'}</span></div>
       <dl className="agent-details"><div><dt>版本</dt><dd title={agent.versionError}>{agent.installed ? agent.version || '读取失败' : '—'}</dd></div><div><dt>命令</dt><dd><code>{agent.command}</code></dd></div>{agent.path && <div><dt>路径</dt><dd className="agent-path" title={agent.path}>{agent.path}</dd></div>}</dl>
       {agent.versionError && <p className="agent-entry-error">版本读取失败：{agent.versionError}</p>}
       {agent.managementError && <p className="agent-entry-error">{agent.managementError}</p>}
