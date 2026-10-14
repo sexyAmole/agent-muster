@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import { join, basename, resolve } from 'node:path';
 import { object, string, tokens, hasTokens, detail, json } from './shared.js';
-import type { AgentProvider } from './shared.js';
+import type { AdapterEvent, AgentProvider } from './shared.js';
 
 export const claude: AgentProvider = {
   id: 'claude',
@@ -24,7 +24,7 @@ export const claude: AgentProvider = {
   launch(prompt, externalSessionId, model, images) {
     return {
       command: 'claude',
-      args: ['-p', '--verbose', '--output-format', 'stream-json','--permission-mode','auto', ...(images?.length ? ['--input-format', 'stream-json'] : []), ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : [])],
+      args: ['-p', '--verbose', '--output-format', 'stream-json', '--include-partial-messages', '--permission-mode', 'auto', ...(images?.length ? ['--input-format', 'stream-json'] : []), ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : [])],
       prompt: images?.length ? JSON.stringify({
         type: 'user', message: { role: 'user', content: [
           { type: 'text', text: prompt },
@@ -34,27 +34,98 @@ export const claude: AgentProvider = {
     };
   },
   createReader() {
+    let messageKey: string | undefined;
+    let messageNumber = 0;
+    let activeIndex = 0;
+    const blocks = new Map<number, AdapterEvent>();
+    const nextIndices = new Map<string, number>();
+    const tools = new Map<string, AdapterEvent>();
+    function readBlock(block: Record<string, unknown>, key: string, index: number, streaming: boolean): AdapterEvent | undefined {
+      const position = { orderKey: key, contentIndex: index };
+      if (block.type === 'text' || block.type === 'thinking') {
+        return { type: block.type === 'text' ? 'output' : 'thinking', text: string(block[block.type]) || '', streamId: `${key}:${index}`, streaming, ...position };
+      }
+      if (block.type === 'tool_use' && typeof block.id === 'string') {
+        const input = object(block.input);
+        const target = string(input?.command) || string(input?.file_path) || string(input?.pattern);
+        const name = string(block.name) || 'tool';
+        const text = target ? `${name} ${target}` : input && Object.keys(input).length ? `${name} ${JSON.stringify(input)}` : name;
+        const event: AdapterEvent = { type: 'tool', text, streamId: `tool:${block.id}`, streaming: true, ...position };
+        tools.set(block.id, event);
+        return event;
+      }
+      return undefined;
+    }
     return line => {
       const event = json(line);
       if (!event) return {};
       const externalSessionId = string(event.session_id);
+      if (event.type === 'stream_event') {
+        const update = object(event.event);
+        if (update?.type === 'message_start') {
+          messageKey = string(object(update.message)?.id);
+          blocks.clear();
+        }
+        if (!messageKey || !update) return { externalSessionId };
+        if (typeof update.index === 'number') activeIndex = update.index;
+        if (update.type === 'content_block_start') {
+          const content = object(update.content_block);
+          const block = content && readBlock(content, messageKey, activeIndex, true);
+          if (!block) return { externalSessionId };
+          blocks.set(activeIndex, block);
+          return { externalSessionId, events: block.text ? [block] : [] };
+        }
+        if (update.type === 'content_block_delta') {
+          const previous = blocks.get(activeIndex);
+          const delta = object(update.delta);
+          if (!previous || !delta) return { externalSessionId };
+          const block = { ...previous };
+          if (delta.type === 'text_delta') block.text += string(delta.text) || '';
+          else if (delta.type === 'thinking_delta') block.text += string(delta.thinking) || '';
+          else return { externalSessionId };
+          blocks.set(activeIndex, block);
+          return { externalSessionId, events: [block] };
+        }
+        if (update.type === 'content_block_stop') {
+          const block = blocks.get(activeIndex);
+          if (block?.streaming && block.type !== 'tool') {
+            const completed = { ...block, streaming: false };
+            blocks.set(activeIndex, completed);
+            return { externalSessionId, events: completed.text ? [completed] : [] };
+          }
+        }
+        return { externalSessionId };
+      }
       if (event.type === 'assistant') {
         const message = object(event.message);
         const content = Array.isArray(message?.content) ? message.content : [];
-        const text = content.map(part => {
+        const key = string(message?.id) || string(event.uuid) || `message:${++messageNumber}`;
+        const events = content.flatMap((part, index) => {
           const block = object(part);
-          if (block?.type === 'text') return string(block.text);
-          return undefined;
-        }).filter(Boolean).join('\n');
-        const tools = content.flatMap(part => {
-          const block = object(part);
-          return block?.type === 'tool_use' ? [{ name: string(block.name) || 'tool', detail: detail(block.input) }] : [];
+          if (!block) return [];
+          const contentIndex = key === messageKey && content.length === 1 ? activeIndex : (nextIndices.get(key) || 0) + index;
+          const parsed = readBlock(block, key, contentIndex, false);
+          if (key === messageKey && parsed) blocks.set(contentIndex, parsed);
+          return parsed?.text ? [parsed] : [];
         });
+        nextIndices.set(key, (nextIndices.get(key) || 0) + content.length);
         const usage = object(message?.usage);
-        return { externalSessionId, text: text || undefined, tools, usage: usage && hasTokens(usage, ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens']) ? {
+        return { externalSessionId, events, usage: usage && hasTokens(usage, ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens']) ? {
           inputTokens: tokens(usage.input_tokens) + tokens(usage.cache_creation_input_tokens) + tokens(usage.cache_read_input_tokens),
           outputTokens: tokens(usage.output_tokens),
         } : undefined };
+      }
+      if (event.type === 'user') {
+        const content = object(event.message)?.content;
+        const events = (Array.isArray(content) ? content : []).flatMap(part => {
+          const block = object(part);
+          const id = string(block?.tool_use_id);
+          const tool = id && tools.get(id);
+          if (block?.type !== 'tool_result' || !tool) return [];
+          tools.delete(id);
+          return [{ ...tool, detail: detail(block.content), streaming: false }];
+        });
+        return { externalSessionId, events };
       }
       if (event.type === 'result') {
         return { externalSessionId, error: event.is_error ? string(event.result) || 'Claude error' : undefined };

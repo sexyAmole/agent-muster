@@ -1,8 +1,8 @@
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import { basename, dirname, join, resolve } from 'node:path';
-import { execFileAsync, object, string, tokens, hasTokens, detail, json } from './shared.js';
-import type { AgentProvider } from './shared.js';
+import { execFileAsync, object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
+import type { AdapterEvent, AgentProvider } from './shared.js';
 
 export const kimi: AgentProvider = {
   id: 'kimi',
@@ -33,21 +33,35 @@ export const kimi: AgentProvider = {
     };
   },
   createReader() {
+    const tools = new Map<string, AdapterEvent>();
     return line => {
       const event = json(line);
       if (!event) return {};
       if (event.role === 'meta' && event.type === 'session.resume_hint') return { externalSessionId: string(event.session_id) };
       if (event.role === 'assistant') {
         const calls = Array.isArray(event.tool_calls) ? event.tool_calls : [];
-        const tools = calls.map(call => {
-          const invocation = object(object(call)?.function);
-          return { name: string(invocation?.name) || 'tool', detail: detail(invocation?.arguments) };
+        const events = calls.flatMap(call => {
+          const tool = object(call);
+          const id = string(tool?.id);
+          const invocation = object(tool?.function);
+          if (!id || !invocation) return [];
+          const input = typeof invocation.arguments === 'string' ? JSON.parse(invocation.arguments) : invocation.arguments;
+          const event: AdapterEvent = { type: 'tool', text: toolText(string(invocation.name) || 'tool', input), streamId: `tool:${id}`, orderKey: `tool:${id}`, streaming: true };
+          tools.set(id, event);
+          return [event];
         });
         const usage = object(event.usage);
-        return { text: string(event.content), tools, usage: usage && hasTokens(usage, ['prompt_tokens', 'completion_tokens']) ? {
+        return { text: string(event.content), events, usage: usage && hasTokens(usage, ['prompt_tokens', 'completion_tokens']) ? {
           inputTokens: tokens(usage.prompt_tokens),
           outputTokens: tokens(usage.completion_tokens),
         } : undefined };
+      }
+      if (event.role === 'tool') {
+        const id = string(event.tool_call_id);
+        const tool = id && tools.get(id);
+        if (!tool) return {};
+        tools.delete(id);
+        return { events: [{ ...tool, detail: detail(event.content), streaming: false }] };
       }
       return {};
     };

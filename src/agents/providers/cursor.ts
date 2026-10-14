@@ -1,10 +1,10 @@
 import { realpath, rm, readFile } from 'node:fs/promises';
 import { delimiter, sep, join, basename, resolve } from 'node:path';
 import { executablePath } from '../executable.js';
-import { execFileAsync, object, string, detail, json } from './shared.js';
+import { execFileAsync, object, string, detail, json, toolText } from './shared.js';
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
-import type { AgentProvider } from './shared.js';
+import type { AdapterEvent, AgentProvider } from './shared.js';
 
 const cursorDirectory = join(homedir(), '.local', 'share', 'cursor-agent');
 
@@ -57,32 +57,47 @@ export const cursor: AgentProvider = {
     if (images?.length) throw new Error('当前 Cursor CLI 接入不支持图片附件输入');
     return {
       command: 'cursor-agent',
-      args: ['--print', '--force', '--output-format', 'stream-json', ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : []), '--', prompt],
+      args: ['--print', '--force', '--output-format', 'stream-json', '--stream-partial-output', ...(externalSessionId ? ['--resume', externalSessionId] : []), ...(model ? ['--model', model] : []), '--', prompt],
     };
   },
   createReader() {
+    let output: AdapterEvent | undefined;
+    let messageNumber = 0;
+    function finishText(): AdapterEvent[] {
+      if (!output) return [];
+      const completed = { ...output, streaming: false };
+      output = undefined;
+      return [completed];
+    }
     return line => {
       const event = json(line);
       if (!event) return {};
       const externalSessionId = string(event.session_id);
       if (event.type === 'assistant') {
+        if (event.model_call_id || typeof event.timestamp_ms !== 'number') return { externalSessionId, events: finishText() };
         const message = object(event.message);
         const content = Array.isArray(message?.content) ? message.content : [];
         const text = content.flatMap(value => {
           const block = object(value);
           return block?.type === 'text' && typeof block.text === 'string' ? [block.text] : [];
         }).join('');
-        return { externalSessionId, text: text || undefined };
+        if (!text) return { externalSessionId };
+        const key = output?.streamId || `message:${++messageNumber}`;
+        output = { type: 'output', text: (output?.text || '') + text, streamId: key, orderKey: key, streaming: true };
+        return { externalSessionId, events: [output] };
       }
-      if (event.type === 'tool_call' && event.subtype === 'completed') {
+      if (event.type === 'tool_call' && (event.subtype === 'started' || event.subtype === 'completed')) {
         const calls = object(event.tool_call);
-        const tools = Object.entries(calls || {}).map(([name, value]) => {
+        const id = string(event.call_id);
+        const events = event.subtype === 'started' ? finishText() : [];
+        if (!id) return { externalSessionId, events };
+        const tools: AdapterEvent[] = Object.entries(calls || {}).map(([name, value]) => {
           const call = object(value);
-          return { name, detail: detail(call) };
+          return { type: 'tool', text: toolText(name, call?.args), detail: detail(call?.result), streamId: `tool:${id}:${name}`, orderKey: `tool:${id}:${name}`, streaming: event.subtype === 'started' };
         });
-        return { externalSessionId, tools };
+        return { externalSessionId, events: [...events, ...tools] };
       }
-      if (event.type === 'result') return { externalSessionId, error: event.is_error ? string(event.result) || 'Cursor 执行失败' : undefined };
+      if (event.type === 'result') return { externalSessionId, events: finishText(), error: event.is_error ? string(event.result) || 'Cursor 执行失败' : undefined };
       return { externalSessionId };
     };
   },

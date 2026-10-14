@@ -1,4 +1,4 @@
-import { execFileAsync, object, string, tokens, hasTokens, detail, json } from './shared.js';
+import { execFileAsync, object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
 import type { AgentProvider } from './shared.js';
 
 export const opencode: AgentProvider = {
@@ -41,7 +41,13 @@ export const opencode: AgentProvider = {
       if (event.type === 'text') return { externalSessionId, text: string(part?.text) };
       if (event.type === 'tool_use') {
         const state = object(part?.state);
-        return { externalSessionId, tools: [{ name: string(part?.tool) || 'tool', detail: detail(state) }] };
+        const id = string(part?.callID);
+        return { externalSessionId, events: [{
+          type: 'tool', text: toolText(string(part?.tool) || 'tool', state?.input),
+          detail: detail(state?.status === 'error' ? state.error : state?.output),
+          streamId: id ? `tool:${id}` : undefined, orderKey: id ? `tool:${id}` : undefined,
+          streaming: state?.status === 'pending' || state?.status === 'running',
+        }] };
       }
       if (event.type === 'step_finish') {
         const usage = object(part?.tokens);

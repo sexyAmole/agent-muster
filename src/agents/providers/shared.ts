@@ -150,6 +150,13 @@ export function detail(value: unknown): string | undefined {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
 
+export function toolText(name: string, input: unknown): string {
+  const args = object(input);
+  const target = string(args?.command) || string(args?.file_path) || string(args?.path) || string(args?.pattern);
+  if (target) return `${name} ${target}`;
+  return args && Object.keys(args).length ? `${name} ${JSON.stringify(args)}` : name;
+}
+
 export function json(line: string): Record<string, unknown> | undefined {
   try { return object(JSON.parse(line)); } catch { return { type: 'plain', text: line }; }
 }

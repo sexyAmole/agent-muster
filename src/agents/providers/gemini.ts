@@ -2,15 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import { join, basename } from 'node:path';
-import { object, string, tokens, hasTokens, detail, json } from './shared.js';
-import type { AgentProvider, ParsedResult } from './shared.js';
+import { object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
+import type { AdapterEvent, AgentProvider, ParsedResult } from './shared.js';
 
-function readGeminiResult(line: string): ParsedResult {
-  const event = json(line);
-  if (!event) return {};
+function readGeminiResult(event: Record<string, unknown>): ParsedResult {
   if (event.type === 'init') return { externalSessionId: string(event.session_id) };
-  if (event.type === 'message' && event.role === 'assistant') return { text: string(event.content) };
-  if (event.type === 'tool_use') return { tools: [{ name: string(event.tool_name) || 'tool', detail: detail(event.parameters) }] };
   if (event.type === 'error' && event.severity === 'error') return { error: string(event.message) };
   if (event.type === 'result') {
     const stats = object(event.stats);
@@ -48,18 +44,42 @@ export const gemini: AgentProvider = {
   },
 
   createReader() {
-    let text = '';
+    let output: AdapterEvent | undefined;
+    let messageNumber = 0;
+    const tools = new Map<string, AdapterEvent>();
+    function finishText(): AdapterEvent[] {
+      if (!output) return [];
+      const completed = { ...output, streaming: false };
+      output = undefined;
+      return [completed];
+    }
     return line => {
       const event = json(line);
-      const result = readGeminiResult(line);
-      if (event?.type === 'message' && event.role === 'assistant') {
-        text += result.text || '';
-        return {};
+      if (!event) return {};
+      if (event.type === 'message' && event.role === 'assistant') {
+        const text = string(event.content);
+        if (!text) return {};
+        const key = output?.streamId || `message:${++messageNumber}`;
+        output = { type: 'output', text: event.delta === true ? (output?.text || '') + text : text, streamId: key, orderKey: key, streaming: event.delta === true };
+        return { events: event.delta === true ? [output] : finishText() };
       }
-      if (event?.type === 'tool_use' || event?.type === 'result' || (event?.type === 'error' && event.severity === 'error')) {
-        result.text = text || undefined;
-        text = '';
+      if (event.type === 'tool_use') {
+        const events = finishText();
+        const id = string(event.tool_id);
+        if (!id) return { events };
+        const tool: AdapterEvent = { type: 'tool', text: toolText(string(event.tool_name) || 'tool', event.parameters), streamId: `tool:${id}`, orderKey: `tool:${id}`, streaming: true };
+        tools.set(id, tool);
+        return { events: [...events, tool] };
       }
+      if (event.type === 'tool_result') {
+        const id = string(event.tool_id);
+        const tool = id && tools.get(id);
+        if (!tool) return {};
+        tools.delete(id);
+        return { events: [{ ...tool, detail: detail(event.status === 'error' ? { output: event.output, error: event.error } : event.output), streaming: false }] };
+      }
+      const result = readGeminiResult(event);
+      if (event.type === 'result' || (event.type === 'error' && event.severity === 'error')) return { ...result, events: finishText() };
       return result;
     };
   },

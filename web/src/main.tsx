@@ -232,6 +232,8 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   useErrorMessage(error, setError);
   const [copiedTarget, setCopiedTarget] = useState<'conversation' | 'run-log' | number | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const runningSessionRef = useRef<string | null>(null);
   const followConversation = useRef(true);
 
   useEffect(() => () => {
@@ -436,6 +438,21 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const feishuIcon = feishuApps.find(app => app.id === feishuBinding?.appId)?.icon;
 
+  useEffect(() => {
+    if (running) {
+      runningSessionRef.current = selected?.id || null;
+      return;
+    }
+    if (runningSessionRef.current !== selected?.id || selectedId !== selected?.id) {
+      runningSessionRef.current = null;
+      return;
+    }
+    if (busy || composerDisabled) return;
+    runningSessionRef.current = null;
+    const textarea = composerRef.current?.querySelector('textarea');
+    if (focused && textarea?.getClientRects().length) textarea.focus({ preventScroll: true });
+  }, [running, selected?.id, selectedId, busy, composerDisabled, focused]);
+
   const followStream = useCallback(() => {
     if (followConversation.current && conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
   }, []);
@@ -507,7 +524,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
           </span>
           <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
         </div>}
-        <div className="chat-composer">
+        <div className="chat-composer" ref={composerRef}>
           {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
           <FileMentionTextarea project={composerProject} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={setMessage} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求，@ 搜索文件' : '描述要完成的任务，@ 搜索文件'} disabled={busy || composerDisabled} rows={2} />
           <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
