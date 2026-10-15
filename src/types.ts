@@ -1,5 +1,20 @@
 export type SessionStatus = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'stopped';
 
+export interface ProjectFileEntry {
+  name: string;
+  path: string;
+  type: 'directory' | 'file' | 'symlink' | 'other';
+}
+
+export interface ProjectFileDetail {
+  path: string;
+  type: string;
+  size: number;
+  modifiedAt: number;
+  preview: 'text' | 'binary' | 'too-large' | 'unsupported';
+  content?: string;
+}
+
 export interface PermissionMode {
   id: string;
   name: string;

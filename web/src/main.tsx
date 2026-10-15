@@ -10,6 +10,7 @@ import { AgentPanel } from './agent-panel';
 import { MessageProvider, useErrorMessage } from './message';
 import { MessageImages } from './message-images';
 import { FileMentionTextarea } from './file-mention-textarea';
+import { FilePanel } from './file-panel';
 import { RunLog } from './run-log';
 import { StreamText } from './stream-text';
 import { mergeSessionEvents } from '../../src/sessions/events';
@@ -25,7 +26,7 @@ type PaneState = { sessionId: string | null; cwd: string; revision: number };
 type ComposerImage = { file: File; url: string; id?: string };
 function LayoutSwitch({ layout, onChange }: { layout: Layout; onChange: (layout: Layout) => void }) {
   return <div className="layout-switch">
-    <Select aria-label="窗口布局" title={`窗口布局：${layout === 'single' ? '单窗' : layout === 'double' ? '双栏' : '四宫格'}`} value={layout} onChange={value => onChange(value as Layout)} triggerLabel={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" />{layout !== 'single' && <path d="M12 3v18" />}{layout === 'quad' && <path d="M3 12h18" />}</svg>}>
+    <Select aria-label="窗口布局" value={layout} onChange={value => onChange(value as Layout)} triggerLabel={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" />{layout !== 'single' && <path d="M12 3v18" />}{layout === 'quad' && <path d="M3 12h18" />}</svg>}>
       <option value="single">单窗</option>
       <option value="double">双栏</option>
       <option value="quad">四宫格</option>
@@ -194,6 +195,7 @@ function FileChange({ event, cwd }: { event: Event; cwd: string }) {
 type PaneProps = {
   index: number;
   pane: PaneState;
+  panelProject: string | null;
   multi: boolean;
   active: boolean;
   agents: Agent[];
@@ -212,9 +214,10 @@ type ChatHeaderProps = Pick<PaneProps, 'index' | 'multi' | 'agents' | 'projects'
   copyConversation: () => Promise<void>;
   copyText: (text: string, target: 'conversation' | 'run-log' | number) => Promise<void>;
   layoutControls?: React.ReactNode;
+  panelControls?: React.ReactNode;
 };
 
-function ChatHeader({ index, multi, agents, projects, feishuApps, selected, copiedTarget, copyConversation, copyText, layoutControls }: ChatHeaderProps) {
+function ChatHeader({ index, multi, agents, projects, feishuApps, selected, copiedTarget, copyConversation, copyText, layoutControls, panelControls }: ChatHeaderProps) {
   const dingtalkBinding = selected?.im?.find(binding => binding.platform === 'dingtalk');
   const feishuBinding = selected?.im?.find(binding => binding.platform === 'feishu');
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
@@ -229,9 +232,10 @@ function ChatHeader({ index, multi, agents, projects, feishuApps, selected, copi
         : <p>{agentName(selected.agent)} · {statusLabel[selected.status]}</p>
       : <><strong>新对话</strong>{multi && <p>窗口 {index + 1} · 从侧边栏选择对话</p>}</>}{dingtalkBinding?.conversation && <p className="chat-source">{dingtalkBinding.conversation.type === 'group' ? '群聊' : '单聊'}{dingtalkBinding.conversation.type === 'group' && dingtalkBinding.conversation.groupName && ` · 群名称：${dingtalkBinding.conversation.groupName}`} · 提问人：<span title={dingtalkBinding.conversation.senderStaffId}>{dingtalkBinding.conversation.senderName}</span></p>}{feishuBinding?.conversation && <p className="chat-source">飞书 · {feishuBinding.conversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{feishuBinding.conversation.senderId}</p>}</div>
     <div className="output-actions">
-      {selected && <button className="copy-button" onClick={() => void copyConversation()} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'} title={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === 'conversation' ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}
+      {selected && <button className="copy-button" onClick={() => void copyConversation()} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === 'conversation' ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}
       {selected && <RunLog key={selected.id} sessionId={selected.id} copied={copiedTarget === 'run-log'} onCopy={copyText} />}
       {layoutControls && <div className="pane-layout-switch">{layoutControls}</div>}
+      {panelControls}
     </div>
   </div>;
 }
@@ -393,7 +397,7 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
   </div>;
 }
 
-function ChatPane({ index, pane, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls }: PaneProps & { layoutControls?: React.ReactNode }) {
+function ChatPane({ index, pane, panelProject, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls }: PaneProps & { layoutControls?: React.ReactNode }) {
   const selectedId = pane.sessionId;
   const [selected, setSelected] = useState<Session | null>(() => {
     const summary = sessions.find(session => session.id === selectedId);
@@ -409,6 +413,22 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const [copiedTarget, setCopiedTarget] = useState<'conversation' | 'run-log' | number | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const followConversation = useRef(true);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 1100px)').matches);
+  const panelButton = useRef<HTMLButtonElement>(null);
+  const canOpenPanel = !multi && !narrow && Boolean(selected && selected.cwd === panelProject);
+  const showPanel = canOpenPanel && panelOpen;
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1100px)');
+    const update = () => setNarrow(media.matches);
+    media.addEventListener('change', update);
+    update();
+    return () => media.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => { setPanelOpen(false); }, [panelProject, multi, narrow]);
+
 
   useEffect(() => {
     if (!selectedId) { setSelected(null); return; }
@@ -565,9 +585,9 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     });
   }, [selected, index, agents, copiedTarget, pushingId, onSessionUpdate, followStream]);
 
-  return <div className={`pane-wrap ${focused && multi ? 'focused' : ''}`} onPointerDown={() => { if (!focused) onFocus(index); }} onFocusCapture={() => { if (!focused) onFocus(index); }}>
+  return <div className={`pane-wrap ${focused && multi ? 'focused' : ''}${showPanel ? ' files-open' : ''}`} onPointerDown={() => { if (!focused) onFocus(index); }} onFocusCapture={() => { if (!focused) onFocus(index); }}>
     <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
-      <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} />
+      <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={canOpenPanel && <button ref={panelButton} type="button" className="file-panel-toggle" aria-label={showPanel ? '收起面板' : '展开面板'} aria-expanded={showPanel} onClick={() => setPanelOpen(open => !open)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /></svg></button>} />
       <div className="conversation-scroll" key={selected?.id} ref={conversationRef} role="log" aria-label={`窗口 ${index + 1} 对话记录`} onScroll={event => {
         const element = event.currentTarget;
         followConversation.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -580,6 +600,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
       </div>
       <ChatComposer index={index} pane={pane} agents={agents} projects={projects} sessions={sessions} onProjectChange={onProjectChange} onSessionCreated={onSessionCreated} onSessionUpdate={onSessionUpdate} focused={focused} selected={selected} setSelected={setSelected} setError={setError} />
     </section>
+    {showPanel && selected && <FilePanel key={selected.cwd} project={selected.cwd} onClose={() => { setPanelOpen(false); panelButton.current?.focus(); }} />}
   </div>;
 }
 
@@ -784,7 +805,7 @@ function App() {
       </header>
       <div className="content chat-content">
         <div className={`workspace-grid ${layout}`} style={{ display: imOpen || agentsOpen ? 'none' : undefined }}>
-          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); setExpandedProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
+          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); setExpandedProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
         </div>
         <div hidden={!agentsOpen}><AgentPanel active={agentsOpen} onChange={setAgents} /></div>
         <div hidden={!imOpen}><ImPrototype active={imOpen} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects)} /></div>

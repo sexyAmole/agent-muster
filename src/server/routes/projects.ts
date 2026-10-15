@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
 import type { ProjectRegistry } from '../../projects/registry.js';
-import { searchProjectFiles } from '../../projects/files.js';
+import { listProjectDirectory, readProjectFile, searchProjectFiles } from '../../projects/files.js';
 import type { SessionManager } from '../../sessions/manager.js';
 import type { DingTalkRegistry } from '../../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../../integrations/feishu/registry.js';
@@ -32,6 +32,25 @@ async function chooseProjectDirectory(): Promise<string | null> {
 export function createProjectRouter(projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry) {
   const router = Router();
   router.get('/projects', (_request, response) => response.json(projects.list()));
+  for (const kind of ['tree', 'file'] as const) {
+    router.get(`/projects/${kind}`, async (request, response) => {
+      try {
+        const path = request.query.path;
+        const target = request.query[kind === 'tree' ? 'directory' : 'file'];
+        if (typeof path !== 'string' || typeof target !== 'string') throw new Error('需要项目路径和相对路径');
+        if (!projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
+          response.status(404).json({ error: '项目不存在' }); return;
+        }
+        response.json(kind === 'tree' ? await listProjectDirectory(path, target) : await readProjectFile(path, target));
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        const message = code === 'ENOENT' ? '文件或目录已不存在，请刷新'
+          : code === 'EACCES' || code === 'EPERM' ? '没有权限读取该文件或目录'
+          : (error as Error).message;
+        response.status(400).json({ error: message });
+      }
+    });
+  }
   router.get('/projects/files', async (request, response) => {
     try {
       const { path, query } = request.query;
