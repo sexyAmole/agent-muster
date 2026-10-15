@@ -29,6 +29,37 @@ function waitForCompletion(sessions: SessionManager, session: AgentSession): Pro
   });
 }
 
+function readPost(post: PostContent, message: FeishuMessage['message']['message'], imageKeys: string[]): string {
+  const lines = [post.title || ''];
+  for (const row of post.content) {
+    const parts: string[] = [];
+    for (const part of row) {
+      if (part.tag === 'img') imageKeys.push(part.image_key);
+      else if (part.tag === 'text') parts.push(part.text);
+      else if (part.tag === 'a') parts.push(`[${part.text}](${part.href})`);
+      else if (part.tag === 'at') {
+        const mention = message.mentions?.find(item => item.key === part.user_id || item.id.open_id === part.user_id);
+        if (mention?.mentioned_type !== 'app') parts.push(mention ? mention.key : `@${part.user_name || part.user_id}`);
+      }
+    }
+    lines.push(parts.join(''));
+  }
+  return lines.join('\n');
+}
+
+function readMessage(message: FeishuMessage['message']['message']): { content: string; imageKeys: string[] } | undefined {
+  let content = '';
+  const imageKeys: string[] = [];
+  if (message.message_type === 'text') content = (JSON.parse(message.content) as { text: string }).text;
+  else if (message.message_type === 'image') imageKeys.push((JSON.parse(message.content) as { image_key: string }).image_key);
+  else if (message.message_type === 'post') {
+    content = readPost(JSON.parse(message.content) as PostContent, message, imageKeys);
+  } else return;
+  for (const mention of message.mentions || []) content = content.replaceAll(mention.key, mention.mentioned_type === 'app' ? '' : `@${mention.name}`);
+  content = content.trim();
+  return { content, imageKeys };
+}
+
 export class FeishuBridge {
   private queues = new Map<string, Promise<void>>();
   private seen = new Set<string>();
@@ -54,50 +85,26 @@ export class FeishuBridge {
     void task.finally(() => { if (this.queues.get(key) === task) this.queues.delete(key); });
   }
 
-  private async process(appId: string, { message, sender }: FeishuMessage['message']): Promise<void> {
-    let content = '';
-    const imageKeys: string[] = [];
-    if (message.message_type === 'text') content = (JSON.parse(message.content) as { text: string }).text;
-    else if (message.message_type === 'image') imageKeys.push((JSON.parse(message.content) as { image_key: string }).image_key);
-    else if (message.message_type === 'post') {
-      const post = JSON.parse(message.content) as PostContent;
-      const lines = [post.title || ''];
-      for (const row of post.content) {
-        const parts: string[] = [];
-        for (const part of row) {
-          if (part.tag === 'img') imageKeys.push(part.image_key);
-          else if (part.tag === 'text') parts.push(part.text);
-          else if (part.tag === 'a') parts.push(`[${part.text}](${part.href})`);
-          else if (part.tag === 'at') {
-            const mention = message.mentions?.find(item => item.key === part.user_id || item.id.open_id === part.user_id);
-            if (mention?.mentioned_type !== 'app') parts.push(mention ? mention.key : `@${part.user_name || part.user_id}`);
-          }
-        }
-        lines.push(parts.join(''));
-      }
-      content = lines.join('\n');
-    } else return;
-    for (const mention of message.mentions || []) content = content.replaceAll(mention.key, mention.mentioned_type === 'app' ? '' : `@${mention.name}`);
-    content = content.trim();
-    if (!content && !imageKeys.length) return;
-    if (!imageKeys.length && await handleCommand(content, appId, message.chat_id, this.feishu, this.projects, this.agents, this.sessions, text => this.feishu.send(appId, message.chat_id, text))) return;
-    const binding = this.feishu.getBinding(appId, message.chat_id);
+  private async resolveBinding(appId: string, chatId: string) {
+    const binding = this.feishu.getBinding(appId, chatId);
     if (!binding?.project || !binding.agent) {
-      await this.feishu.send(appId, message.chat_id, '请先在 Agent Muster 中为此应用绑定项目和 Agent。');
+      await this.feishu.send(appId, chatId, '请先在 Agent Muster 中为此应用绑定项目和 Agent。');
       return;
     }
     if (!this.projects.list().includes(binding.project)) {
-      await this.feishu.send(appId, message.chat_id, '当前项目不存在，请通过 /projects 查看列表并使用 /project 切换项目。');
+      await this.feishu.send(appId, chatId, '当前项目不存在，请通过 /projects 查看列表并使用 /project 切换项目。');
       return;
     }
     if (!this.agents.get(binding.agent)?.installed) {
-      await this.feishu.send(appId, message.chat_id, '绑定的 Agent 当前不可用。');
+      await this.feishu.send(appId, chatId, '绑定的 Agent 当前不可用。');
       return;
     }
-    const senderId = sender.sender_id?.open_id;
-    if (!senderId) throw new Error('飞书消息缺少发送人标识');
-    if (imageKeys.length && (binding.agent === 'kimi' || binding.agent === 'cursor')) {
-      await this.feishu.send(appId, message.chat_id, `当前 ${this.agents.get(binding.agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
+    return { ...binding, project: binding.project, agent: binding.agent };
+  }
+
+  private async downloadImages(appId: string, message: FeishuMessage['message']['message'], agent: string, imageKeys: string[]): Promise<AgentImage[] | undefined> {
+    if (imageKeys.length && (agent === 'kimi' || agent === 'cursor')) {
+      await this.feishu.send(appId, message.chat_id, `当前 ${this.agents.get(agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
       return;
     }
     const images: AgentImage[] = [];
@@ -107,6 +114,31 @@ export class FeishuBridge {
       await this.feishu.send(appId, message.chat_id, (error as Error).message);
       return;
     }
+    return images;
+  }
+
+  private async replyResult(appId: string, chatId: string, session: AgentSession, lastEventId: number): Promise<void> {
+    let output: string | undefined;
+    for (const event of this.sessions.eventsAfter(session.id, lastEventId)) {
+      if (event.type === 'output') output = event.text.trim();
+    }
+    const reply = session.status === 'completed' ? output || 'Agent 已执行完成。' : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
+    await this.feishu.send(appId, chatId, reply, 'markdown');
+  }
+
+  private async process(appId: string, { message, sender }: FeishuMessage['message']): Promise<void> {
+    const parsed = readMessage(message);
+    if (!parsed) return;
+    let { content } = parsed;
+    const { imageKeys } = parsed;
+    if (!content && !imageKeys.length) return;
+    if (!imageKeys.length && await handleCommand(content, appId, message.chat_id, this.feishu, this.projects, this.agents, this.sessions, text => this.feishu.send(appId, message.chat_id, text))) return;
+    const binding = await this.resolveBinding(appId, message.chat_id);
+    if (!binding) return;
+    const senderId = sender.sender_id?.open_id;
+    if (!senderId) throw new Error('飞书消息缺少发送人标识');
+    const images = await this.downloadImages(appId, message, binding.agent, imageKeys);
+    if (!images) return;
     if (!content && images.length) content = '请查看这张图片。';
     const im: ImBinding = { platform: 'feishu', appId, conversation: { type: message.chat_type === 'group' ? 'group' : 'single', senderId } };
     const prompt = message.chat_type === 'group' ? `${senderId} 在群聊中说：\n${content}` : content;
@@ -121,11 +153,6 @@ export class FeishuBridge {
       await this.feishu.setSession(appId, message.chat_id, session.id);
     }
     await waitForCompletion(this.sessions, session);
-    let output: string | undefined;
-    for (const event of this.sessions.eventsAfter(session.id, lastEventId)) {
-      if (event.type === 'output') output = event.text.trim();
-    }
-    const reply = session.status === 'completed' ? output || 'Agent 已执行完成。' : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
-    await this.feishu.send(appId, message.chat_id, reply, 'markdown');
+    await this.replyResult(appId, message.chat_id, session, lastEventId);
   }
 }

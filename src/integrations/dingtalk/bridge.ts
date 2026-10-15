@@ -53,24 +53,24 @@ export class DingTalkBridge {
     void task.finally(() => { if (this.queues.get(key) === task) this.queues.delete(key); });
   }
 
-  private async process(appId: string, conversation: string, message: DingTalkMessage['message']): Promise<void> {
-    if (!['text', 'picture', 'richText'].includes(message.msgtype)) return;
-    if (message.msgtype === 'text' && !message.text.content.trim()) return;
-    if (message.msgtype === 'text' && await handleCommand(message.text.content.trim(), appId, conversation, this.dingtalk, this.projects, this.agents, this.sessions, text => this.dingtalk.reply(appId, message.sessionWebhook, text))) return;
+  private async resolveBinding(appId: string, conversation: string, sessionWebhook: string) {
     const binding = this.dingtalk.getBinding(appId, conversation);
     if (!binding?.project || !binding.agent) {
-      await this.dingtalk.reply(appId, message.sessionWebhook, '请先在 Agent Muster 中为此应用绑定项目和 Agent。');
+      await this.dingtalk.reply(appId, sessionWebhook, '请先在 Agent Muster 中为此应用绑定项目和 Agent。');
       return;
     }
     if (!this.projects.list().includes(binding.project)) {
-      await this.dingtalk.reply(appId, message.sessionWebhook, '当前项目不存在，请通过 /projects 查看列表并使用 /project 切换项目。');
+      await this.dingtalk.reply(appId, sessionWebhook, '当前项目不存在，请通过 /projects 查看列表并使用 /project 切换项目。');
       return;
     }
     if (!this.agents.get(binding.agent)?.installed) {
-      await this.dingtalk.reply(appId, message.sessionWebhook, '绑定的 Agent 当前不可用。');
+      await this.dingtalk.reply(appId, sessionWebhook, '绑定的 Agent 当前不可用。');
       return;
     }
-    await this.dingtalk.setConversationTarget(appId, conversation, message);
+    return { ...binding, project: binding.project, agent: binding.agent };
+  }
+
+  private async readMessage(appId: string, message: DingTalkMessage['message'], agent: string): Promise<{ content: string; images: AgentImage[] } | undefined> {
     let content: string;
     const images: AgentImage[] = [];
     if (message.msgtype === 'text') content = message.text.content.trim();
@@ -81,8 +81,8 @@ export class DingTalkBridge {
         if (part.type === 'picture') {
           const downloadCode = part.downloadCode ?? part.pictureDownloadCode;
           if (!downloadCode) throw new Error('钉钉图片消息缺少下载码');
-          if (binding.agent === 'kimi' || binding.agent === 'cursor') {
-            await this.dingtalk.reply(appId, message.sessionWebhook, `当前 ${this.agents.get(binding.agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
+          if (agent === 'kimi' || agent === 'cursor') {
+            await this.dingtalk.reply(appId, message.sessionWebhook, `当前 ${this.agents.get(agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
             return;
           }
           images.push(await this.dingtalk.downloadImage(appId, message.robotCode, downloadCode));
@@ -92,6 +92,35 @@ export class DingTalkBridge {
       if (!content && images.length) content = '请查看这张图片。';
       if (!content) return;
     }
+    return { content, images };
+  }
+
+  private async replyResult(appId: string, conversation: string, message: DingTalkMessage['message'], session: AgentSession, lastEventId: number): Promise<void> {
+    let output: string | undefined;
+    const errors: string[] = [];
+    for (const event of this.sessions.eventsAfter(session.id, lastEventId)) {
+      if (event.type === 'output') output = event.text.trim();
+      if (session.status === 'failed' && event.type === 'error') errors.push(event.text);
+    }
+    if (session.status === 'failed') {
+      console.error(`DingTalk Agent execution failed for ${appId} (message ${message.msgId}, conversation ${conversation}, session ${session.id}):`, errors.join('\n'));
+    }
+    const reply = session.status === 'completed'
+      ? output || 'Agent 已执行完成。'
+      : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
+    await this.dingtalk.reply(appId, message.sessionWebhook, reply, 'markdown');
+  }
+
+  private async process(appId: string, conversation: string, message: DingTalkMessage['message']): Promise<void> {
+    if (!['text', 'picture', 'richText'].includes(message.msgtype)) return;
+    if (message.msgtype === 'text' && !message.text.content.trim()) return;
+    if (message.msgtype === 'text' && await handleCommand(message.text.content.trim(), appId, conversation, this.dingtalk, this.projects, this.agents, this.sessions, text => this.dingtalk.reply(appId, message.sessionWebhook, text))) return;
+    const binding = await this.resolveBinding(appId, conversation, message.sessionWebhook);
+    if (!binding) return;
+    await this.dingtalk.setConversationTarget(appId, conversation, message);
+    const parsed = await this.readMessage(appId, message, binding.agent);
+    if (!parsed) return;
+    const { content, images } = parsed;
     const im: ImBinding = { platform: 'dingtalk', appId, conversation: {
       type: message.conversationType === '2' ? 'group' : 'single',
       ...(message.conversationType === '2' ? { groupName: message.conversationTitle } : {}),
@@ -111,18 +140,6 @@ export class DingTalkBridge {
       await this.dingtalk.setSession(appId, conversation, session.id);
     }
     await waitForCompletion(this.sessions, session);
-    let output: string | undefined;
-    const errors: string[] = [];
-    for (const event of this.sessions.eventsAfter(session.id, lastEventId)) {
-      if (event.type === 'output') output = event.text.trim();
-      if (session.status === 'failed' && event.type === 'error') errors.push(event.text);
-    }
-    if (session.status === 'failed') {
-      console.error(`DingTalk Agent execution failed for ${appId} (message ${message.msgId}, conversation ${conversation}, session ${session.id}):`, errors.join('\n'));
-    }
-    const reply = session.status === 'completed'
-      ? output || 'Agent 已执行完成。'
-      : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
-    await this.dingtalk.reply(appId, message.sessionWebhook, reply, 'markdown');
+    await this.replyResult(appId, conversation, message, session, lastEventId);
   }
 }

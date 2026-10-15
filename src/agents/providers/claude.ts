@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import { join, basename, resolve } from 'node:path';
 import { fullAutoMode, autoReviewMode, planMode, object, string, tokens, hasTokens, detail, json } from './shared.js';
-import type { AdapterEvent, AgentProvider } from './shared.js';
+import type { AdapterEvent, AgentProvider, ParsedResult } from './shared.js';
 
 export const claude: AgentProvider = {
   id: 'claude',
@@ -60,77 +60,88 @@ export const claude: AgentProvider = {
       }
       return undefined;
     }
+    function readDelta(update: Record<string, unknown>): AdapterEvent | undefined {
+      const previous = blocks.get(activeIndex);
+      const delta = object(update.delta);
+      if (!previous || !delta) return undefined;
+      const block = { ...previous };
+      if (delta.type === 'text_delta') block.text += string(delta.text) || '';
+      else if (delta.type === 'thinking_delta') block.text += string(delta.thinking) || '';
+      else return undefined;
+      blocks.set(activeIndex, block);
+      return block;
+    }
+
+    function readStreamEvent(event: Record<string, unknown>, externalSessionId: string | undefined): ParsedResult {
+      const update = object(event.event);
+      if (update?.type === 'message_start') {
+        messageKey = string(object(update.message)?.id);
+        blocks.clear();
+      }
+      if (!messageKey || !update) return { externalSessionId };
+      if (typeof update.index === 'number') activeIndex = update.index;
+      if (update.type === 'content_block_start') {
+        const content = object(update.content_block);
+        const block = content && readBlock(content, messageKey, activeIndex, true);
+        if (!block) return { externalSessionId };
+        blocks.set(activeIndex, block);
+        return { externalSessionId, events: block.text ? [block] : [] };
+      }
+      if (update.type === 'content_block_delta') {
+        const block = readDelta(update);
+        return block ? { externalSessionId, events: [block] } : { externalSessionId };
+      }
+      if (update.type === 'content_block_stop') {
+        const block = blocks.get(activeIndex);
+        if (block?.streaming && block.type !== 'tool') {
+          const completed = { ...block, streaming: false };
+          blocks.set(activeIndex, completed);
+          return { externalSessionId, events: completed.text ? [completed] : [] };
+        }
+      }
+      return { externalSessionId };
+    }
+
+    function readAssistantMessage(event: Record<string, unknown>, externalSessionId: string | undefined): ParsedResult {
+      const message = object(event.message);
+      const content = Array.isArray(message?.content) ? message.content : [];
+      const key = string(message?.id) || string(event.uuid) || `message:${++messageNumber}`;
+      const events = content.flatMap((part, index) => {
+        const block = object(part);
+        if (!block) return [];
+        const contentIndex = key === messageKey && content.length === 1 ? activeIndex : (nextIndices.get(key) || 0) + index;
+        const parsed = readBlock(block, key, contentIndex, false);
+        if (key === messageKey && parsed) blocks.set(contentIndex, parsed);
+        return parsed?.text ? [parsed] : [];
+      });
+      nextIndices.set(key, (nextIndices.get(key) || 0) + content.length);
+      const usage = object(message?.usage);
+      return { externalSessionId, events, usage: usage && hasTokens(usage, ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens']) ? {
+        inputTokens: tokens(usage.input_tokens) + tokens(usage.cache_creation_input_tokens) + tokens(usage.cache_read_input_tokens),
+        outputTokens: tokens(usage.output_tokens),
+      } : undefined };
+    }
+
+    function readToolResults(event: Record<string, unknown>, externalSessionId: string | undefined): ParsedResult {
+      const content = object(event.message)?.content;
+      const events = (Array.isArray(content) ? content : []).flatMap(part => {
+        const block = object(part);
+        const id = string(block?.tool_use_id);
+        const tool = id && tools.get(id);
+        if (block?.type !== 'tool_result' || !tool) return [];
+        tools.delete(id);
+        return [{ ...tool, detail: detail(block.content), streaming: false }];
+      });
+      return { externalSessionId, events };
+    }
+
     return line => {
       const event = json(line);
       if (!event) return {};
       const externalSessionId = string(event.session_id);
-      if (event.type === 'stream_event') {
-        const update = object(event.event);
-        if (update?.type === 'message_start') {
-          messageKey = string(object(update.message)?.id);
-          blocks.clear();
-        }
-        if (!messageKey || !update) return { externalSessionId };
-        if (typeof update.index === 'number') activeIndex = update.index;
-        if (update.type === 'content_block_start') {
-          const content = object(update.content_block);
-          const block = content && readBlock(content, messageKey, activeIndex, true);
-          if (!block) return { externalSessionId };
-          blocks.set(activeIndex, block);
-          return { externalSessionId, events: block.text ? [block] : [] };
-        }
-        if (update.type === 'content_block_delta') {
-          const previous = blocks.get(activeIndex);
-          const delta = object(update.delta);
-          if (!previous || !delta) return { externalSessionId };
-          const block = { ...previous };
-          if (delta.type === 'text_delta') block.text += string(delta.text) || '';
-          else if (delta.type === 'thinking_delta') block.text += string(delta.thinking) || '';
-          else return { externalSessionId };
-          blocks.set(activeIndex, block);
-          return { externalSessionId, events: [block] };
-        }
-        if (update.type === 'content_block_stop') {
-          const block = blocks.get(activeIndex);
-          if (block?.streaming && block.type !== 'tool') {
-            const completed = { ...block, streaming: false };
-            blocks.set(activeIndex, completed);
-            return { externalSessionId, events: completed.text ? [completed] : [] };
-          }
-        }
-        return { externalSessionId };
-      }
-      if (event.type === 'assistant') {
-        const message = object(event.message);
-        const content = Array.isArray(message?.content) ? message.content : [];
-        const key = string(message?.id) || string(event.uuid) || `message:${++messageNumber}`;
-        const events = content.flatMap((part, index) => {
-          const block = object(part);
-          if (!block) return [];
-          const contentIndex = key === messageKey && content.length === 1 ? activeIndex : (nextIndices.get(key) || 0) + index;
-          const parsed = readBlock(block, key, contentIndex, false);
-          if (key === messageKey && parsed) blocks.set(contentIndex, parsed);
-          return parsed?.text ? [parsed] : [];
-        });
-        nextIndices.set(key, (nextIndices.get(key) || 0) + content.length);
-        const usage = object(message?.usage);
-        return { externalSessionId, events, usage: usage && hasTokens(usage, ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens']) ? {
-          inputTokens: tokens(usage.input_tokens) + tokens(usage.cache_creation_input_tokens) + tokens(usage.cache_read_input_tokens),
-          outputTokens: tokens(usage.output_tokens),
-        } : undefined };
-      }
-      if (event.type === 'user') {
-        const content = object(event.message)?.content;
-        const events = (Array.isArray(content) ? content : []).flatMap(part => {
-          const block = object(part);
-          const id = string(block?.tool_use_id);
-          const tool = id && tools.get(id);
-          if (block?.type !== 'tool_result' || !tool) return [];
-          tools.delete(id);
-          return [{ ...tool, detail: detail(block.content), streaming: false }];
-        });
-        return { externalSessionId, events };
-      }
+      if (event.type === 'stream_event') return readStreamEvent(event, externalSessionId);
+      if (event.type === 'assistant') return readAssistantMessage(event, externalSessionId);
+      if (event.type === 'user') return readToolResults(event, externalSessionId);
       if (event.type === 'result') {
         return { externalSessionId, error: event.is_error ? string(event.result) || 'Claude error' : undefined };
       }

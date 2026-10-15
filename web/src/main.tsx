@@ -206,12 +206,68 @@ type PaneProps = {
   onSessionUpdate: (session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId'>>) => void;
 };
 
-function ChatPane({ index, pane, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls }: PaneProps & { layoutControls?: React.ReactNode }) {
+type ChatHeaderProps = Pick<PaneProps, 'index' | 'multi' | 'agents' | 'projects' | 'feishuApps'> & {
+  selected: Session | null;
+  copiedTarget: 'conversation' | 'run-log' | number | null;
+  copyConversation: () => Promise<void>;
+  copyText: (text: string, target: 'conversation' | 'run-log' | number) => Promise<void>;
+  layoutControls?: React.ReactNode;
+};
+
+function ChatHeader({ index, multi, agents, projects, feishuApps, selected, copiedTarget, copyConversation, copyText, layoutControls }: ChatHeaderProps) {
+  const dingtalkBinding = selected?.im?.find(binding => binding.platform === 'dingtalk');
+  const feishuBinding = selected?.im?.find(binding => binding.platform === 'feishu');
+  const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
+  const feishuIcon = feishuApps.find(app => app.id === feishuBinding?.appId)?.icon;
+
+  return <div className="chat-header">
+    {dingtalkBinding && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}
+    {feishuBinding && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}
+    <div className="chat-heading">{selected
+      ? multi
+        ? <><strong title={selected.prompt}>{selected.prompt}</strong><p>{projectLabel(selected.cwd, projects)} · {agentName(selected.agent)} · {statusLabel[selected.status]}</p></>
+        : <p>{agentName(selected.agent)} · {statusLabel[selected.status]}</p>
+      : <><strong>新对话</strong>{multi && <p>窗口 {index + 1} · 从侧边栏选择对话</p>}</>}{dingtalkBinding?.conversation && <p className="chat-source">{dingtalkBinding.conversation.type === 'group' ? '群聊' : '单聊'}{dingtalkBinding.conversation.type === 'group' && dingtalkBinding.conversation.groupName && ` · 群名称：${dingtalkBinding.conversation.groupName}`} · 提问人：<span title={dingtalkBinding.conversation.senderStaffId}>{dingtalkBinding.conversation.senderName}</span></p>}{feishuBinding?.conversation && <p className="chat-source">飞书 · {feishuBinding.conversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{feishuBinding.conversation.senderId}</p>}</div>
+    <div className="output-actions">
+      {selected && <button className="copy-button" onClick={() => void copyConversation()} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'} title={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === 'conversation' ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}
+      {selected && <RunLog key={selected.id} sessionId={selected.id} copied={copiedTarget === 'run-log'} onCopy={copyText} />}
+      {layoutControls && <div className="pane-layout-switch">{layoutControls}</div>}
+    </div>
+  </div>;
+}
+
+type ComposerSettingsProps = {
+  index: number;
+  composerAgent: string;
+  agentInfo: Agent | undefined;
+  model: string;
+  permissionMode: string;
+  busy: boolean;
+  running: boolean;
+  disabled: boolean;
+  onModelChange: (model: string) => void;
+  onPermissionModeChange: (mode: string) => void;
+};
+
+function ComposerSettings({ index, composerAgent, agentInfo, model, permissionMode, busy, running, disabled, onModelChange, onPermissionModeChange }: ComposerSettingsProps) {
+  const models = agentInfo?.models || [];
+  return <><label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || running} onChange={onModelChange}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>{agentInfo && <label className="permission-select"><Select aria-label={`窗口 ${index + 1} 权限模式`} title={agentInfo.permissionModes.find(item => item.id === permissionMode)?.description} value={permissionMode} disabled={busy || disabled || !agentInfo.installed} onChange={onPermissionModeChange}>{agentInfo.permissionModes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}</>;
+}
+
+function ContextStatus({ usage, contextWindow }: { usage: Session['usage']; contextWindow: number | undefined }) {
+  const usedTokens = usage ? usage.inputTokens + usage.outputTokens : undefined;
+  return <div className="context-status" title={usage ? `累计输入 ${usage.inputTokens.toLocaleString()} Token，累计输出 ${usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>{usedTokens === undefined && !contextWindow ? '上下文数据未提供' : `累计消耗 ${usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`} · 单次窗口 ${contextWindow ? `${tokenCount(contextWindow)} Token` : '未提供'}`}</div>;
+}
+
+type ChatComposerProps = Pick<PaneProps, 'index' | 'pane' | 'agents' | 'projects' | 'sessions' | 'onProjectChange' | 'onSessionCreated' | 'onSessionUpdate'> & {
+  focused: boolean;
+  selected: Session | null;
+  setSelected: React.Dispatch<React.SetStateAction<Session | null>>;
+  setError: React.Dispatch<React.SetStateAction<string>>;
+};
+
+function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange, onSessionCreated, onSessionUpdate, focused, selected, setSelected, setError }: ChatComposerProps) {
   const selectedId = pane.sessionId;
-  const [selected, setSelected] = useState<Session | null>(() => {
-    const summary = sessions.find(session => session.id === selectedId);
-    return summary ? { ...summary, events: [] } : null;
-  });
   const [agent, setAgent] = useState(agents.find(item => item.installed)?.id || '');
   const [permissionMode, setPermissionMode] = useState(sessions.find(session => session.id === selectedId)?.permissionMode || 'full-auto');
   const [model, setModel] = useState(sessions.find(session => session.id === selectedId)?.model || '');
@@ -219,19 +275,9 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
   const [images, setImages] = useState<ComposerImage[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const imageUrls = useRef(new Set<string>());
-  const [hasMoreHistory, setHasMoreHistory] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const historyController = useRef<AbortController | null>(null);
-  const historyScroll = useRef<{ height: number; top: number } | null>(null);
-  const [pushingId, setPushingId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  useErrorMessage(error, setError);
-  const [copiedTarget, setCopiedTarget] = useState<'conversation' | 'run-log' | number | null>(null);
-  const conversationRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const runningSessionRef = useRef<string | null>(null);
-  const followConversation = useRef(true);
 
   useEffect(() => () => {
     for (const url of imageUrls.current) URL.revokeObjectURL(url);
@@ -244,6 +290,125 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
 
   useEffect(() => { setModel(selected?.model || ''); }, [selected?.id, selected?.model]);
   useEffect(() => { setPermissionMode(selected?.permissionMode || 'full-auto'); }, [selected?.id, selected?.agent, selected?.permissionMode, agent]);
+
+  function addImages(files: File[]) {
+    if (busy || composerDisabled) return;
+    if (!supportsImages) { setError('当前 Agent 接入不支持图片附件'); return; }
+    if (files.some(file => !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type))) {
+      setError('仅支持 PNG、JPEG、GIF 和 WebP 图片'); return;
+    }
+    if (files.some(file => file.size > 10 * 1024 * 1024)) { setError('单张图片不能超过 10 MB'); return; }
+    const added = files.map(file => {
+      const url = URL.createObjectURL(file);
+      imageUrls.current.add(url);
+      return { file, url };
+    });
+    setImages(current => [...current, ...added]);
+    setError('');
+  }
+
+  function removeImage(url: string) {
+    URL.revokeObjectURL(url);
+    imageUrls.current.delete(url);
+    setImages(current => current.filter(image => image.url !== url));
+  }
+
+  async function send() {
+    const content = message.trim() || '请查看这张图片。';
+    if (!canSend) return;
+    setError(''); setBusy(true);
+    try {
+      const uploaded = await Promise.all(images.map(async image => {
+        const { id } = image.id ? { id: image.id } : await api<{ id: string }>('/api/images', { method: 'POST', headers: { 'Content-Type': image.file.type }, body: image.file });
+        return { ...image, id };
+      }));
+      setImages(uploaded);
+      const imageIds = uploaded.map(image => image.id);
+      if (selected) {
+        const session = await api<SessionSummary>(`/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify({ content, model, imageIds, permissionMode }) });
+        onSessionUpdate(session);
+        setSelected(current => current?.id === session.id ? { ...current, ...session } : current);
+      } else {
+        const session = await api<SessionSummary>('/api/sessions', { method: 'POST', body: JSON.stringify({ agent, cwd: pane.cwd, prompt: content, model, imageIds, permissionMode }) });
+        onSessionCreated(index, session);
+      }
+      setMessage('');
+      setImages([]);
+      for (const url of imageUrls.current) URL.revokeObjectURL(url);
+      imageUrls.current.clear();
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function stop() {
+    if (!selected) return;
+    setError(''); setBusy(true);
+    try { await api(`/api/sessions/${selected.id}/stop`, { method: 'POST' }); }
+    catch (reason) { setError((reason as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  const running = selected?.status === 'running' || selected?.status === 'starting';
+  const composerProject = selected?.cwd || (projects.includes(pane.cwd) ? pane.cwd : '');
+  const composerAgent = selected?.agent || agent;
+  const agentInfo = agents.find(item => item.id === composerAgent);
+  const models = agentInfo?.models || [];
+  const contextWindow = models.find(item => item.id === (model || agentInfo?.defaultModel))?.contextWindow;
+  const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
+  const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'kimi' && composerAgent !== 'cursor');
+  const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
+
+  useEffect(() => {
+    if (running) {
+      runningSessionRef.current = selected?.id || null;
+      return;
+    }
+    if (runningSessionRef.current !== selected?.id || selectedId !== selected?.id) {
+      runningSessionRef.current = null;
+      return;
+    }
+    if (busy || composerDisabled) return;
+    runningSessionRef.current = null;
+    const textarea = composerRef.current?.querySelector('textarea');
+    if (focused && textarea?.getClientRects().length) textarea.focus({ preventScroll: true });
+  }, [running, selected?.id, selectedId, busy, composerDisabled, focused]);
+
+  return <div className="chat-compose-wrap">
+    {!selected && <div className="composer-project-row">
+      <span className="project-select">
+        <Select aria-label={`窗口 ${index + 1} 选择项目`} value={composerProject} renderIcon={() => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8V6a2 2 0 0 1 2-2h5l2 4h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z" /><path d="M3 8h9" /></svg>} disabled={busy} onChange={value => onProjectChange(index, value)}>
+          {!composerProject && <option value="">选择项目</option>}
+          {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects)}</option>)}
+        </Select>
+      </span>
+      <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
+    </div>}
+    <div className="chat-composer" ref={composerRef}>
+      {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
+      <FileMentionTextarea project={composerProject} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={setMessage} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求，@ 搜索文件' : '描述要完成的任务，@ 搜索文件'} disabled={busy || composerDisabled} rows={2} />
+      <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
+      <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}<ComposerSettings index={index} composerAgent={composerAgent} agentInfo={agentInfo} model={model} permissionMode={permissionMode} busy={busy} running={Boolean(running)} disabled={composerDisabled} onModelChange={setModel} onPermissionModeChange={setPermissionMode} /></div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
+    </div>
+    {selected && <ContextStatus usage={selected.usage} contextWindow={contextWindow} />}
+  </div>;
+}
+
+function ChatPane({ index, pane, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls }: PaneProps & { layoutControls?: React.ReactNode }) {
+  const selectedId = pane.sessionId;
+  const [selected, setSelected] = useState<Session | null>(() => {
+    const summary = sessions.find(session => session.id === selectedId);
+    return summary ? { ...summary, events: [] } : null;
+  });
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const historyController = useRef<AbortController | null>(null);
+  const historyScroll = useRef<{ height: number; top: number } | null>(null);
+  const [pushingId, setPushingId] = useState<number | null>(null);
+  const [error, setError] = useState('');
+  useErrorMessage(error, setError);
+  const [copiedTarget, setCopiedTarget] = useState<'conversation' | 'run-log' | number | null>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
+  const followConversation = useRef(true);
 
   useEffect(() => {
     if (!selectedId) { setSelected(null); return; }
@@ -353,55 +518,6 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     } catch (reason) { setError(`复制失败：${(reason as Error).message}`); }
   }
 
-  function addImages(files: File[]) {
-    if (busy || composerDisabled) return;
-    if (!supportsImages) { setError('当前 Agent 接入不支持图片附件'); return; }
-    if (files.some(file => !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type))) {
-      setError('仅支持 PNG、JPEG、GIF 和 WebP 图片'); return;
-    }
-    if (files.some(file => file.size > 10 * 1024 * 1024)) { setError('单张图片不能超过 10 MB'); return; }
-    const added = files.map(file => {
-      const url = URL.createObjectURL(file);
-      imageUrls.current.add(url);
-      return { file, url };
-    });
-    setImages(current => [...current, ...added]);
-    setError('');
-  }
-
-  function removeImage(url: string) {
-    URL.revokeObjectURL(url);
-    imageUrls.current.delete(url);
-    setImages(current => current.filter(image => image.url !== url));
-  }
-
-  async function send() {
-    const content = message.trim() || '请查看这张图片。';
-    if (!canSend) return;
-    setError(''); setBusy(true);
-    try {
-      const uploaded = await Promise.all(images.map(async image => {
-        const { id } = image.id ? { id: image.id } : await api<{ id: string }>('/api/images', { method: 'POST', headers: { 'Content-Type': image.file.type }, body: image.file });
-        return { ...image, id };
-      }));
-      setImages(uploaded);
-      const imageIds = uploaded.map(image => image.id);
-      if (selected) {
-        const session = await api<SessionSummary>(`/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify({ content, model, imageIds, permissionMode }) });
-        onSessionUpdate(session);
-        setSelected(current => current?.id === session.id ? { ...current, ...session } : current);
-      } else {
-        const session = await api<SessionSummary>('/api/sessions', { method: 'POST', body: JSON.stringify({ agent, cwd: pane.cwd, prompt: content, model, imageIds, permissionMode }) });
-        onSessionCreated(index, session);
-      }
-      setMessage('');
-      setImages([]);
-      for (const url of imageUrls.current) URL.revokeObjectURL(url);
-      imageUrls.current.clear();
-    } catch (reason) { setError((reason as Error).message); }
-    finally { setBusy(false); }
-  }
-
   async function pushToIm(event: Event) {
     if (!selected || !selected.im?.length || event.type !== 'output' || !event.text.trim() || pushingId !== null || event.pushedToIm) return;
     setError(''); setPushingId(event.id);
@@ -413,44 +529,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
     finally { setPushingId(null); }
   }
 
-  async function stop() {
-    if (!selected) return;
-    setError(''); setBusy(true);
-    try { await api(`/api/sessions/${selected.id}/stop`, { method: 'POST' }); }
-    catch (reason) { setError((reason as Error).message); }
-    finally { setBusy(false); }
-  }
-
-  const running = selected?.status === 'running' || selected?.status === 'starting';
-  const dingtalkBinding = selected?.im?.find(binding => binding.platform === 'dingtalk');
-  const feishuBinding = selected?.im?.find(binding => binding.platform === 'feishu');
-  const imPlatform = feishuBinding ? '飞书' : '钉钉';
-  const composerProject = selected?.cwd || (projects.includes(pane.cwd) ? pane.cwd : '');
-  const composerAgent = selected?.agent || agent;
-  const agentInfo = agents.find(item => item.id === composerAgent);
-  const models = agentInfo?.models || [];
-  const contextWindow = models.find(item => item.id === (model || agentInfo?.defaultModel))?.contextWindow;
-  const usedTokens = selected?.usage ? selected.usage.inputTokens + selected.usage.outputTokens : undefined;
-  const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
-  const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'kimi' && composerAgent !== 'cursor');
-  const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
-  const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
-  const feishuIcon = feishuApps.find(app => app.id === feishuBinding?.appId)?.icon;
-
-  useEffect(() => {
-    if (running) {
-      runningSessionRef.current = selected?.id || null;
-      return;
-    }
-    if (runningSessionRef.current !== selected?.id || selectedId !== selected?.id) {
-      runningSessionRef.current = null;
-      return;
-    }
-    if (busy || composerDisabled) return;
-    runningSessionRef.current = null;
-    const textarea = composerRef.current?.querySelector('textarea');
-    if (focused && textarea?.getClientRects().length) textarea.focus({ preventScroll: true });
-  }, [running, selected?.id, selectedId, busy, composerDisabled, focused]);
+  const imPlatform = selected?.im?.some(binding => binding.platform === 'feishu') ? '飞书' : '钉钉';
 
   const followStream = useCallback(() => {
     if (followConversation.current && conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
@@ -488,20 +567,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
 
   return <div className={`pane-wrap ${focused && multi ? 'focused' : ''}`} onPointerDown={() => { if (!focused) onFocus(index); }} onFocusCapture={() => { if (!focused) onFocus(index); }}>
     <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
-      <div className="chat-header">
-        {dingtalkBinding && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}
-        {feishuBinding && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}
-        <div className="chat-heading">{selected
-          ? multi
-            ? <><strong title={selected.prompt}>{selected.prompt}</strong><p>{projectLabel(selected.cwd, projects)} · {agentName(selected.agent)} · {statusLabel[selected.status]}</p></>
-            : <p>{agentName(selected.agent)} · {statusLabel[selected.status]}</p>
-          : <><strong>新对话</strong>{multi && <p>窗口 {index + 1} · 从侧边栏选择对话</p>}</>}{dingtalkBinding?.conversation && <p className="chat-source">{dingtalkBinding.conversation.type === 'group' ? '群聊' : '单聊'}{dingtalkBinding.conversation.type === 'group' && dingtalkBinding.conversation.groupName && ` · 群名称：${dingtalkBinding.conversation.groupName}`} · 提问人：<span title={dingtalkBinding.conversation.senderStaffId}>{dingtalkBinding.conversation.senderName}</span></p>}{feishuBinding?.conversation && <p className="chat-source">飞书 · {feishuBinding.conversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{feishuBinding.conversation.senderId}</p>}</div>
-        <div className="output-actions">
-          {selected && <button className="copy-button" onClick={() => void copyConversation()} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'} title={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === 'conversation' ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}
-          {selected && <RunLog key={selected.id} sessionId={selected.id} copied={copiedTarget === 'run-log'} onCopy={copyText} />}
-          {layoutControls && <div className="pane-layout-switch">{layoutControls}</div>}
-        </div>
-      </div>
+      <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} />
       <div className="conversation-scroll" key={selected?.id} ref={conversationRef} role="log" aria-label={`窗口 ${index + 1} 对话记录`} onScroll={event => {
         const element = event.currentTarget;
         followConversation.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -512,24 +578,7 @@ function ChatPane({ index, pane, multi, active: focused, agents, projects, sessi
           {conversation}
         </div> : <div className="chat-empty"><strong>描述你想完成的任务</strong></div>}
       </div>
-      <div className="chat-compose-wrap">
-        {!selected && <div className="composer-project-row">
-          <span className="project-select">
-            <Select aria-label={`窗口 ${index + 1} 选择项目`} value={composerProject} renderIcon={() => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8V6a2 2 0 0 1 2-2h5l2 4h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z" /><path d="M3 8h9" /></svg>} disabled={busy} onChange={value => onProjectChange(index, value)}>
-              {!composerProject && <option value="">选择项目</option>}
-              {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects)}</option>)}
-            </Select>
-          </span>
-          <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
-        </div>}
-        <div className="chat-composer" ref={composerRef}>
-          {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
-          <FileMentionTextarea project={composerProject} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={setMessage} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求，@ 搜索文件' : '描述要完成的任务，@ 搜索文件'} disabled={busy || composerDisabled} rows={2} />
-          <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
-          <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}<label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || Boolean(running)} onChange={value => setModel(value)}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>{agentInfo && <label className="permission-select"><Select aria-label={`窗口 ${index + 1} 权限模式`} title={agentInfo.permissionModes.find(item => item.id === permissionMode)?.description} value={permissionMode} disabled={busy || composerDisabled || !agentInfo.installed} onChange={setPermissionMode}>{agentInfo.permissionModes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}</div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
-        </div>
-        {selected && <div className="context-status" title={selected.usage ? `累计输入 ${selected.usage.inputTokens.toLocaleString()} Token，累计输出 ${selected.usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>{usedTokens === undefined && !contextWindow ? '上下文数据未提供' : `累计消耗 ${usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`} · 单次窗口 ${contextWindow ? `${tokenCount(contextWindow)} Token` : '未提供'}`}</div>}
-      </div>
+      <ChatComposer index={index} pane={pane} agents={agents} projects={projects} sessions={sessions} onProjectChange={onProjectChange} onSessionCreated={onSessionCreated} onSessionUpdate={onSessionUpdate} focused={focused} selected={selected} setSelected={setSelected} setError={setError} />
     </section>
   </div>;
 }

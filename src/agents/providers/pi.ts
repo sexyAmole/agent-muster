@@ -133,48 +133,41 @@ export const pi: AgentProvider & { createResultReader(): ProtocolReader } = {
       streams.add(streamId);
       return [{ type, text, streamId, orderKey: messageKey, contentIndex, streaming }];
     });
-    return line => {
-      const event = json(line);
-      if (!event || event.type === 'plain') return {};
-      if (event.type === 'message_start' && object(event.message)?.role === 'assistant') {
-        messageKey = `message:${++messageNumber}`;
-        content.length = 0;
-        streams.clear();
-        return { events: [] };
-      }
-      if (event.type === 'message_update') {
-        if (!messageKey) return {};
-        const update = object(event.assistantMessageEvent)!;
-        const index = update.contentIndex as number;
-        if (update.type === 'text_start' || update.type === 'thinking_start') {
-          const type = update.type === 'text_start' ? 'text' : 'thinking';
-          content[index] = { type, [type]: '' };
-        } else if (update.type === 'text_delta' || update.type === 'thinking_delta') {
-          const type = update.type === 'text_delta' ? 'text' : 'thinking';
-          content[index][type] = (content[index][type] as string) + update.delta;
-        } else if (update.type === 'text_end' || update.type === 'thinking_end') {
-          const type = update.type === 'text_end' ? 'text' : 'thinking';
-          content[index] = { type, [type]: update.content };
-        } else if (update.type === 'toolcall_end') content[index] = object(update.toolCall)!;
-        else if (update.type === 'toolcall_start') content[index] = { type: 'toolCall', id: update.id, name: update.toolName, partialArguments: '' };
-        else if (update.type === 'toolcall_delta') content[index].partialArguments = (content[index].partialArguments as string) + update.delta;
-        return { events: blocks(content, true) };
-      }
-      const result = read(line);
-      if (event.type === 'message_end' && object(event.message)?.role === 'assistant') {
-        const message = object(event.message)!;
-        const key = typeof message.timestamp === 'number' ? `assistant:${message.timestamp}` : undefined;
-        if (key && completedMessages.has(key)) return {};
-        if (key) completedMessages.add(key);
-        messageKey ??= `message:${++messageNumber}`;
-        const previous = [...streams];
-        const events = blocks(Array.isArray(message.content) ? message.content : [], false);
-        const confirmed = new Set(events.map(item => item.streamId));
-        messageKey = undefined;
-        content.length = 0;
-        streams.clear();
-        return { ...result, text: undefined, thinking: undefined, events, clearStreamIds: previous.filter(id => !confirmed.has(id)), failed: false };
-      }
+    function readMessageUpdate(event: Record<string, unknown>): ParsedResult {
+      if (!messageKey) return {};
+      const update = object(event.assistantMessageEvent)!;
+      const index = update.contentIndex as number;
+      if (update.type === 'text_start' || update.type === 'thinking_start') {
+        const type = update.type === 'text_start' ? 'text' : 'thinking';
+        content[index] = { type, [type]: '' };
+      } else if (update.type === 'text_delta' || update.type === 'thinking_delta') {
+        const type = update.type === 'text_delta' ? 'text' : 'thinking';
+        content[index][type] = (content[index][type] as string) + update.delta;
+      } else if (update.type === 'text_end' || update.type === 'thinking_end') {
+        const type = update.type === 'text_end' ? 'text' : 'thinking';
+        content[index] = { type, [type]: update.content };
+      } else if (update.type === 'toolcall_end') content[index] = object(update.toolCall)!;
+      else if (update.type === 'toolcall_start') content[index] = { type: 'toolCall', id: update.id, name: update.toolName, partialArguments: '' };
+      else if (update.type === 'toolcall_delta') content[index].partialArguments = (content[index].partialArguments as string) + update.delta;
+      return { events: blocks(content, true) };
+    }
+
+    function readCompletedMessage(event: Record<string, unknown>, result: ParsedResult): ParsedResult {
+      const message = object(event.message)!;
+      const key = typeof message.timestamp === 'number' ? `assistant:${message.timestamp}` : undefined;
+      if (key && completedMessages.has(key)) return {};
+      if (key) completedMessages.add(key);
+      messageKey ??= `message:${++messageNumber}`;
+      const previous = [...streams];
+      const events = blocks(Array.isArray(message.content) ? message.content : [], false);
+      const confirmed = new Set(events.map(item => item.streamId));
+      messageKey = undefined;
+      content.length = 0;
+      streams.clear();
+      return { ...result, text: undefined, thinking: undefined, events, clearStreamIds: previous.filter(id => !confirmed.has(id)), failed: false };
+    }
+
+    function readToolEvent(event: Record<string, unknown>, result: ParsedResult): ParsedResult {
       const id = string(event.toolCallId);
       if (event.type === 'tool_execution_start' && id) {
         toolArgs.set(id, event.args);
@@ -193,6 +186,23 @@ export const pi: AgentProvider & { createResultReader(): ProtocolReader } = {
           streamId: `tool:${id}`, orderKey: `tool:${id}`, streaming: false, ...positions.get(id) }] };
       }
       return result;
+    }
+
+    return line => {
+      const event = json(line);
+      if (!event || event.type === 'plain') return {};
+      if (event.type === 'message_start' && object(event.message)?.role === 'assistant') {
+        messageKey = `message:${++messageNumber}`;
+        content.length = 0;
+        streams.clear();
+        return { events: [] };
+      }
+      if (event.type === 'message_update') return readMessageUpdate(event);
+      const result = read(line);
+      if (event.type === 'message_end' && object(event.message)?.role === 'assistant') {
+        return readCompletedMessage(event, result);
+      }
+      return readToolEvent(event, result);
     };
   },
 };
