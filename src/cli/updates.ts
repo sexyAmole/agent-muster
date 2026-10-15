@@ -10,8 +10,10 @@ const shell = process.platform === 'win32';
 async function getUpdate(): Promise<{ name: string; current: string; latest: string }> {
   const { name, version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as { name: string; version: string };
   const { stdout } = await execute(npmCommand, ['view', `${name}@latest`, 'version', '--json', '--fetch-timeout=5000', '--fetch-retries=0'], { shell, timeout: 10000 });
-  const latest: unknown = JSON.parse(stdout);
-  if (typeof latest !== 'string' || !valid(latest)) throw new Error('npm 返回的版本号无效');
+  const result: unknown = JSON.parse(stdout);
+  const versions: unknown[] = Array.isArray(result) ? result : [result];
+  if (versions.length === 0 || !versions.every((version): version is string => typeof version === 'string' && valid(version) !== null)) throw new Error('npm 返回的版本号无效');
+  const latest = versions.reduce((highest, version) => gt(version, highest) ? version : highest);
   return { name, current: version, latest };
 }
 
