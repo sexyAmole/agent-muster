@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Select } from './select';
 import { createRoot } from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
@@ -10,12 +10,13 @@ import { AgentPanel } from './agent-panel';
 import { MessageProvider, useErrorMessage } from './message';
 import { MessageImages } from './message-images';
 import { FileMentionTextarea } from './file-mention-textarea';
-import { FilePanel } from './file-panel';
 import { RunLog } from './run-log';
 import { StreamText } from './stream-text';
 import { mergeSessionEvents } from '../../src/sessions/events';
 import type { AgentInfo as Agent, AgentImage, AgentSession as Session, SessionEvent as Event, SessionStatus as Status, ImBinding } from '../../src/types';
 import './style.css';
+
+const FilePanel = lazy(() => import('./file-panel').then(module => ({ default: module.FilePanel })));
 
 type FeishuApp = Pick<Application, 'id' | 'icon'>;
 type SessionSummary = Omit<Session, 'events'>;
@@ -600,7 +601,7 @@ function ChatPane({ index, pane, panelProject, multi, active: focused, agents, p
       </div>
       <ChatComposer index={index} pane={pane} agents={agents} projects={projects} sessions={sessions} onProjectChange={onProjectChange} onSessionCreated={onSessionCreated} onSessionUpdate={onSessionUpdate} focused={focused} selected={selected} setSelected={setSelected} setError={setError} />
     </section>
-    {showPanel && selected && <FilePanel key={selected.cwd} project={selected.cwd} onClose={() => { setPanelOpen(false); panelButton.current?.focus(); }} />}
+    {showPanel && selected && <Suspense fallback={<aside className="file-panel" role="status"><p className="file-panel-status">正在加载文件面板…</p></aside>}><FilePanel key={selected.cwd} project={selected.cwd} onClose={() => { setPanelOpen(false); panelButton.current?.focus(); }} /></Suspense>}
   </div>;
 }
 

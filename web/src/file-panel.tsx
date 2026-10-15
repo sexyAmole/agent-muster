@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { FileTreeIcon } from './file-tree-icon';
 import type { ProjectFileDetail, ProjectFileEntry } from '../../src/types';
+
+const FileCodePreview = lazy(() => import('./file-code-preview').then(module => ({ default: module.FileCodePreview })));
 
 type Resource<T> = { key: string; data?: T; error?: string };
 
@@ -35,7 +38,7 @@ function DirectoryEntries({ project, directory, revision, selected, onSelect }: 
     return <li key={entry.path}>
       <button type="button" className="file-tree-entry" title={`${entry.path}${entry.type === 'symlink' ? '（符号链接）' : ''}`} aria-expanded={isDirectory ? open : undefined} aria-pressed={!isDirectory ? selected === entry.path : undefined}
         onClick={() => isDirectory ? setExpanded(current => open ? current.filter(path => path !== entry.path) : [...current, entry.path]) : onSelect(entry.path)}>
-        <span className="file-tree-marker" aria-hidden="true">{isDirectory ? open ? '▾' : '▸' : entry.type === 'symlink' ? '↗' : '·'}</span><span>{entry.name}</span>
+        <span className="file-tree-marker" aria-hidden="true">{isDirectory ? open ? '▾' : '▸' : entry.type === 'symlink' ? '↗' : ''}</span><FileTreeIcon name={entry.name} directory={isDirectory} expanded={open} /><span>{entry.name}</span>
       </button>
       {isDirectory && open && <DirectoryEntries project={project} directory={entry.path} revision={revision} selected={selected} onSelect={onSelect} />}
     </li>;
@@ -51,15 +54,31 @@ const previewMessages: Record<Exclude<ProjectFileDetail['preview'], 'text'>, str
 export function FilePanel({ project, onClose }: { project: string; onClose: () => void }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [copyResult, setCopyResult] = useState<{ path: string; error?: string } | null>(null);
   const result = useFileResource<ProjectFileDetail>(selected === null ? '' : `/api/projects/file?${new URLSearchParams({ path: project, file: selected })}`, revision);
   const file = result?.data;
+  const copied = copyResult?.path === file?.path && !copyResult?.error;
+  useEffect(() => {
+    if (!copyResult || copyResult.error) return;
+    const timer = window.setTimeout(() => setCopyResult(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copyResult]);
+  async function copyPath(path: string) {
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopyResult({ path });
+    } catch (reason) {
+      setCopyResult({ path, error: `复制路径失败：${(reason as Error).message}` });
+    }
+  }
   return <aside className="file-panel" aria-label="项目文件面板">
     <header className="file-panel-header"><strong>文件</strong><div><button type="button" onClick={() => setRevision(value => value + 1)} aria-label="刷新文件"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.1 6.1A8 8 0 0 1 19.7 10M4.3 14A8 8 0 0 0 17.9 17.9" /></svg></button><button type="button" onClick={onClose} aria-label="关闭文件面板"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div></header>
     <div className="file-panel-body">
       <section className="file-detail" aria-label="文件详情" aria-busy={selected !== null && !result}>
         {selected === null ? <p className="file-panel-status">从右侧文件树选择文件</p> : !result ? <p className="file-panel-status" role="status">正在读取文件…</p> : result.error ? <p className="file-panel-status file-panel-error" role="alert">{result.error}</p> : file && <>
-          <dl className="file-metadata"><div><dt>路径</dt><dd>{file.path}</dd></div><div><dt>类型</dt><dd>{file.type}</dd></div><div><dt>大小</dt><dd>{file.size.toLocaleString()} 字节</dd></div><div><dt>修改时间</dt><dd>{new Date(file.modifiedAt).toLocaleString('zh-CN')}</dd></div></dl>
-          {file.preview === 'text' ? file.content ? <pre className="file-preview" tabIndex={0} aria-label="文件内容">{file.content}</pre> : <p className="file-panel-status">空文件</p> : <p className="file-panel-status">{previewMessages[file.preview]}</p>}
+          <div className="file-metadata"><span className="file-size-tag">{file.size.toLocaleString()} 字节</span><span className="file-path" title={file.path}>{file.path}</span><button type="button" className="copy-button" aria-label={copied ? '已复制路径' : '复制文件路径'} onClick={() => void copyPath(file.path)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copied ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button></div>
+          {copyResult?.path === file.path && copyResult.error && <p className="file-panel-status file-panel-error" role="alert">{copyResult.error}</p>}
+          {file.preview === 'text' ? file.content ? <Suspense fallback={<p className="file-panel-status" role="status">正在加载代码预览…</p>}><FileCodePreview path={file.path} content={file.content} /></Suspense> : <p className="file-panel-status">空文件</p> : <p className="file-panel-status">{previewMessages[file.preview]}</p>}
         </>}
       </section>
       <nav className="file-tree" aria-label="项目文件树"><div className="file-tree-project" title={project}>{project.split(/[\\/]/).filter(Boolean).at(-1)}</div><DirectoryEntries project={project} directory="" revision={revision} selected={selected} onSelect={setSelected} /></nav>
