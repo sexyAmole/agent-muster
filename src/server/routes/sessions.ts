@@ -19,6 +19,15 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
     if (!session) { response.status(404).json({ error: 'Session not found' }); return; }
     response.json(sessionMetadata(session));
   });
+  router.patch('/sessions/:id', (request, response) => {
+    if (!sessions.get(request.params.id)) { response.status(404).json({ error: '会话不存在' }); return; }
+    const { title } = request.body || {};
+    if (typeof title !== 'string' || !title.trim() || title.trim().length > 100) {
+      response.status(400).json({ error: '会话名称须为 1 至 100 个字符' }); return;
+    }
+    try { response.json(sessionMetadata(sessions.rename(request.params.id, title.trim()))); }
+    catch (error) { response.status(500).json({ error: (error as Error).message }); }
+  });
   router.get('/sessions/:id/messages', (request, response) => {
     const session = sessions.get(request.params.id);
     if (!session) { response.status(404).json({ error: '会话不存在' }); return; }

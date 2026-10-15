@@ -1,6 +1,7 @@
-import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, lazy, Suspense, useContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Select } from './select';
 import { createRoot } from 'react-dom/client';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ImPrototype, type Application } from './im-prototype';
@@ -20,6 +21,7 @@ const FilePanel = lazy(() => import('./file-panel').then(module => ({ default: m
 
 type FeishuApp = Pick<Application, 'id' | 'icon'>;
 type SessionSummary = Omit<Session, 'events'>;
+const lastSessionKey = 'agent-muster:last-session';
 type SessionPage = { events: Event[]; hasMore: boolean };
 type Directory = { path: string };
 type Layout = 'single' | 'double' | 'quad';
@@ -51,7 +53,10 @@ function shortPath(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) || path;
 }
 
-function projectLabel(path: string, projects: string[]): string {
+const ProjectNamesContext = createContext<Record<string, string>>({});
+
+function projectLabel(path: string, projects: string[], names: Record<string, string>): string {
+  if (names[path]) return names[path];
   const name = shortPath(path);
   return projects.filter(project => shortPath(project) === name).length > 1
     ? path.split(/[\\/]/).filter(Boolean).slice(-2).join('/')
@@ -219,6 +224,7 @@ type ChatHeaderProps = Pick<PaneProps, 'index' | 'multi' | 'agents' | 'projects'
 };
 
 function ChatHeader({ index, multi, agents, projects, feishuApps, selected, copiedTarget, copyConversation, copyText, layoutControls, panelControls }: ChatHeaderProps) {
+  const projectNames = useContext(ProjectNamesContext);
   const dingtalkBinding = selected?.im?.find(binding => binding.platform === 'dingtalk');
   const feishuBinding = selected?.im?.find(binding => binding.platform === 'feishu');
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
@@ -229,7 +235,7 @@ function ChatHeader({ index, multi, agents, projects, feishuApps, selected, copi
     {feishuBinding && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}
     <div className="chat-heading">{selected
       ? multi
-        ? <><strong title={selected.prompt}>{selected.prompt}</strong><p>{projectLabel(selected.cwd, projects)} · {agentName(selected.agent)} · {statusLabel[selected.status]}</p></>
+        ? <><strong title={selected.title ?? selected.prompt}>{selected.title ?? selected.prompt}</strong><p>{projectLabel(selected.cwd, projects, projectNames)} · {agentName(selected.agent)} · {statusLabel[selected.status]}</p></>
         : <p>{agentName(selected.agent)} · {statusLabel[selected.status]}</p>
       : <><strong>新对话</strong>{multi && <p>窗口 {index + 1} · 从侧边栏选择对话</p>}</>}{dingtalkBinding?.conversation && <p className="chat-source">{dingtalkBinding.conversation.type === 'group' ? '群聊' : '单聊'}{dingtalkBinding.conversation.type === 'group' && dingtalkBinding.conversation.groupName && ` · 群名称：${dingtalkBinding.conversation.groupName}`} · 提问人：<span title={dingtalkBinding.conversation.senderStaffId}>{dingtalkBinding.conversation.senderName}</span></p>}{feishuBinding?.conversation && <p className="chat-source">飞书 · {feishuBinding.conversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{feishuBinding.conversation.senderId}</p>}</div>
     <div className="output-actions">
@@ -272,6 +278,7 @@ type ChatComposerProps = Pick<PaneProps, 'index' | 'pane' | 'agents' | 'projects
 };
 
 function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange, onSessionCreated, onSessionUpdate, focused, selected, setSelected, setError }: ChatComposerProps) {
+  const projectNames = useContext(ProjectNamesContext);
   const selectedId = pane.sessionId;
   const [agent, setAgent] = useState(agents.find(item => item.installed)?.id || '');
   const [permissionMode, setPermissionMode] = useState(sessions.find(session => session.id === selectedId)?.permissionMode || 'full-auto');
@@ -383,7 +390,7 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
       <span className="project-select">
         <Select aria-label={`窗口 ${index + 1} 选择项目`} value={composerProject} renderIcon={() => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8V6a2 2 0 0 1 2-2h5l2 4h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z" /><path d="M3 8h9" /></svg>} disabled={busy} onChange={value => onProjectChange(index, value)}>
           {!composerProject && <option value="">选择项目</option>}
-          {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects)}</option>)}
+          {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects, projectNames)}</option>)}
         </Select>
       </span>
       <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
@@ -588,7 +595,7 @@ function ChatPane({ index, pane, panelProject, multi, active: focused, agents, p
 
   return <div className={`pane-wrap ${focused && multi ? 'focused' : ''}${showPanel ? ' files-open' : ''}`} onPointerDown={() => { if (!focused) onFocus(index); }} onFocusCapture={() => { if (!focused) onFocus(index); }}>
     <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
-      <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={canOpenPanel && <button ref={panelButton} type="button" className="file-panel-toggle" aria-label={showPanel ? '收起面板' : '展开面板'} aria-expanded={showPanel} onClick={() => setPanelOpen(open => !open)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /></svg></button>} />
+      <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected ? { ...selected, title: sessions.find(session => session.id === selected.id)?.title } : null} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={canOpenPanel && <button ref={panelButton} type="button" className="file-panel-toggle" aria-label={showPanel ? '收起面板' : '展开面板'} aria-expanded={showPanel} onClick={() => setPanelOpen(open => !open)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /></svg></button>} />
       <div className="conversation-scroll" key={selected?.id} ref={conversationRef} role="log" aria-label={`窗口 ${index + 1} 对话记录`} onScroll={event => {
         const element = event.currentTarget;
         followConversation.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -611,6 +618,23 @@ function App() {
   const [feishuApps, setFeishuApps] = useState<Application[]>([]);
   const [projects, setProjects] = useState<string[]>([]);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
+  const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
+  const [projectNames, setProjectNames] = useState<Record<string, string>>({});
+  const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [savingTitle, setSavingTitle] = useState(false);
+  const sessionRenameButton = useRef<HTMLButtonElement | null>(null);
+  const [renamingProject, setRenamingProject] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [sorting, setSorting] = useState(false);
+  const [dragTarget, setDragTarget] = useState<string | null>(null);
+  const [dragPreview, setDragPreview] = useState<{ path: string; left: number; top: number; width: number } | null>(null);
+  const projectDrag = useRef<{ path: string; target: string; startX: number; startY: number; left: number; top: number; width: number; moved: boolean } | null>(null);
+  const renameButton = useRef<HTMLButtonElement | null>(null);
+  const [projectMenu, setProjectMenu] = useState<{ path: string; left: number; top: number } | null>(null);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+  const skipProjectClick = useRef(false);
   const [panes, setPanes] = useState<PaneState[]>(Array.from({ length: 4 }, () => ({ sessionId: null, cwd: '', revision: 0 })));
   const [activePane, setActivePane] = useState(0);
   const [layout, setLayout] = useState<Layout>('single');
@@ -652,14 +676,16 @@ function App() {
       if (!document.hidden) void refresh();
     }
 
-    Promise.all([api<Agent[]>('/api/agents', options), api<SessionSummary[]>('/api/sessions', options), api<string[]>('/api/projects', options), api<Directory>('/api/directories', options), api<Application[]>('/api/feishu/apps', options)])
-      .then(([available, history, savedProjects, directory, apps]) => {
+    Promise.all([api<Agent[]>('/api/agents', options), api<SessionSummary[]>('/api/sessions', options), api<string[]>('/api/projects', options), api<Directory>('/api/directories', options), api<Application[]>('/api/feishu/apps', options), api<Record<string, string>>('/api/projects/names', options)])
+      .then(([available, history, savedProjects, directory, apps, names]) => {
         if (controller.signal.aborted) return;
         const paths = [...new Set([...savedProjects, ...history.map(session => session.cwd)])];
-        const firstProject = history[0]?.cwd || savedProjects[0] || directory.path;
-        setAgents(available); setSessions(history); setProjects(paths); setExpandedProject(firstProject);
+        const lastSessionId = localStorage.getItem(lastSessionKey);
+        const initialSession = history.find(session => session.id === lastSessionId) ?? history[0];
+        const firstProject = initialSession?.cwd || savedProjects[0] || directory.path;
+        setAgents(available); setSessions(history); setProjects(paths); setExpandedProject(firstProject); setExpandedProjects([firstProject]); setProjectNames(names);
         setFeishuApps(apps);
-        setPanes(current => current.map((pane, index) => index === 0 ? { sessionId: history[0]?.id || null, cwd: firstProject, revision: pane.revision + 1 } : pane));
+        setPanes(current => current.map((pane, index) => index === 0 ? { sessionId: initialSession?.id || null, cwd: firstProject, revision: pane.revision + 1 } : pane));
       }).catch(reason => { if (!controller.signal.aborted) setError((reason as Error).message); })
       .finally(() => { pending = false; schedule(); });
     document.addEventListener('visibilitychange', visibilityChanged);
@@ -671,22 +697,97 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (currentPane.sessionId) localStorage.setItem(lastSessionKey, currentPane.sessionId);
+  }, [currentPane.sessionId]);
+
+  useEffect(() => {
     if (!mobileMenuOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileMenuOpen(false); };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [mobileMenuOpen]);
 
+  useEffect(() => {
+    if (!projectMenu) return;
+    projectMenuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    function closeOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !projectMenuRef.current?.contains(event.target) && !renameButton.current?.contains(event.target)) setProjectMenu(null);
+    }
+    function closeOnLayoutChange() { setProjectMenu(null); }
+    document.addEventListener('pointerdown', closeOutside);
+    window.addEventListener('resize', closeOnLayoutChange);
+    window.addEventListener('scroll', closeOnLayoutChange, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      window.removeEventListener('resize', closeOnLayoutChange);
+      window.removeEventListener('scroll', closeOnLayoutChange, true);
+    };
+  }, [projectMenu]);
+
   function setPane(index: number, sessionId: string | null, cwd: string) {
     setPanes(current => current.map((pane, position) => position === index ? { sessionId, cwd, revision: pane.revision + 1 } : pane));
     setActivePane(index);
+  }
+
+  function expandProject(path: string) {
+    setExpandedProject(path || null);
+    if (path) setExpandedProjects(current => current.includes(path) ? current : [...current, path]);
+  }
+
+  async function reorderProjects(path: string, target: string) {
+    if (sorting || path === target) return;
+    const next = [...projects];
+    const from = next.indexOf(path);
+    const to = next.indexOf(target);
+    if (from < 0 || to < 0) return;
+    next.splice(from, 1);
+    next.splice(to, 0, path);
+    setSorting(true);
+    setProjects(next);
+    try { await api('/api/projects/order', { method: 'PUT', body: JSON.stringify({ paths: next }) }); }
+    catch (reason) { setProjects(projects); setError((reason as Error).message); }
+    finally { setSorting(false); }
+  }
+
+  function closeRename() {
+    setRenamingProject(null);
+    renameButton.current?.focus();
+  }
+
+  async function renameProject(event: React.FormEvent) {
+    event.preventDefault();
+    if (!renamingProject || savingName || !projectName.trim()) return;
+    setSavingName(true);
+    try {
+      const { name } = await api<{ name: string }>('/api/projects/name', { method: 'PATCH', body: JSON.stringify({ path: renamingProject, name: projectName }) });
+      setProjectNames(current => ({ ...current, [renamingProject]: name }));
+      closeRename();
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setSavingName(false); }
+  }
+
+  function closeSessionRename() {
+    setRenamingSession(null);
+    sessionRenameButton.current?.focus();
+  }
+
+  async function renameSession(event: React.FormEvent) {
+    event.preventDefault();
+    if (!renamingSession || savingTitle || !sessionTitle.trim()) return;
+    setSavingTitle(true);
+    try {
+      const renamed = await api<SessionSummary>(`/api/sessions/${renamingSession.id}`, { method: 'PATCH', body: JSON.stringify({ title: sessionTitle }) });
+      setSessions(current => current.map(session => session.id === renamed.id ? { ...session, title: renamed.title } : session));
+      closeSessionRename();
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setSavingTitle(false); }
   }
 
   function newConversation(path: string, index = activePane) {
     setImOpen(false);
     setAgentsOpen(false);
     setMobileMenuOpen(false);
-    setExpandedProject(path || null);
+    expandProject(path);
     setPane(index, null, path);
   }
 
@@ -694,7 +795,7 @@ function App() {
     setImOpen(false);
     setAgentsOpen(false);
     setMobileMenuOpen(false);
-    setExpandedProject(session.cwd);
+    expandProject(session.cwd);
     setPane(activePane, session.id, session.cwd);
   }
 
@@ -713,12 +814,15 @@ function App() {
 
   async function deleteProject(path: string) {
     const count = sessions.filter(session => session.cwd === path).length;
-    if (!window.confirm(`删除项目“${projectLabel(path, projects)}”及其 ${count} 个对话记录？本地项目文件不会删除。`)) return;
+    if (!window.confirm(`删除项目“${projectLabel(path, projects, projectNames)}”及其 ${count} 个对话记录？本地项目文件不会删除。`)) return;
     setError('');
     try {
       await api('/api/projects', { method: 'DELETE', body: JSON.stringify({ path }) });
       const remaining = projects.filter(project => project !== path);
       setProjects(remaining);
+      setExpandedProjects(current => current.filter(project => project !== path));
+      setProjectNames(current => Object.fromEntries(Object.entries(current).filter(([project]) => project !== path)));
+      if (sessions.some(session => session.cwd === path && session.id === localStorage.getItem(lastSessionKey))) localStorage.removeItem(lastSessionKey);
       setSessions(current => current.filter(session => session.cwd !== path));
       setExpandedProject(current => current === path ? remaining[0] || null : current);
       setPanes(current => current.map(pane => pane.cwd === path ? { sessionId: null, cwd: remaining[0] || '', revision: pane.revision + 1 } : pane));
@@ -726,10 +830,11 @@ function App() {
   }
 
   async function deleteSession(session: SessionSummary) {
-    if (!window.confirm(`删除对话“${session.prompt}”？此操作会删除对话记录。`)) return;
+    if (!window.confirm(`删除对话“${session.title ?? session.prompt}”？此操作会删除对话记录。`)) return;
     setError('');
     try {
       await api(`/api/sessions/${session.id}`, { method: 'DELETE' });
+      if (localStorage.getItem(lastSessionKey) === session.id) localStorage.removeItem(lastSessionKey);
       setSessions(current => current.filter(item => item.id !== session.id));
       setPanes(current => current.map(pane => pane.sessionId === session.id ? { ...pane, sessionId: null, revision: pane.revision + 1 } : pane));
     } catch (reason) { setError((reason as Error).message); }
@@ -747,14 +852,14 @@ function App() {
 
   function sessionCreated(index: number, session: SessionSummary) {
     setSessions(current => [session, ...current]);
-    setExpandedProject(session.cwd);
+    expandProject(session.cwd);
     setPane(index, session.id, session.cwd);
   }
 
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const activeSessionId = currentPane.sessionId;
 
-  return <div className="app-shell">
+  return <ProjectNamesContext.Provider value={projectNames}><div className="app-shell">
     <button className={`mobile-menu-backdrop ${mobileMenuOpen ? 'open' : ''}`} aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)} />
     <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`} id="project-menu">
       <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><strong>Agent Muster</strong><button className="menu-close" aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)}>×</button></div>
@@ -767,19 +872,58 @@ function App() {
         <div className="section-title"><span>项目 <span className="count">{projects.length}</span></span><button className="add-project" disabled={picking} onClick={() => void pickProject()} aria-label="添加项目" title="添加项目"><ActionIcon type="add" /></button></div>
         {projects.map(path => {
           const projectSessions = sessions.filter(session => session.cwd === path);
-          const expanded = expandedProject === path;
-          return <div className="project-group" key={path}>
-            <div className="project-row">
-              <button className="project-item" onClick={() => {
+          const expanded = expandedProjects.includes(path);
+          return <div className={`project-group ${dragPreview?.path === path ? 'project-dragging' : ''}`} key={path}>
+            <div className={`project-row ${dragTarget === path ? 'project-drop-target' : ''}`} data-project-path={path}
+              onPointerDown={event => {
+                skipProjectClick.current = false;
+                if (sorting || event.button !== 0 || !(event.target instanceof Element) || event.target.closest('.project-new, .project-actions')) return;
+                const rect = event.currentTarget.getBoundingClientRect();
+                projectDrag.current = { path, target: path, startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top, width: rect.width, moved: false };
+              }} onPointerMove={event => {
+                const drag = projectDrag.current;
+                if (!drag || drag.path !== path) return;
+                if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 5) {
+                  drag.moved = true;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  setProjectMenu(null);
+                }
+                if (!drag.moved) return;
+                setDragPreview({ path, width: drag.width, left: Math.max(0, Math.min(drag.left + event.clientX - drag.startX, window.innerWidth - drag.width)), top: Math.max(0, Math.min(drag.top + event.clientY - drag.startY, window.innerHeight - 34)) });
+                const group = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('.project-group');
+                const row = group?.querySelector<HTMLElement>('[data-project-path]');
+                if (row?.dataset.projectPath) { drag.target = row.dataset.projectPath; setDragTarget(drag.target); }
+              }} onPointerUp={() => {
+                const drag = projectDrag.current;
+                projectDrag.current = null;
+                setDragTarget(null);
+                setDragPreview(null);
+                if (drag?.moved) { skipProjectClick.current = true; void reorderProjects(drag.path, drag.target); }
+              }} onPointerCancel={() => { projectDrag.current = null; setDragTarget(null); setDragPreview(null); }}
+              onLostPointerCapture={event => { if (event.target === event.currentTarget) { projectDrag.current = null; setDragTarget(null); setDragPreview(null); } }}
+              onClickCapture={event => {
+                if (skipProjectClick.current) { event.preventDefault(); event.stopPropagation(); skipProjectClick.current = false; }
+              }}>
+              <button className="project-item" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" onKeyDown={event => {
+                if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+                event.preventDefault();
+                const target = projects[projects.indexOf(path) + (event.key === 'ArrowUp' ? -1 : 1)];
+                if (target) void reorderProjects(path, target);
+              }} onClick={() => {
                 setImOpen(false);
                 setAgentsOpen(false);
-                if (expanded) setExpandedProject(null);
-                else setExpandedProject(path);
+                setExpandedProjects(current => expanded ? current.filter(project => project !== path) : [...current, path]);
+                setExpandedProject(expanded ? null : path);
               }} title={path} aria-expanded={expanded}>
-                <span className="project-folder" /><span className="project-name">{projectLabel(path, projects)}</span><span className="project-count">{projectSessions.length}</span>
+                <span className="project-folder" /><span className="project-name">{projectLabel(path, projects, projectNames)}</span><span className="project-count">{projectSessions.length}</span>
               </button>
-              <button className="project-new" onClick={() => newConversation(path)} aria-label={`在 ${projectLabel(path, projects)} 中新建对话`} title="新建对话"><ActionIcon type="edit" /></button>
-              <button className="sidebar-delete" onClick={() => void deleteProject(path)} aria-label={`删除项目 ${projectLabel(path, projects)}`} title="删除项目"><ActionIcon type="delete" /></button>
+              <button className="project-new" onClick={() => newConversation(path)} aria-label={`在 ${projectLabel(path, projects, projectNames)} 中新建对话`} title="新建对话"><ActionIcon type="edit" /></button>
+              <button className={`project-actions ${projectMenu?.path === path ? 'open' : ''}`} aria-label={`项目操作 ${projectLabel(path, projects, projectNames)}`} aria-haspopup="menu" aria-expanded={projectMenu?.path === path} aria-controls={projectMenu?.path === path ? 'project-actions-menu' : undefined} data-tooltip="项目操作" onClick={event => {
+                renameButton.current = event.currentTarget;
+                if (projectMenu?.path === path) { setProjectMenu(null); return; }
+                const rect = event.currentTarget.getBoundingClientRect();
+                setProjectMenu({ path, left: Math.max(8, Math.min(rect.right - 148, window.innerWidth - 156)), top: rect.bottom + 88 < window.innerHeight ? rect.bottom + 4 : rect.top - 84 });
+              }}><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg></button>
             </div>
             {expanded && <div className="project-conversations">
               {projectSessions.length ? projectSessions.map(session => {
@@ -787,9 +931,13 @@ function App() {
                 const dingtalkBinding = session.im?.find(binding => binding.platform === 'dingtalk');
                 const feishuBinding = session.im?.find(binding => binding.platform === 'feishu');
                 const feishuIcon = feishuApps.find(app => app.id === feishuBinding?.appId)?.icon;
-                return <div className="conversation-row" key={session.id}><button className={`conversation-item ${activeSessionId === session.id ? 'selected' : ''}`} onClick={() => openConversation(session)} title={session.prompt}>
-                  <span className="conversation-icon">{dingtalkBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}{feishuBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<AgentIcon agent={session.agent} className={dingtalkBinding || feishuBinding ? 'conversation-agent-badge' : undefined} /></span><span className="conversation-text"><strong>{session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{(session.status === 'starting' || session.status === 'running') && <span className="conversation-loading" role="status" aria-label={statusLabel[session.status]} />}{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
-                </button><button className="sidebar-delete conversation-delete" onClick={() => void deleteSession(session)} aria-label={`删除对话 ${session.prompt}`} title="删除对话"><ActionIcon type="delete" /></button></div>;
+                return <div className="conversation-row" key={session.id}><button className={`conversation-item ${activeSessionId === session.id ? 'selected' : ''}`} onClick={() => openConversation(session)} title={session.title ?? session.prompt}>
+                  <span className="conversation-icon">{dingtalkBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}{feishuBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<AgentIcon agent={session.agent} className={dingtalkBinding || feishuBinding ? 'conversation-agent-badge' : undefined} /></span><span className="conversation-text"><strong>{session.title ?? session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{(session.status === 'starting' || session.status === 'running') && <span className="conversation-loading" role="status" aria-label={statusLabel[session.status]} />}{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
+                </button><button className="conversation-rename" aria-label="重命名会话" data-tooltip="重命名会话" onClick={event => {
+                  sessionRenameButton.current = event.currentTarget;
+                  setSessionTitle(session.title ?? session.prompt);
+                  setRenamingSession(session);
+                }}><ActionIcon type="edit" /></button><button className="sidebar-delete conversation-delete" onClick={() => void deleteSession(session)} aria-label={`删除对话 ${session.title ?? session.prompt}`} title="删除对话"><ActionIcon type="delete" /></button></div>;
               }) : <p className="project-empty">还没有对话</p>}
             </div>}
           </div>;
@@ -806,13 +954,60 @@ function App() {
       </header>
       <div className="content chat-content">
         <div className={`workspace-grid ${layout}`} style={{ display: imOpen || agentsOpen ? 'none' : undefined }}>
-          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); setExpandedProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
+          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); expandProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
         </div>
         <div hidden={!agentsOpen}><AgentPanel active={agentsOpen} onChange={setAgents} /></div>
-        <div hidden={!imOpen}><ImPrototype active={imOpen} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects)} /></div>
+        <div hidden={!imOpen}><ImPrototype active={imOpen} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects, projectNames)} /></div>
       </div>
     </main>
-  </div>;
+    {dragPreview && createPortal(<div className="project-item project-drag-preview" aria-hidden="true" style={{ left: dragPreview.left, top: dragPreview.top, width: dragPreview.width }}>
+      <span className="project-folder" /><span className="project-name">{projectLabel(dragPreview.path, projects, projectNames)}</span><span className="project-count">{sessions.filter(session => session.cwd === dragPreview.path).length}</span>
+    </div>, document.body)}
+    {projectMenu && createPortal(<div ref={projectMenuRef} id="project-actions-menu" className="project-actions-menu" role="menu" aria-label="项目操作" style={{ left: projectMenu.left, top: projectMenu.top }} onBlur={event => {
+      if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setProjectMenu(null);
+    }} onKeyDown={event => {
+      if (event.key === 'Escape') { event.stopPropagation(); setProjectMenu(null); renameButton.current?.focus(); }
+      if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')];
+        const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length]?.focus();
+      }
+    }}>
+      <button role="menuitem" onClick={() => {
+        setProjectName(projectLabel(projectMenu.path, projects, projectNames));
+        setRenamingProject(projectMenu.path);
+        setProjectMenu(null);
+      }}>重命名</button>
+      <button role="menuitem" className="project-menu-delete" onClick={() => { void deleteProject(projectMenu.path); setProjectMenu(null); renameButton.current?.focus(); }}>删除项目</button>
+    </div>, document.body)}
+    {renamingSession && <div className="project-dialog-backdrop" onKeyDown={event => { if (event.key === 'Escape' && !savingTitle) { event.stopPropagation(); closeSessionRename(); } }}>
+      <form className="project-dialog" role="dialog" aria-modal="true" aria-labelledby="session-rename-title" onSubmit={event => void renameSession(event)} onKeyDown={event => {
+        if (event.key !== 'Tab') return;
+        const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)')];
+        const next = controls[(controls.indexOf(document.activeElement as HTMLElement) + (event.shiftKey ? controls.length - 1 : 1)) % controls.length];
+        event.preventDefault(); next?.focus();
+      }}>
+        <h2 id="session-rename-title">重命名会话</h2>
+        <label htmlFor="session-title">会话名称</label>
+        <input id="session-title" autoFocus value={sessionTitle} maxLength={100} disabled={savingTitle} onFocus={event => event.currentTarget.select()} onChange={event => setSessionTitle(event.target.value)} />
+        <div className="project-dialog-actions"><button type="button" disabled={savingTitle} onClick={closeSessionRename}>取消</button><button type="submit" disabled={savingTitle || !sessionTitle.trim()}>{savingTitle ? '保存中…' : '保存名称'}</button></div>
+      </form>
+    </div>}
+    {renamingProject && <div className="project-dialog-backdrop" onKeyDown={event => { if (event.key === 'Escape' && !savingName) { event.stopPropagation(); closeRename(); } }}>
+      <form className="project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-rename-title" onSubmit={event => void renameProject(event)} onKeyDown={event => {
+        if (event.key !== 'Tab') return;
+        const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)')];
+        const next = controls[(controls.indexOf(document.activeElement as HTMLElement) + (event.shiftKey ? controls.length - 1 : 1)) % controls.length];
+        event.preventDefault(); next?.focus();
+      }}>
+        <h2 id="project-rename-title">重命名项目</h2>
+        <label htmlFor="project-name">项目名称</label>
+        <input id="project-name" autoFocus value={projectName} maxLength={100} disabled={savingName} onFocus={event => event.currentTarget.select()} onChange={event => setProjectName(event.target.value)} />
+        <div className="project-dialog-actions"><button type="button" disabled={savingName} onClick={closeRename}>取消</button><button type="submit" disabled={savingName || !projectName.trim()}>{savingName ? '保存中…' : '保存名称'}</button></div>
+      </form>
+    </div>}
+  </div></ProjectNamesContext.Provider>;
 }
 
 createRoot(document.getElementById('root')!).render(<MessageProvider><App /></MessageProvider>);

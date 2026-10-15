@@ -114,6 +114,7 @@ export interface AgentSession {
   im?: ImBinding[];
   cwd: string;
   prompt: string;
+  title?: string;
   model?: string;
   permissionMode?: string;
   usage?: TokenUsage;

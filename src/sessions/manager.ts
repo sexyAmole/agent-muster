@@ -86,6 +86,15 @@ export class SessionManager extends EventEmitter {
     return this.sessions.get(id);
   }
 
+  rename(id: string, title: string): AgentSession {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error('会话不存在');
+    const renamed = { ...session, title };
+    this.store.saveMetadata(renamed);
+    session.title = title;
+    return session;
+  }
+
   linkImSession(id: string, binding: ImBinding): void {
     const session = this.sessions.get(id);
     if (!session) return;

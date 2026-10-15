@@ -32,6 +32,31 @@ async function chooseProjectDirectory(): Promise<string | null> {
 export function createProjectRouter(projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry) {
   const router = Router();
   router.get('/projects', (_request, response) => response.json(projects.list()));
+  router.get('/projects/names', (_request, response) => response.json(projects.names()));
+  router.put('/projects/order', async (request, response) => {
+    try {
+      const paths: unknown = request.body?.paths;
+      const known = new Set([...projects.list(), ...sessions.list().map(session => session.cwd)]);
+      if (!Array.isArray(paths) || paths.length !== known.size || new Set(paths).size !== paths.length || paths.some(path => typeof path !== 'string' || !known.has(path))) {
+        response.status(400).json({ error: '项目列表已变化，请刷新后重新排序' }); return;
+      }
+      await projects.reorder(paths as string[]);
+      response.json(projects.list());
+    } catch (error) { response.status(500).json({ error: (error as Error).message }); }
+  });
+  router.patch('/projects/name', async (request, response) => {
+    try {
+      const { path, name } = request.body ?? {};
+      if (typeof path !== 'string' || (!projects.list().includes(path) && !sessions.list().some(session => session.cwd === path))) {
+        response.status(404).json({ error: '项目不存在' }); return;
+      }
+      if (typeof name !== 'string' || !name.trim() || name.trim().length > 100) {
+        response.status(400).json({ error: '项目名称需要为 1–100 个字符' }); return;
+      }
+      await projects.rename(path, name.trim());
+      response.json({ name: name.trim() });
+    } catch (error) { response.status(500).json({ error: (error as Error).message }); }
+  });
   for (const kind of ['tree', 'file'] as const) {
     router.get(`/projects/${kind}`, async (request, response) => {
       try {
