@@ -67,6 +67,21 @@ function time(value: number): string {
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(value);
 }
 
+function shortDate(date: Date): string {
+  const now = new Date();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const sameMonth = sameYear && date.getMonth() === now.getMonth();
+  const sameDay = sameMonth && date.getDate() === now.getDate();
+  return `${sameYear ? '' : `${date.getFullYear()}年`}${sameMonth ? '' : `${date.getMonth() + 1}月`}${sameDay ? '' : `${date.getDate()}日`}`;
+}
+
+function MessageDate({ timestamp }: { timestamp: number }) {
+  const date = new Date(timestamp);
+  const prefix = shortDate(date);
+  const clock = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return <time className="message-date" dateTime={date.toISOString()} aria-label={date.toLocaleString('zh-CN', { hour12: false })} tabIndex={0}>{prefix && `${prefix} `}{clock}</time>;
+}
+
 function tokenCount(value: number): string {
   return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(1)}M` : value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
 }
@@ -405,7 +420,33 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
   </div>;
 }
 
-function ChatPane({ index, pane, panelProject, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls }: PaneProps & { layoutControls?: React.ReactNode }) {
+type ChatPaneProps = PaneProps & { layoutControls?: React.ReactNode };
+
+function ChatPane(props: ChatPaneProps) {
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [conversationRatio, setConversationRatio] = useState(0.5);
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 1100px)').matches);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1100px)');
+    const update = () => setNarrow(media.matches);
+    media.addEventListener('change', update);
+    update();
+    return () => media.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => { setPanelOpen(false); }, [props.panelProject, props.multi, narrow]);
+
+  return <ChatPaneContent key={props.pane.revision} {...props} panelOpen={panelOpen} setPanelOpen={setPanelOpen} conversationRatio={conversationRatio} setConversationRatio={setConversationRatio} narrow={narrow} />;
+}
+
+function ChatPaneContent({ index, pane, panelProject, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls, panelOpen, setPanelOpen, conversationRatio, setConversationRatio, narrow }: ChatPaneProps & {
+  panelOpen: boolean;
+  setPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  conversationRatio: number;
+  setConversationRatio: React.Dispatch<React.SetStateAction<number>>;
+  narrow: boolean;
+}) {
   const selectedId = pane.sessionId;
   const [selected, setSelected] = useState<Session | null>(() => {
     const summary = sessions.find(session => session.id === selectedId);
@@ -421,22 +462,16 @@ function ChatPane({ index, pane, panelProject, multi, active: focused, agents, p
   const [copiedTarget, setCopiedTarget] = useState<'conversation' | 'run-log' | number | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const followConversation = useRef(true);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 1100px)').matches);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const panelDrag = useRef({ x: 0, width: 0 });
   const panelButton = useRef<HTMLButtonElement>(null);
   const canOpenPanel = !multi && !narrow && Boolean(selected && selected.cwd === panelProject);
   const showPanel = canOpenPanel && panelOpen;
 
-  useEffect(() => {
-    const media = window.matchMedia('(max-width: 1100px)');
-    const update = () => setNarrow(media.matches);
-    media.addEventListener('change', update);
-    update();
-    return () => media.removeEventListener('change', update);
-  }, []);
-
-  useEffect(() => { setPanelOpen(false); }, [panelProject, multi, narrow]);
-
+  function resizeConversation(width: number) {
+    const available = paneRef.current!.clientWidth - 8;
+    setConversationRatio(Math.max(300, Math.min(available - 300, width)) / available);
+  }
 
   useEffect(() => {
     if (!selectedId) { setSelected(null); return; }
@@ -570,12 +605,25 @@ function ChatPane({ index, pane, panelProject, multi, active: focused, agents, p
               : item.type === 'thinking'
                 ? <details key={item.streamId || item.id} className="thinking-step"><summary className="thinking-label"><span>{item.streaming ? '思考中…' : '思考内容'}<span> · {Array.from(item.text).length} 字</span></span><span className="tool-call-chevron" aria-hidden="true" /></summary><div className="thinking-content"><StreamText text={item.text} streaming={item.streaming} onProgress={followStream} /></div></details>
                 : item.type === 'message'
-                ? <div key={item.streamId || item.id} className="chat-turn user-turn"><div className="user-bubble">{item.text}{item.images && item.images.length > 0 && <MessageImages key={selected.id} sessionId={selected.id} eventId={item.id} count={item.images.length} />}</div></div>
+                ? <div key={item.streamId || item.id} className="chat-turn user-turn"><div className="user-bubble">{item.text}{item.images && item.images.length > 0 && <MessageImages key={selected.id} sessionId={selected.id} eventId={item.id} count={item.images.length} />}</div><MessageDate timestamp={item.timestamp} /></div>
                 : item.type === 'file_change'
                   ? <FileChange key={item.streamId || item.id} event={item} cwd={selected.cwd} />
                 : item.type === 'error'
                   ? <div key={item.streamId || item.id} className="chat-notice">{item.text}</div>
-                  : <div key={item.streamId || item.id} className="chat-turn assistant-turn">{item.type === 'im_message' && <div className="dingtalk-sent-label">应用 · 已发送到{item.im?.platform === 'feishu' ? '飞书' : '钉钉'}</div>}<div className="assistant-copy">{item.type === 'im_message' ? <div className="dingtalk-sent-content">{item.text}</div> : <StreamText text={item.text} streaming={item.streaming} onProgress={followStream}>{text => <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>}</StreamText>}</div>{showActions && <div className="reply-actions"><button className="reply-copy" aria-label={copiedTarget === item.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(item.text, item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === item.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>{item.type === 'output' && Boolean(selected.im?.length) && item.text.trim() && <button className="reply-push" disabled={pushingId !== null || item.pushedToIm} onClick={() => void pushToIm(item)}>{pushingId === item.id ? '推送中…' : item.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div>}</div>);
+                  : <div key={item.streamId || item.id} className="chat-turn assistant-turn">{item.type === 'im_message' && <div className="dingtalk-sent-label">应用 · 已发送到{item.im?.platform === 'feishu' ? '飞书' : '钉钉'}</div>}<div className="assistant-copy">{item.type === 'im_message' ? <div className="dingtalk-sent-content">{item.text}</div> : <StreamText text={item.text} streaming={item.streaming} onProgress={followStream}>{text => <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>}</StreamText>}</div><div className="reply-actions">{showActions && <button className="reply-copy" aria-label={copiedTarget === item.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(item.text, item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === item.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}<MessageDate timestamp={item.timestamp} />{showActions && item.type === 'output' && Boolean(selected.im?.length) && item.text.trim() && <button className="reply-push" disabled={pushingId !== null || item.pushedToIm} onClick={() => void pushToIm(item)}>{pushingId === item.id ? '推送中…' : item.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div></div>);
+
+    let previousDay: string | undefined;
+    const renderDatedItem = (item: Event | Event[], showActions = false) => {
+      const event = Array.isArray(item) ? item[0] : item;
+      const date = new Date(event.timestamp);
+      const day = date.toDateString();
+      const showDate = day !== previousDay;
+      previousDay = day;
+      return <React.Fragment key={event.streamId || event.id}>
+        {showDate && <div className="date-divider" role="separator" aria-label={date.toLocaleString('zh-CN', { hour12: false })}><time dateTime={date.toISOString()}>{shortDate(date) || '今天'} {date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}</time></div>}
+        {renderItem(item, showActions)}
+      </React.Fragment>;
+    };
 
     return executionRounds(selected).map(round => {
       const items = conversationItems({ ...selected, events: round.events, status: round.end ? round.end.text as Status : selected.status });
@@ -584,16 +632,16 @@ function ChatPane({ index, pane, panelProject, multi, active: focused, agents, p
       const stepEvents = steps.flatMap(item => Array.isArray(item) ? item : [item]);
       const results = items.filter(item => !Array.isArray(item) && (item === finalOutput || item.type === 'im_message' || item.type === 'error'));
       return <React.Fragment key={round.id}>
-        {round.message && renderItem(round.message)}
+        {round.message && renderDatedItem(round.message)}
         <div className="execution-response">
           <ExecutionSteps round={round} stepCount={stepEvents.length} commandCount={stepEvents.filter(event => event.type === 'tool').length}>{steps.map(item => renderItem(item, !Array.isArray(item) && !item.streaming && item === finalOutput))}</ExecutionSteps>
-          {results.map(item => renderItem(item, !Array.isArray(item) && !item.streaming && item === finalOutput))}
+          {results.map(item => renderDatedItem(item, !Array.isArray(item) && !item.streaming && item === finalOutput))}
         </div>
       </React.Fragment>;
     });
   }, [selected, index, agents, copiedTarget, pushingId, onSessionUpdate, followStream]);
 
-  return <div className={`pane-wrap ${focused && multi ? 'focused' : ''}${showPanel ? ' files-open' : ''}`} onPointerDown={() => { if (!focused) onFocus(index); }} onFocusCapture={() => { if (!focused) onFocus(index); }}>
+  return <div ref={paneRef} className={`pane-wrap ${focused && multi ? 'focused' : ''}${showPanel ? ' files-open' : ''}`} style={showPanel ? { gridTemplateColumns: `minmax(300px, ${conversationRatio}fr) 8px minmax(300px, ${1 - conversationRatio}fr)` } : undefined} onPointerDown={() => { if (!focused) onFocus(index); }} onFocusCapture={() => { if (!focused) onFocus(index); }}>
     <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
       <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected ? { ...selected, title: sessions.find(session => session.id === selected.id)?.title } : null} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={canOpenPanel && <button ref={panelButton} type="button" className="file-panel-toggle" aria-label={showPanel ? '收起面板' : '展开面板'} aria-expanded={showPanel} onClick={() => setPanelOpen(open => !open)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /></svg></button>} />
       <div className="conversation-scroll" key={selected?.id} ref={conversationRef} role="log" aria-label={`窗口 ${index + 1} 对话记录`} onScroll={event => {
@@ -608,6 +656,22 @@ function ChatPane({ index, pane, panelProject, multi, active: focused, agents, p
       </div>
       <ChatComposer index={index} pane={pane} agents={agents} projects={projects} sessions={sessions} onProjectChange={onProjectChange} onSessionCreated={onSessionCreated} onSessionUpdate={onSessionUpdate} focused={focused} selected={selected} setSelected={setSelected} setError={setError} />
     </section>
+    {showPanel && <div className="panel-resizer" role="separator" tabIndex={0} aria-label="调整会话与文件面板宽度" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(conversationRatio * 100)} onPointerDown={event => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.currentTarget.focus();
+      panelDrag.current = { x: event.clientX, width: paneRef.current!.querySelector<HTMLElement>('.output-panel')!.offsetWidth };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }} onPointerMove={event => {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeConversation(panelDrag.current.width + event.clientX - panelDrag.current.x);
+    }} onPointerUp={event => {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    }} onKeyDown={event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const width = paneRef.current!.querySelector<HTMLElement>('.output-panel')!.offsetWidth;
+      resizeConversation(event.key === 'Home' ? 300 : event.key === 'End' ? paneRef.current!.clientWidth - 308 : width + (event.key === 'ArrowLeft' ? -20 : 20));
+    }} />}
     {showPanel && selected && <Suspense fallback={<aside className="file-panel" role="status"><p className="file-panel-status">正在加载文件面板…</p></aside>}><FilePanel key={selected.cwd} project={selected.cwd} onClose={() => { setPanelOpen(false); panelButton.current?.focus(); }} /></Suspense>}
   </div>;
 }
@@ -954,7 +1018,7 @@ function App() {
       </header>
       <div className="content chat-content">
         <div className={`workspace-grid ${layout}`} style={{ display: imOpen || agentsOpen ? 'none' : undefined }}>
-          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.revision}`} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); expandProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
+          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.cwd}`} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); expandProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
         </div>
         <div hidden={!agentsOpen}><AgentPanel active={agentsOpen} onChange={setAgents} /></div>
         <div hidden={!imOpen}><ImPrototype active={imOpen} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects, projectNames)} /></div>
