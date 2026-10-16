@@ -1,4 +1,5 @@
 import { AgentRegistry } from '../agents/registry.js';
+import { setDebugEnabled } from '../debug.js';
 import { DingTalkRegistry } from '../integrations/dingtalk/registry.js';
 import { FeishuRegistry } from '../integrations/feishu/registry.js';
 import { WecomRegistry } from '../integrations/wecom/registry.js';
@@ -20,6 +21,7 @@ export async function main(): Promise<void> {
     return;
   }
   const options = parseArgs(args);
+  setDebugEnabled(options.debug);
   const { command } = options;
   if (command === 'update') {
     await updatePackage();

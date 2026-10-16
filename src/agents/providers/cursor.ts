@@ -1,7 +1,7 @@
 import { realpath, rm, readFile } from 'node:fs/promises';
 import { delimiter, sep, join, basename, resolve } from 'node:path';
 import { executablePath } from '../executable.js';
-import { fullAutoMode, autoReviewMode, planMode, execFileAsync, object, string, detail, json, toolText } from './shared.js';
+import { fullAutoMode, autoReviewMode, planMode, execFileAsync, object, string, tokens, hasTokens, detail, json, toolText } from './shared.js';
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import type { AdapterEvent, AgentProvider } from './shared.js';
@@ -101,7 +101,15 @@ export const cursor: AgentProvider = {
         });
         return { externalSessionId, events: [...events, ...tools] };
       }
-      if (event.type === 'result') return { externalSessionId, events: finishText(), error: event.is_error ? string(event.result) || 'Cursor 执行失败' : undefined };
+      if (event.type === 'result') {
+        const usage = object(event.usage);
+        return { externalSessionId, events: finishText(), usage: usage && hasTokens(usage, ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']) ? {
+          inputTokens: tokens(usage.inputTokens) + tokens(usage.cacheReadTokens) + tokens(usage.cacheWriteTokens),
+          outputTokens: tokens(usage.outputTokens),
+          cacheReadTokens: typeof usage.cacheReadTokens === 'number' ? tokens(usage.cacheReadTokens) : undefined,
+          cacheWriteTokens: typeof usage.cacheWriteTokens === 'number' ? tokens(usage.cacheWriteTokens) : undefined,
+        } : undefined, error: event.is_error ? string(event.result) || 'Cursor 执行失败' : undefined };
+      }
       return { externalSessionId };
     };
   },

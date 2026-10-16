@@ -1,5 +1,6 @@
 import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promisify } from 'node:util';
+import { debugEnabled } from '../../debug.js';
 import type { AgentAction, AgentImage, AgentSession, ModelInfo, PermissionMode, TokenUsage } from '../../types.js';
 
 export const execFileAsync = promisify(execFile);
@@ -129,6 +130,7 @@ export function createAdapter(protocol: ProtocolAdapter): Adapter {
     createReader(reader) {
       const read = reader ?? protocol.createReader();
       return (line, channel) => {
+        if (debugEnabled) console.log(`[调试][${protocol.id}][${channel}]`, line);
         if (channel === 'stdout') return normalizeResult(read(line.trim()));
         if (!line.trim()) return { events: [] };
         if (protocol.readStderr) return { events: protocol.readStderr(line) };

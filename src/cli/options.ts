@@ -3,6 +3,7 @@ export interface CliOptions {
   port: number;
   open: boolean;
   dev: boolean;
+  debug: boolean;
 }
 
 export function parseArgs(args: string[]): CliOptions {
@@ -14,7 +15,7 @@ export function parseArgs(args: string[]): CliOptions {
   for (let index = 0; index < options.length; index++) {
     const option = options[index];
     if (command === 'web') {
-      if (option === '--no-open' || option === '--dev') continue;
+      if (option === '--no-open' || option === '--dev' || option === '--debug' || option === '--no-debug') continue;
       if (option === '--port' || option === '-p') {
         const value = options[++index];
         if (!value || !/^\d+$/.test(value)) throw new Error(`${option} 需要指定 1–65535 之间的整数端口。`);
@@ -26,5 +27,7 @@ export function parseArgs(args: string[]): CliOptions {
   const portIndex = options.findIndex(option => option === '--port' || option === '-p');
   const port = portIndex >= 0 ? Number(options[portIndex + 1]) : 17321;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('端口必须是 1–65535 之间的整数。');
-  return { command, port, open: !options.includes('--no-open'), dev: options.includes('--dev') };
+  const dev = options.includes('--dev');
+  const debugOption = [...options].reverse().find(option => option === '--debug' || option === '--no-debug');
+  return { command, port, open: !options.includes('--no-open'), dev, debug: debugOption ? debugOption === '--debug' : dev };
 }

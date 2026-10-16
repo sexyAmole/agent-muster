@@ -19,7 +19,9 @@ export function printHelp(): void {
 Web 选项：
   -p, --port <端口>  指定监听端口（默认 17321）
   --no-open         不自动打开浏览器
-  --dev             启用开发模式（需要源码及开发依赖）
+  --dev             启用开发模式，默认开启调试（需要源码及开发依赖）
+  --debug           开启调试日志
+  --no-debug        关闭调试日志
 
 示例：
   agent-muster

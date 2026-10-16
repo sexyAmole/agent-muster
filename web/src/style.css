@@ -343,7 +343,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .sidebar-projects { margin-top: 16px; }
   .topbar { height: 46px; display: flex; padding: 0 12px; }
   .pane-layout-switch { display: none; }
-  .workspace-grid { gap: 8px; padding: 8px; }
+  .workspace-grid { gap: 8px; padding: 8px 8px 8px 0; }
   .menu-toggle { width: 30px; height: 30px; display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 0; border: 0; border-radius: 6px; background: transparent; }
   .menu-toggle:hover { background: #f0f0f0; }
   .menu-toggle span { width: 16px; height: 2px; border-radius: 2px; background: #333; }

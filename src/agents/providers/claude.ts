@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { findJsonl } from '../jsonl.js';
 import { join, basename, resolve } from 'node:path';
-import { fullAutoMode, autoReviewMode, planMode, object, string, tokens, hasTokens, detail, json } from './shared.js';
+import { fullAutoMode, autoReviewMode, planMode, object, string, tokens, detail, json } from './shared.js';
 import type { AdapterEvent, AgentProvider, ParsedResult } from './shared.js';
 import type { TokenUsage } from '../../types.js';
 
@@ -45,24 +45,6 @@ export const claude: AgentProvider = {
     const blocks = new Map<number, AdapterEvent>();
     const nextIndices = new Map<string, number>();
     const tools = new Map<string, AdapterEvent>();
-    const messageUsages = new Map<string, Record<string, unknown>>();
-    function readUsage(key: string, usage: Record<string, unknown> | undefined): TokenUsage | undefined {
-      const fields = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'];
-      if (!usage || !hasTokens(usage, fields)) return undefined;
-      const previous = messageUsages.get(key);
-      const current = { ...previous };
-      for (const field of fields) {
-        if (typeof usage[field] === 'number') current[field] = Math.max(tokens(previous?.[field]), tokens(usage[field]));
-      }
-      messageUsages.set(key, current);
-      const delta = (field: string) => tokens(current[field]) - tokens(previous?.[field]);
-      return {
-        inputTokens: delta('input_tokens') + delta('cache_creation_input_tokens') + delta('cache_read_input_tokens'),
-        outputTokens: delta('output_tokens'),
-        cacheReadTokens: typeof current.cache_read_input_tokens === 'number' ? delta('cache_read_input_tokens') : undefined,
-        cacheWriteTokens: typeof current.cache_creation_input_tokens === 'number' ? delta('cache_creation_input_tokens') : undefined,
-      };
-    }
     function readBlock(block: Record<string, unknown>, key: string, index: number, streaming: boolean): AdapterEvent | undefined {
       const position = { orderKey: key, contentIndex: index };
       if (block.type === 'text' || block.type === 'thinking') {
@@ -96,10 +78,8 @@ export const claude: AgentProvider = {
       if (update?.type === 'message_start') {
         messageKey = string(object(update.message)?.id);
         blocks.clear();
-        return { externalSessionId, usage: messageKey ? readUsage(messageKey, object(object(update.message)?.usage)) : undefined };
       }
       if (!messageKey || !update) return { externalSessionId };
-      if (update.type === 'message_delta') return { externalSessionId, usage: readUsage(messageKey, object(update.usage)) };
       if (typeof update.index === 'number') activeIndex = update.index;
       if (update.type === 'content_block_start') {
         const content = object(update.content_block);
@@ -136,7 +116,7 @@ export const claude: AgentProvider = {
         return parsed?.text ? [parsed] : [];
       });
       nextIndices.set(key, (nextIndices.get(key) || 0) + content.length);
-      return { externalSessionId, events, usage: readUsage(key, object(message?.usage)) };
+      return { externalSessionId, events };
     }
 
     function readToolResults(event: Record<string, unknown>, externalSessionId: string | undefined): ParsedResult {
@@ -160,7 +140,17 @@ export const claude: AgentProvider = {
       if (event.type === 'assistant') return readAssistantMessage(event, externalSessionId);
       if (event.type === 'user') return readToolResults(event, externalSessionId);
       if (event.type === 'result') {
-        return { externalSessionId, error: event.is_error ? string(event.result) || 'Claude error' : undefined };
+        const modelUsage = object(event.modelUsage);
+        const models = modelUsage ? Object.values(modelUsage).map(object) : [];
+        const fields = ['inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens'];
+        const usage = models.length && models.every(model => model && fields.every(field => typeof model[field] === 'number'))
+          ? models.reduce<TokenUsage>((total, model) => ({
+            inputTokens: total.inputTokens + tokens(model!.inputTokens) + tokens(model!.cacheReadInputTokens) + tokens(model!.cacheCreationInputTokens),
+            outputTokens: total.outputTokens + tokens(model!.outputTokens),
+            cacheReadTokens: tokens(total.cacheReadTokens) + tokens(model!.cacheReadInputTokens),
+            cacheWriteTokens: tokens(total.cacheWriteTokens) + tokens(model!.cacheCreationInputTokens),
+          }), { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }) : undefined;
+        return { externalSessionId, usage, usageIsTotal: true, error: event.is_error ? string(event.result) || 'Claude error' : undefined };
       }
       if (event.type === 'plain') return { text: string(event.text) };
       return { externalSessionId };
