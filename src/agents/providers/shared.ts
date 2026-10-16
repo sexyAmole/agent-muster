@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AgentAction, AgentImage, AgentSession, ModelInfo, PermissionMode, TokenUsage } from '../../types.js';
 
@@ -9,6 +9,7 @@ export interface Launch {
   args: string[];
   prompt?: string;
   env?: NodeJS.ProcessEnv;
+  connect?: (child: ChildProcessWithoutNullStreams) => ProtocolReader;
 }
 
 export interface ExecutionOptions {
@@ -53,6 +54,7 @@ export interface ProtocolAdapter {
   launch(prompt: string, externalSessionId?: string, model?: string, images?: AgentImage[], options?: ExecutionOptions): Launch;
   createReader(): ProtocolReader;
   createRawReader?(): (chunk: string, channel: 'stdout' | 'stderr') => ParsedResult;
+  readStderr?(line: string): AgentEvent[];
   readError?(line: string): string | undefined;
   settlementError?: string;
 }
@@ -94,7 +96,7 @@ export interface AdapterResult {
 export interface Adapter {
   id: string;
   launch: ProtocolAdapter['launch'];
-  createReader(): (line: string, channel: 'stdout' | 'stderr') => AdapterResult;
+  createReader(reader?: ProtocolReader): (line: string, channel: 'stdout' | 'stderr') => AdapterResult;
   createRawReader?(): (chunk: string, channel: 'stdout' | 'stderr') => AdapterResult;
   settlementError?: string;
 }
@@ -124,11 +126,12 @@ export function createAdapter(protocol: ProtocolAdapter): Adapter {
         return (chunk: string, channel: 'stdout' | 'stderr') => normalizeResult(read(chunk, channel));
       },
     } : {}),
-    createReader() {
-      const read = protocol.createReader();
+    createReader(reader) {
+      const read = reader ?? protocol.createReader();
       return (line, channel) => {
         if (channel === 'stdout') return normalizeResult(read(line.trim()));
         if (!line.trim()) return { events: [] };
+        if (protocol.readStderr) return { events: protocol.readStderr(line) };
         const error = protocol.readError?.(line);
         const warning = line.trim().split(/\r?\n/).every(value => /^\S+\s+WARN\b/.test(value));
         return { events: [{ type: warning ? 'warning' : 'error', text: error || line }], failed: error ? true : undefined };

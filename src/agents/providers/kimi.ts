@@ -56,6 +56,7 @@ export const kimi: AgentProvider = {
         return { text: string(event.content), events, usage: usage && hasTokens(usage, ['prompt_tokens', 'completion_tokens']) ? {
           inputTokens: tokens(usage.prompt_tokens),
           outputTokens: tokens(usage.completion_tokens),
+          cacheReadTokens: typeof object(usage.prompt_tokens_details)?.cached_tokens === 'number' ? tokens(object(usage.prompt_tokens_details)?.cached_tokens) : undefined,
         } : undefined };
       }
       if (event.role === 'tool') {

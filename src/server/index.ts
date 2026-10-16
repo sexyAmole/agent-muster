@@ -6,6 +6,7 @@ import type { AgentRegistry } from '../agents/registry.js';
 import { AgentManagement } from '../agents/management.js';
 import type { DingTalkRegistry } from '../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../integrations/feishu/registry.js';
+import type { WecomRegistry } from '../integrations/wecom/registry.js';
 import type { ProjectRegistry } from '../projects/registry.js';
 import type { SessionManager } from '../sessions/manager.js';
 import { createAgentRouter } from './routes/agents.js';
@@ -13,11 +14,12 @@ import { createProjectRouter } from './routes/projects.js';
 import { createSessionRouter } from './routes/sessions.js';
 import { createDingTalkRouter } from './routes/dingtalk.js';
 import { createFeishuRouter } from './routes/feishu.js';
+import { createWecomRouter } from './routes/wecom.js';
 import { createImageRouter } from './routes/images.js';
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 
-export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, dev = false) {
+export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, dev = false) {
   const app = express();
   app.disable('x-powered-by');
   app.use((request, response, next) => {
@@ -39,10 +41,11 @@ export async function startServer(port: number, registry: AgentRegistry, project
 
   const agentManagement = new AgentManagement(registry);
   app.use('/api', createAgentRouter(registry, agentManagement, sessions));
-  app.use('/api', createProjectRouter(projects, sessions, dingtalk, feishu));
+  app.use('/api', createProjectRouter(projects, sessions, dingtalk, feishu, wecom));
   app.use('/api', createDingTalkRouter(dingtalk, projects, registry));
   app.use('/api', createFeishuRouter(feishu, projects, registry));
-  app.use('/api', createSessionRouter(sessions, registry, agentManagement, dingtalk, feishu));
+  app.use('/api', createWecomRouter(wecom, projects, registry));
+  app.use('/api', createSessionRouter(sessions, registry, agentManagement, dingtalk, feishu, wecom));
 
   const server = createServer(app);
   if (dev) {

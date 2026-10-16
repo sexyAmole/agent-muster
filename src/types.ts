@@ -52,6 +52,8 @@ export interface ModelInfo {
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 export interface AgentImage {
@@ -72,7 +74,8 @@ export type FeishuConversation = { type: 'single' | 'group'; senderId: string };
 
 export type ImContext =
   | { platform: 'dingtalk'; conversation?: DingTalkConversation }
-  | { platform: 'feishu'; conversation?: FeishuConversation };
+  | { platform: 'feishu'; conversation?: FeishuConversation }
+  | { platform: 'wecom'; conversation?: { type: 'single' | 'group'; senderId: string } };
 
 export type ImBinding = ImContext & { appId: string };
 

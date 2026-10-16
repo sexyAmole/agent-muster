@@ -53,9 +53,13 @@ const previewMessages: Record<Exclude<ProjectFileDetail['preview'], 'text'>, str
 
 export function FilePanel({ project, onClose }: { project: string; onClose: () => void }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [includeContent, setIncludeContent] = useState(false);
   const [revision, setRevision] = useState(0);
   const [copyResult, setCopyResult] = useState<{ path: string; error?: string } | null>(null);
   const result = useFileResource<ProjectFileDetail>(selected === null ? '' : `/api/projects/file?${new URLSearchParams({ path: project, file: selected })}`, revision);
+  const query = search.trim();
+  const searchResult = useFileResource<string[]>(query ? `/api/projects/files?${new URLSearchParams({ path: project, query, content: String(includeContent) })}` : '', revision);
   const file = result?.data;
   const copied = copyResult?.path === file?.path && !copyResult?.error;
   useEffect(() => {
@@ -81,7 +85,23 @@ export function FilePanel({ project, onClose }: { project: string; onClose: () =
           {file.preview === 'text' ? file.content ? <Suspense fallback={<p className="file-panel-status" role="status">正在加载代码预览…</p>}><FileCodePreview path={file.path} content={file.content} /></Suspense> : <p className="file-panel-status">空文件</p> : <p className="file-panel-status">{previewMessages[file.preview]}</p>}
         </>}
       </section>
-      <nav className="file-tree" aria-label="项目文件树"><div className="file-tree-project" title={project}>{project.split(/[\\/]/).filter(Boolean).at(-1)}</div><DirectoryEntries project={project} directory="" revision={revision} selected={selected} onSelect={setSelected} /></nav>
+      <nav className="file-tree" aria-label="项目文件树">
+        <div className="file-tree-project" title={project}>{project.split(/[\\/]/).filter(Boolean).at(-1)}</div>
+        <div className="file-tree-search">
+          <div className="file-tree-search-row">
+            <input type="search" aria-label="搜索项目文件" placeholder={includeContent ? '搜索文件名、路径或内容' : '搜索文件名或路径'} value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setSearch(''); }} />
+            <button type="button" className="file-tree-search-toggle" aria-label="搜索文件内容" aria-pressed={includeContent} onClick={() => setIncludeContent(value => !value)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7M14 2v6h6M14 2l6 6v3M8 12h4M8 16h3" /><circle cx="17" cy="16" r="3" /><path d="m19.2 18.2 2.8 2.8" /></svg></button>
+          </div>
+          {includeContent && <p className="file-tree-search-hint">内容搜索支持 1 MiB 以内的 UTF-8 文本文件</p>}
+        </div>
+        <div className="file-tree-content" hidden={Boolean(query)}><DirectoryEntries project={project} directory="" revision={revision} selected={selected} onSelect={setSelected} /></div>
+        {query && <div className="file-tree-content" aria-label="文件搜索结果" aria-busy={!searchResult}>
+          {!searchResult ? <p className="file-panel-status" role="status">搜索中…</p> : searchResult.error ? <p className="file-panel-status file-panel-error" role="alert">{searchResult.error}</p> : !searchResult.data?.length ? <p className="file-panel-status" role="status">没有匹配文件，请修改搜索词</p> : <>
+            <ul className="file-tree-list">{searchResult.data.map(path => <li key={path}><button type="button" className="file-tree-entry" title={path} aria-pressed={selected === path} onClick={() => setSelected(path)}><FileTreeIcon name={path.split('/').at(-1)!} directory={false} expanded={false} /><span>{path}</span></button></li>)}</ul>
+            {searchResult.data.length === 50 && <p className="file-panel-status">最多显示 50 个文件，可输入更完整的路径缩小范围</p>}
+          </>}
+        </div>}
+      </nav>
     </div>
   </aside>;
 }

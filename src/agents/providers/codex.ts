@@ -5,7 +5,7 @@ import { join, basename, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fullAutoMode, autoReviewMode, object, string, tokens, hasTokens, detail, json } from './shared.js';
-import type { AgentProvider, ParsedResult } from './shared.js';
+import type { AdapterEvent, AgentProvider, ParsedResult } from './shared.js';
 
 interface CodexModel {
   model: string;
@@ -69,38 +69,131 @@ export const codex: AgentProvider = {
     const sandbox = permissionMode === 'read-only' || permissionMode === 'workspace-write' ? permissionMode
       : permissionMode === 'auto-review' || sandboxEnabled ? 'workspace-write' : 'danger-full-access';
     const executionArgs = ['-c', `sandbox_mode=${JSON.stringify(sandbox)}`, ...(permissionMode === 'auto-review' ? ['--approve-for-me'] : ['-c', 'approval_policy="never"'])];
-    const imageArgs = images?.flatMap(image => ['--image', image.path]) || [];
     return {
       command: 'codex',
-      args: externalSessionId
-        ? [...executionArgs, 'exec', 'resume', ...imageArgs, '--json', '--skip-git-repo-check', ...(model ? ['--model', model] : []), externalSessionId, '-']
-        : [...executionArgs, 'exec', ...imageArgs, '--json', '--skip-git-repo-check', ...(model ? ['--model', model] : []), '-'],
-      prompt,
+      args: [...executionArgs, 'app-server'],
+      connect(child) {
+        const read = codex.createReader();
+        let threadId: string | undefined;
+        let closed = false;
+        const send = (message: object) => { if (!closed) child.stdin.write(`${JSON.stringify(message)}\n`); };
+        const close = () => { if (!closed) { closed = true; child.stdin.end(); } };
+        const fail = (error: string): ParsedResult => { close(); return { error, settled: true }; };
+        child.stdin.on('error', error => { if (!closed) child.emit('error', error); });
+        child.once('close', () => { closed = true; });
+        send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'agent_muster', version: '0.1.0' }, capabilities: { experimentalApi: true } } });
+        return line => {
+          const message = json(line);
+          if (closed) return {};
+          if (!message || message.type === 'plain') return fail('Codex App Server 返回了无效的 JSON 消息');
+          const params = object(message.params);
+          if (message.id !== undefined && typeof message.method === 'string') {
+            if (message.method === 'item/commandExecution/requestApproval' || message.method === 'item/fileChange/requestApproval') {
+              send({ id: message.id, result: { decision: 'decline' } });
+            } else if (message.method === 'item/permissions/requestApproval') {
+              send({ id: message.id, result: { permissions: {}, scope: 'turn' } });
+            } else if (message.method === 'item/tool/requestUserInput') {
+              send({ id: message.id, result: { answers: {} } });
+            } else if (message.method === 'mcpServer/elicitation/request') {
+              send({ id: message.id, result: { action: 'decline', content: null, _meta: null } });
+            } else {
+              send({ id: message.id, error: { code: -32601, message: `不支持此交互请求：${message.method}` } });
+            }
+            return {};
+          }
+          if (message.error) return fail(string(object(message.error)?.message) || 'Codex App Server 请求失败');
+          if (message.id === 1) {
+            send({ method: 'initialized' });
+            const configuration = {
+              ...(model ? { model } : {}), sandbox,
+              approvalPolicy: permissionMode === 'auto-review' ? 'on-request' : 'never',
+              approvalsReviewer: permissionMode === 'auto-review' ? 'guardian_subagent' : 'user',
+            };
+            send({ id: 2, method: externalSessionId ? 'thread/resume' : 'thread/start', params: {
+              ...configuration,
+              ...(externalSessionId ? { threadId: externalSessionId, excludeTurns: true } : { historyMode: 'legacy' }),
+            } });
+          } else if (message.id === 2) {
+            threadId = string(object(object(message.result)?.thread)?.id);
+            if (!threadId) return fail('Codex App Server 未返回会话 ID');
+            send({ id: 3, method: 'turn/start', params: { threadId, input: [
+              { type: 'text', text: prompt },
+              ...(images?.map(image => ({ type: 'localImage', path: image.path })) || []),
+            ] } });
+            return { externalSessionId: threadId };
+          }
+          if (params?.threadId !== undefined && params.threadId !== threadId) return {};
+          const result = read(line);
+          if (result.settled) close();
+          return result;
+        };
+      },
     };
   },
+  readStderr(line) {
+    const log = json(line);
+    if (log?.level === 'INFO' || log?.level === 'DEBUG' || log?.level === 'TRACE') return [];
+    return [{ type: log?.level === 'WARN' || /^\S+\s+WARN\b/.test(line.trim()) ? 'warning' : 'error', text: string(object(log?.fields)?.message) || line }];
+  },
+  settlementError: 'Codex 进程退出前未返回 turn/completed，无法确认任务已完成。',
   createReader() {
-    const handlers = new Map<string, (event: Record<string, unknown>) => ParsedResult>([
-      ['thread.started', event => ({ externalSessionId: string(event.thread_id) })],
-      ['turn.completed', event => {
-        const usage = object(event.usage);
-        if (usage && hasTokens(usage, ['input_tokens', 'output_tokens'])) return { settled: true, usage: { inputTokens: tokens(usage.input_tokens), outputTokens: tokens(usage.output_tokens) }, usageIsTotal: true };
-        return { settled: true };
-      }],
-      ['item.completed', event => {
-        const item = object(event.item);
-        if (item?.type === 'agent_message') return { text: string(item.text) };
-        if (item?.type === 'command_execution') return { tools: [{ name: `$ ${string(item.command) || 'command'}`, detail: string(item.aggregated_output) }] };
-        if (item?.type === 'mcp_tool_call') return { tools: [{ name: `${string(item.server) || 'MCP'} / ${string(item.tool) || 'tool'}`, detail: detail(item.result) }] };
-        return {};
-      }],
-      ['error', event => ({ error: string(event.message) || 'Codex error' })],
-      ['plain', event => ({ text: string(event.text) })],
-    ]);
+    const items = new Map<string, AdapterEvent>();
+    const summaries = new Map<string, string[]>();
+    function readItem(item: Record<string, unknown>, streaming: boolean): AdapterEvent | undefined {
+      const id = string(item.id);
+      if (!id) return undefined;
+      const position = { streamId: id, orderKey: id, streaming };
+      if (item.type === 'agentMessage' || item.type === 'plan') return { type: 'output', text: string(item.text) || '', ...position };
+      if (item.type === 'reasoning') {
+        const summary = Array.isArray(item.summary) ? item.summary.filter((part): part is string => typeof part === 'string') : [];
+        summaries.set(id, summary);
+        return { type: 'thinking', text: summary.join('\n'), ...position };
+      }
+      if (item.type === 'commandExecution') return { type: 'tool', text: `$ ${string(item.command) || 'command'}`, detail: string(item.aggregatedOutput) ?? items.get(id)?.detail, ...position };
+      if (item.type === 'mcpToolCall') return { type: 'tool', text: `${string(item.server) || 'MCP'} / ${string(item.tool) || 'tool'}`, detail: detail(item.error ?? item.result), ...position };
+      return undefined;
+    }
     return line => {
-      const event = json(line);
-      if (!event || typeof event.type !== 'string') return {};
-      const handle = handlers.get(event.type);
-      return handle ? handle(event) : {};
+      const message = json(line);
+      const params = object(message?.params);
+      if (!params) return {};
+      if (message?.method === 'turn/completed') {
+        const turn = object(params.turn);
+        return { settled: true, failed: turn?.status === 'failed', aborted: turn?.status === 'interrupted', error: string(object(turn?.error)?.message) };
+      }
+      if (message?.method === 'error') return { error: string(object(params.error)?.message), failed: params.willRetry !== true };
+      if (message?.method === 'thread/tokenUsage/updated') {
+        const usage = object(object(params.tokenUsage)?.total);
+        return usage && hasTokens(usage, ['inputTokens', 'outputTokens']) ? { usage: {
+          inputTokens: tokens(usage.inputTokens), outputTokens: tokens(usage.outputTokens),
+          cacheReadTokens: typeof usage.cachedInputTokens === 'number' ? tokens(usage.cachedInputTokens) : undefined,
+          cacheWriteTokens: typeof usage.cacheWriteInputTokens === 'number' ? tokens(usage.cacheWriteInputTokens) : undefined,
+        }, usageIsTotal: true } : {};
+      }
+      if (message?.method === 'item/started' || message?.method === 'item/completed') {
+        const item = object(params.item);
+        const event = item && readItem(item, message.method === 'item/started');
+        if (!event) return {};
+        items.set(event.streamId!, event);
+        return { events: event.text ? [event] : [] };
+      }
+      const id = string(params.itemId);
+      const previous = id && items.get(id);
+      const delta = string(params.delta);
+      if (!id || !previous || delta === undefined || !previous.streaming) return {};
+      let event: AdapterEvent;
+      if (message?.method === 'item/agentMessage/delta' || message?.method === 'item/plan/delta') {
+        event = { ...previous, text: previous.text + delta };
+      } else if (message?.method === 'item/reasoning/summaryTextDelta') {
+        if (typeof params.summaryIndex !== 'number' || !Number.isSafeInteger(params.summaryIndex) || params.summaryIndex < 0) return {};
+        const summary = summaries.get(id)!;
+        summary[params.summaryIndex] = (summary[params.summaryIndex] || '') + delta;
+        event = { ...previous, text: summary.join('\n') };
+      } else if (message?.method === 'item/commandExecution/outputDelta') {
+        event = { ...previous, detail: (previous.detail || '') + delta };
+      } else return {};
+      items.set(id, event);
+      return { events: [event] };
     };
   },
 };

@@ -58,6 +58,8 @@ export const opencode: AgentProvider = {
         return { externalSessionId, usage: usage && hasTokens(usage, ['input', 'output']) ? {
           inputTokens: tokens(usage.input) + tokens(cache?.read) + tokens(cache?.write),
           outputTokens: tokens(usage.output) + tokens(usage.reasoning),
+          cacheReadTokens: typeof cache?.read === 'number' ? tokens(cache.read) : undefined,
+          cacheWriteTokens: typeof cache?.write === 'number' ? tokens(cache.write) : undefined,
         } : undefined };
       }
       if (event.type === 'error') return { externalSessionId, error: string(object(object(event.error)?.data)?.message) || string(object(event.error)?.name) || 'OpenCode 执行失败' };

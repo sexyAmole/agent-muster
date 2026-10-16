@@ -61,7 +61,7 @@ export async function readProjectFile(project: string, file: string): Promise<Pr
   } finally { await handle.close(); }
 }
 
-export async function searchProjectFiles(project: string, query: string): Promise<string[]> {
+export async function searchProjectFiles(project: string, query: string, includeContent = false): Promise<string[]> {
   const files: string[] = [];
   const keyword = query.toLowerCase();
   async function visit(directory: string): Promise<void> {
@@ -71,7 +71,13 @@ export async function searchProjectFiles(project: string, query: string): Promis
       if (files.length >= 50) return;
       const path = directory ? `${directory}/${entry.name}` : entry.name;
       if (entry.isDirectory() && !excludedDirectories.has(entry.name)) await visit(path);
-      else if (entry.isFile() && path.toLowerCase().includes(keyword)) files.push(path);
+      else if (entry.isFile()) {
+        if (path.toLowerCase().includes(keyword)) files.push(path);
+        else if (includeContent) {
+          const file = await readProjectFile(project, path);
+          if (file.preview === 'text' && file.content?.toLowerCase().includes(keyword)) files.push(path);
+        }
+      }
     }
   }
   await visit('');

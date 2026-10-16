@@ -1,5 +1,6 @@
 import React, { createContext, lazy, Suspense, useContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Select } from './select';
+import { DateRangePicker, localDate, type DateRange } from './date-range-picker';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
@@ -39,6 +40,12 @@ function LayoutSwitch({ layout, onChange }: { layout: Layout; onChange: (layout:
 function ActionIcon({ type }: { type: 'add' | 'edit' | 'delete' }) {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {type === 'add' ? <path d="M12 5v14M5 12h14" /> : type === 'edit' ? <path d="m16 3 5 5M4 16 16 4a3.5 3.5 0 0 1 5 5L9 21H4v-5Z" /> : <><path d="M3 6h18M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M5 6l1 14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-14M10 10v7M14 10v7" /></>}
+  </svg>;
+}
+
+function ProjectFolderIcon({ open }: { open: boolean }) {
+  return <svg className="project-folder" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" data-state={open ? 'open' : 'closed'}>
+    {open ? <><path d="M3 10V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" /><path d="M3 10h19l-3 10H6L3 10Z" /></> : <path d="M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2Z" />}
   </svg>;
 }
 
@@ -163,7 +170,7 @@ function ExecutionSteps({ round, stepCount, commandCount, children }: { round: E
 function conversationText(session: Session): string {
   return conversationItems(session).flatMap(item => {
     if (Array.isArray(item) || (item.type !== 'message' && item.type !== 'output' && item.type !== 'im_message')) return [];
-    return [`${item.type === 'message' ? '用户' : item.type === 'im_message' ? `应用（已发送到${item.im?.platform === 'feishu' ? '飞书' : '钉钉'}）` : '助手'}：\n${item.text.trim()}`];
+    return [`${item.type === 'message' ? '用户' : item.type === 'im_message' ? `应用（已发送到${item.im?.platform === 'feishu' ? '飞书' : item.im?.platform === 'wecom' ? '企业微信' : '钉钉'}）` : '助手'}：\n${item.text.trim()}`];
   }).join('\n\n');
 }
 
@@ -242,17 +249,19 @@ function ChatHeader({ index, multi, agents, projects, feishuApps, selected, copi
   const projectNames = useContext(ProjectNamesContext);
   const dingtalkBinding = selected?.im?.find(binding => binding.platform === 'dingtalk');
   const feishuBinding = selected?.im?.find(binding => binding.platform === 'feishu');
+  const wecomBinding = selected?.im?.find(binding => binding.platform === 'wecom');
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const feishuIcon = feishuApps.find(app => app.id === feishuBinding?.appId)?.icon;
 
   return <div className="chat-header">
     {dingtalkBinding && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}
+    {wecomBinding && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" platform="企业微信" />}
     {feishuBinding && <AppIcon className="chat-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}
     <div className="chat-heading">{selected
       ? multi
         ? <><strong title={selected.title ?? selected.prompt}>{selected.title ?? selected.prompt}</strong><p>{projectLabel(selected.cwd, projects, projectNames)} · {agentName(selected.agent)} · {statusLabel[selected.status]}</p></>
         : <p>{agentName(selected.agent)} · {statusLabel[selected.status]}</p>
-      : <><strong>新对话</strong>{multi && <p>窗口 {index + 1} · 从侧边栏选择对话</p>}</>}{dingtalkBinding?.conversation && <p className="chat-source">{dingtalkBinding.conversation.type === 'group' ? '群聊' : '单聊'}{dingtalkBinding.conversation.type === 'group' && dingtalkBinding.conversation.groupName && ` · 群名称：${dingtalkBinding.conversation.groupName}`} · 提问人：<span title={dingtalkBinding.conversation.senderStaffId}>{dingtalkBinding.conversation.senderName}</span></p>}{feishuBinding?.conversation && <p className="chat-source">飞书 · {feishuBinding.conversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{feishuBinding.conversation.senderId}</p>}</div>
+      : <><strong>新对话</strong>{multi && <p>窗口 {index + 1} · 从侧边栏选择对话</p>}</>}{dingtalkBinding?.conversation && <p className="chat-source">{dingtalkBinding.conversation.type === 'group' ? '群聊' : '单聊'}{dingtalkBinding.conversation.type === 'group' && dingtalkBinding.conversation.groupName && ` · 群名称：${dingtalkBinding.conversation.groupName}`} · 提问人：<span title={dingtalkBinding.conversation.senderStaffId}>{dingtalkBinding.conversation.senderName}</span></p>}{wecomBinding?.conversation && <p className="chat-source">企业微信 · {wecomBinding.conversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{wecomBinding.conversation.senderId}</p>}{feishuBinding?.conversation && <p className="chat-source">飞书 · {feishuBinding.conversation.type === 'group' ? '群聊' : '单聊'} · 提问人：{feishuBinding.conversation.senderId}</p>}</div>
     <div className="output-actions">
       {selected && <button className="copy-button" onClick={() => void copyConversation()} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === 'conversation' ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}
       {selected && <RunLog key={selected.id} sessionId={selected.id} copied={copiedTarget === 'run-log'} onCopy={copyText} />}
@@ -280,9 +289,14 @@ function ComposerSettings({ index, composerAgent, agentInfo, model, permissionMo
   return <><label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} value={model} disabled={!composerAgent || busy || running} onChange={onModelChange}><option value="">{agentInfo?.defaultModel ? `默认 · ${agentInfo.defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>{agentInfo && <label className="permission-select"><Select aria-label={`窗口 ${index + 1} 权限模式`} title={agentInfo.permissionModes.find(item => item.id === permissionMode)?.description} value={permissionMode} disabled={busy || disabled || !agentInfo.installed} onChange={onPermissionModeChange}>{agentInfo.permissionModes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}</>;
 }
 
-function ContextStatus({ usage, contextWindow }: { usage: Session['usage']; contextWindow: number | undefined }) {
+function TokenUsageStatus({ usage }: { usage: Session['usage'] }) {
   const usedTokens = usage ? usage.inputTokens + usage.outputTokens : undefined;
-  return <div className="context-status" title={usage ? `累计输入 ${usage.inputTokens.toLocaleString()} Token，累计输出 ${usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>{usedTokens === undefined && !contextWindow ? '上下文数据未提供' : `累计消耗 ${usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`} · 单次窗口 ${contextWindow ? `${tokenCount(contextWindow)} Token` : '未提供'}`}</div>;
+  return <div className="token-usage-status">
+    <span title={usage ? `累计输入 ${usage.inputTokens.toLocaleString()} Token，累计输出 ${usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>累计 {usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`}</span>
+    <span>输入 {usage ? tokenCount(usage.inputTokens) : '—'}</span>
+    <span title="缓存命中属于输入的一部分，不会重复计入累计 Token">缓存命中 {usage?.cacheReadTokens === undefined ? '—' : tokenCount(usage.cacheReadTokens)}</span>
+    <span>输出 {usage ? tokenCount(usage.outputTokens) : '—'}</span>
+  </div>;
 }
 
 type ChatComposerProps = Pick<PaneProps, 'index' | 'pane' | 'agents' | 'projects' | 'sessions' | 'onProjectChange' | 'onSessionCreated' | 'onSessionUpdate'> & {
@@ -295,7 +309,14 @@ type ChatComposerProps = Pick<PaneProps, 'index' | 'pane' | 'agents' | 'projects
 function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange, onSessionCreated, onSessionUpdate, focused, selected, setSelected, setError }: ChatComposerProps) {
   const projectNames = useContext(ProjectNamesContext);
   const selectedId = pane.sessionId;
-  const [agent, setAgent] = useState(agents.find(item => item.installed)?.id || '');
+  const sortedAgents = useMemo(() => {
+    const counts = new Map(agents.map(item => [item.id, 0]));
+    for (const session of sessions) {
+      if (counts.has(session.agent)) counts.set(session.agent, counts.get(session.agent)! + 1);
+    }
+    return [...agents].sort((a, b) => counts.get(b.id)! - counts.get(a.id)!);
+  }, [agents, sessions]);
+  const [agent, setAgent] = useState(sortedAgents.find(item => item.installed)?.id || '');
   const [permissionMode, setPermissionMode] = useState(sessions.find(session => session.id === selectedId)?.permissionMode || 'full-auto');
   const [model, setModel] = useState(sessions.find(session => session.id === selectedId)?.model || '');
   const [message, setMessage] = useState('');
@@ -312,8 +333,8 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
   }, []);
 
   useEffect(() => {
-    if (!agents.some(item => item.id === agent && item.installed)) setAgent(agents.find(item => item.installed)?.id || '');
-  }, [agents, agent]);
+    if (!sortedAgents.some(item => item.id === agent && item.installed)) setAgent(sortedAgents.find(item => item.installed)?.id || '');
+  }, [sortedAgents, agent]);
 
   useEffect(() => { setModel(selected?.model || ''); }, [selected?.id, selected?.model]);
   useEffect(() => { setPermissionMode(selected?.permissionMode || 'full-auto'); }, [selected?.id, selected?.agent, selected?.permissionMode, agent]);
@@ -379,8 +400,6 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
   const composerProject = selected?.cwd || (projects.includes(pane.cwd) ? pane.cwd : '');
   const composerAgent = selected?.agent || agent;
   const agentInfo = agents.find(item => item.id === composerAgent);
-  const models = agentInfo?.models || [];
-  const contextWindow = models.find(item => item.id === (model || agentInfo?.defaultModel))?.contextWindow;
   const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
   const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'kimi' && composerAgent !== 'cursor');
   const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
@@ -408,7 +427,7 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
           {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects, projectNames)}</option>)}
         </Select>
       </span>
-      <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{agents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
+      <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{sortedAgents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
     </div>}
     <div className="chat-composer" ref={composerRef}>
       {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
@@ -416,7 +435,7 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
       <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
       <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}<ComposerSettings index={index} composerAgent={composerAgent} agentInfo={agentInfo} model={model} permissionMode={permissionMode} busy={busy} running={Boolean(running)} disabled={composerDisabled} onModelChange={setModel} onPermissionModeChange={setPermissionMode} /></div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
     </div>
-    {selected && <ContextStatus usage={selected.usage} contextWindow={contextWindow} />}
+    {selected && <TokenUsageStatus usage={selected.usage} />}
   </div>;
 }
 
@@ -585,14 +604,14 @@ function ChatPaneContent({ index, pane, panelProject, multi, active: focused, ag
     if (!selected || !selected.im?.length || event.type !== 'output' || !event.text.trim() || pushingId !== null || event.pushedToIm) return;
     setError(''); setPushingId(event.id);
     try {
-      const session = await api<SessionSummary>(`/api/sessions/${selected.id}/${selected.im.some(binding => binding.platform === 'feishu') ? 'feishu' : 'dingtalk'}/messages`, { method: 'POST', body: JSON.stringify({ eventId: event.id }) });
+      const session = await api<SessionSummary>(`/api/sessions/${selected.id}/${selected.im.some(binding => binding.platform === 'feishu') ? 'feishu' : selected.im.some(binding => binding.platform === 'wecom') ? 'wecom' : 'dingtalk'}/messages`, { method: 'POST', body: JSON.stringify({ eventId: event.id }) });
       onSessionUpdate(session);
       setSelected(current => current?.id === session.id ? { ...current, events: current.events.map(item => item.id === event.id ? { ...item, pushedToIm: true } : item) } : current);
     } catch (reason) { setError((reason as Error).message); }
     finally { setPushingId(null); }
   }
 
-  const imPlatform = selected?.im?.some(binding => binding.platform === 'feishu') ? '飞书' : '钉钉';
+  const imPlatform = selected?.im?.some(binding => binding.platform === 'feishu') ? '飞书' : selected?.im?.some(binding => binding.platform === 'wecom') ? '企业微信' : '钉钉';
 
   const followStream = useCallback(() => {
     if (followConversation.current && conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
@@ -610,7 +629,7 @@ function ChatPaneContent({ index, pane, panelProject, multi, active: focused, ag
                   ? <FileChange key={item.streamId || item.id} event={item} cwd={selected.cwd} />
                 : item.type === 'error'
                   ? <div key={item.streamId || item.id} className="chat-notice">{item.text}</div>
-                  : <div key={item.streamId || item.id} className="chat-turn assistant-turn">{item.type === 'im_message' && <div className="dingtalk-sent-label">应用 · 已发送到{item.im?.platform === 'feishu' ? '飞书' : '钉钉'}</div>}<div className="assistant-copy">{item.type === 'im_message' ? <div className="dingtalk-sent-content">{item.text}</div> : <StreamText text={item.text} streaming={item.streaming} onProgress={followStream}>{text => <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>}</StreamText>}</div><div className="reply-actions">{showActions && <button className="reply-copy" aria-label={copiedTarget === item.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(item.text, item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === item.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}<MessageDate timestamp={item.timestamp} />{showActions && item.type === 'output' && Boolean(selected.im?.length) && item.text.trim() && <button className="reply-push" disabled={pushingId !== null || item.pushedToIm} onClick={() => void pushToIm(item)}>{pushingId === item.id ? '推送中…' : item.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div></div>);
+                  : <div key={item.streamId || item.id} className="chat-turn assistant-turn">{item.type === 'im_message' && <div className="dingtalk-sent-label">应用 · 已发送到{item.im?.platform === 'feishu' ? '飞书' : item.im?.platform === 'wecom' ? '企业微信' : '钉钉'}</div>}<div className="assistant-copy">{item.type === 'im_message' ? <div className="dingtalk-sent-content">{item.text}</div> : <StreamText text={item.text} streaming={item.streaming} onProgress={followStream}>{text => <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>}</StreamText>}</div><div className="reply-actions">{showActions && <button className="reply-copy" aria-label={copiedTarget === item.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(item.text, item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === item.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}<MessageDate timestamp={item.timestamp} />{showActions && item.type === 'output' && Boolean(selected.im?.length) && item.text.trim() && <button className="reply-push" disabled={pushingId !== null || item.pushedToIm} onClick={() => void pushToIm(item)}>{pushingId === item.id ? '推送中…' : item.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div></div>);
 
     let previousDay: string | undefined;
     const renderDatedItem = (item: Event | Event[], showActions = false) => {
@@ -684,6 +703,7 @@ function App() {
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
   const [projectNames, setProjectNames] = useState<Record<string, string>>({});
+  const [sessionDateRange, setSessionDateRange] = useState<DateRange | null>(null);
   const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
   const [sessionTitle, setSessionTitle] = useState('');
   const [savingTitle, setSavingTitle] = useState(false);
@@ -920,6 +940,11 @@ function App() {
     setPane(index, session.id, session.cwd);
   }
 
+  const visibleSessions = sessionDateRange ? sessions.filter(session => {
+    const date = localDate(session.createdAt);
+    return date >= sessionDateRange.start && date <= sessionDateRange.end;
+  }) : sessions;
+  const visibleProjects = sessionDateRange ? projects.filter(path => visibleSessions.some(session => session.cwd === path)) : projects;
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const activeSessionId = currentPane.sessionId;
 
@@ -933,9 +958,10 @@ function App() {
         <button className={`im-sidebar-link ${agentsOpen ? 'active' : ''}`} onClick={() => { setAgentsOpen(true); setImOpen(false); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="14" rx="3" /><path d="M12 6V3M8 11h.01M16 11h.01M8 16h8M1 11v4M23 11v4" /></svg><span>Agent 管理</span></button>
       </nav>
       <nav className="sidebar-projects" aria-label="项目和对话">
-        <div className="section-title"><span>项目 <span className="count">{projects.length}</span></span><button className="add-project" disabled={picking} onClick={() => void pickProject()} aria-label="添加项目" title="添加项目"><ActionIcon type="add" /></button></div>
-        {projects.map(path => {
-          const projectSessions = sessions.filter(session => session.cwd === path);
+        <div className="section-title"><span>项目</span><div className="project-section-actions"><button className="add-project" disabled={picking} onClick={() => void pickProject()} aria-label="添加项目" title="添加项目"><ActionIcon type="add" /></button><DateRangePicker value={sessionDateRange} onChange={setSessionDateRange} /></div></div>
+        {sessionDateRange && <div className="project-range-summary"><span>{sessionDateRange.start} 至 {sessionDateRange.end}</span><button type="button" aria-label="清除日期筛选" onClick={() => setSessionDateRange(null)}>×</button></div>}
+        {visibleProjects.map(path => {
+          const projectSessions = visibleSessions.filter(session => session.cwd === path);
           const expanded = expandedProjects.includes(path);
           return <div className={`project-group ${dragPreview?.path === path ? 'project-dragging' : ''}`} key={path}>
             <div className={`project-row ${dragTarget === path ? 'project-drop-target' : ''}`} data-project-path={path}
@@ -971,7 +997,7 @@ function App() {
               <button className="project-item" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" onKeyDown={event => {
                 if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
                 event.preventDefault();
-                const target = projects[projects.indexOf(path) + (event.key === 'ArrowUp' ? -1 : 1)];
+                const target = visibleProjects[visibleProjects.indexOf(path) + (event.key === 'ArrowUp' ? -1 : 1)];
                 if (target) void reorderProjects(path, target);
               }} onClick={() => {
                 setImOpen(false);
@@ -979,7 +1005,7 @@ function App() {
                 setExpandedProjects(current => expanded ? current.filter(project => project !== path) : [...current, path]);
                 setExpandedProject(expanded ? null : path);
               }} title={path} aria-expanded={expanded}>
-                <span className="project-folder" /><span className="project-name">{projectLabel(path, projects, projectNames)}</span><span className="project-count">{projectSessions.length}</span>
+                <ProjectFolderIcon open={expanded} /><span className="project-name">{projectLabel(path, projects, projectNames)}</span>
               </button>
               <button className="project-new" onClick={() => newConversation(path)} aria-label={`在 ${projectLabel(path, projects, projectNames)} 中新建对话`} title="新建对话"><ActionIcon type="edit" /></button>
               <button className={`project-actions ${projectMenu?.path === path ? 'open' : ''}`} aria-label={`项目操作 ${projectLabel(path, projects, projectNames)}`} aria-haspopup="menu" aria-expanded={projectMenu?.path === path} aria-controls={projectMenu?.path === path ? 'project-actions-menu' : undefined} data-tooltip="项目操作" onClick={event => {
@@ -994,9 +1020,10 @@ function App() {
                 const openIndex = panes.slice(0, paneCount).findIndex(pane => pane.sessionId === session.id);
                 const dingtalkBinding = session.im?.find(binding => binding.platform === 'dingtalk');
                 const feishuBinding = session.im?.find(binding => binding.platform === 'feishu');
+                const wecomBinding = session.im?.find(binding => binding.platform === 'wecom');
                 const feishuIcon = feishuApps.find(app => app.id === feishuBinding?.appId)?.icon;
                 return <div className="conversation-row" key={session.id}><button className={`conversation-item ${activeSessionId === session.id ? 'selected' : ''}`} onClick={() => openConversation(session)} title={session.title ?? session.prompt}>
-                  <span className="conversation-icon">{dingtalkBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}{feishuBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<AgentIcon agent={session.agent} className={dingtalkBinding || feishuBinding ? 'conversation-agent-badge' : undefined} /></span><span className="conversation-text"><strong>{session.title ?? session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{(session.status === 'starting' || session.status === 'running') && <span className="conversation-loading" role="status" aria-label={statusLabel[session.status]} />}{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
+                  <span className="conversation-icon">{wecomBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" platform="企业微信" />}{dingtalkBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}{feishuBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<AgentIcon agent={session.agent} className={dingtalkBinding || feishuBinding || wecomBinding ? 'conversation-agent-badge' : undefined} /></span><span className="conversation-text"><strong>{session.title ?? session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{(session.status === 'starting' || session.status === 'running') && <span className="conversation-loading" role="status" aria-label={statusLabel[session.status]} />}{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
                 </button><button className="conversation-rename" aria-label="重命名会话" data-tooltip="重命名会话" onClick={event => {
                   sessionRenameButton.current = event.currentTarget;
                   setSessionTitle(session.title ?? session.prompt);
@@ -1006,7 +1033,7 @@ function App() {
             </div>}
           </div>;
         })}
-        {!projects.length && <p className="project-empty">暂无项目。点击右侧加号选择本地目录。</p>}
+        {!visibleProjects.length && <p className="project-empty">{sessionDateRange ? '所选日期范围内没有会话' : '暂无项目。点击右侧加号选择本地目录。'}</p>}
       </nav>
 
     </aside>
@@ -1020,12 +1047,12 @@ function App() {
         <div className={`workspace-grid ${layout}`} style={{ display: imOpen || agentsOpen ? 'none' : undefined }}>
           {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.cwd}`} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); expandProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
         </div>
-        <div hidden={!agentsOpen}><AgentPanel active={agentsOpen} onChange={setAgents} /></div>
-        <div hidden={!imOpen}><ImPrototype active={imOpen} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects, projectNames)} /></div>
+        <div className="management-page" hidden={!agentsOpen}><AgentPanel active={agentsOpen} onChange={setAgents} /></div>
+        <div className="management-page" hidden={!imOpen}><ImPrototype active={imOpen} sessions={sessions} onOpenSession={openConversation} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects, projectNames)} /></div>
       </div>
     </main>
     {dragPreview && createPortal(<div className="project-item project-drag-preview" aria-hidden="true" style={{ left: dragPreview.left, top: dragPreview.top, width: dragPreview.width }}>
-      <span className="project-folder" /><span className="project-name">{projectLabel(dragPreview.path, projects, projectNames)}</span><span className="project-count">{sessions.filter(session => session.cwd === dragPreview.path).length}</span>
+      <ProjectFolderIcon open={expandedProjects.includes(dragPreview.path)} /><span className="project-name">{projectLabel(dragPreview.path, projects, projectNames)}</span>
     </div>, document.body)}
     {projectMenu && createPortal(<div ref={projectMenuRef} id="project-actions-menu" className="project-actions-menu" role="menu" aria-label="项目操作" style={{ left: projectMenu.left, top: projectMenu.top }} onBlur={event => {
       if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setProjectMenu(null);

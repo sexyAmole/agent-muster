@@ -5,13 +5,14 @@ import type { AgentManagement } from '../../agents/management.js';
 import type { SessionManager } from '../../sessions/manager.js';
 import type { DingTalkRegistry } from '../../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../../integrations/feishu/registry.js';
+import type { WecomRegistry } from '../../integrations/wecom/registry.js';
 import type { AgentSession, SessionEvent } from '../../types.js';
 
 function sessionMetadata({ events, ...session }: AgentSession): Omit<AgentSession, 'events'> {
   return session;
 }
 
-export function createSessionRouter(sessions: SessionManager, registry: AgentRegistry, agentManagement: AgentManagement, dingtalk: DingTalkRegistry, feishu: FeishuRegistry) {
+export function createSessionRouter(sessions: SessionManager, registry: AgentRegistry, agentManagement: AgentManagement, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry) {
   const router = Router();
   router.get('/sessions', (_request, response) => response.json(sessions.list().map(sessionMetadata)));
   router.get('/sessions/:id', (request, response) => {
@@ -121,6 +122,24 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       response.status(400).json({ error: (error as Error).message });
     }
   });
+  router.post('/sessions/:id/wecom/messages', async (request, response) => {
+    try {
+      const { eventId } = request.body || {};
+      if (!Number.isSafeInteger(eventId) || eventId <= 0) throw new Error('消息 ID 无效');
+      const session = sessions.get(request.params.id);
+      if (!session) throw new Error('会话不存在');
+      const binding = session.im?.find(item => item.platform === 'wecom');
+      if (!binding) throw new Error('此对话未关联企业微信应用');
+      const event = sessions.getEvent(session.id, eventId);
+      if (event?.type !== 'output' || !event.text.trim()) throw new Error('助手结果不存在或内容为空');
+      if (event.pushedToIm) throw new Error('此结果已推送到 IM');
+      await wecom.sendToSession(binding.appId, session.id, event.text.trim());
+      response.json(sessionMetadata(sessions.markImPushed(session.id, event.id)));
+    } catch (error) {
+      console.error(`企业微信会话 ${request.params.id} 消息发送失败：`, error);
+      response.status(400).json({ error: (error as Error).message });
+    }
+  });
   router.post('/sessions/:id/stop', (request, response) => {
     try { response.json(sessionMetadata(sessions.stop(request.params.id))); }
     catch (error) { response.status(400).json({ error: (error as Error).message }); }
@@ -130,6 +149,7 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       if (!sessions.get(request.params.id)) { response.status(404).json({ error: 'Session not found' }); return; }
       await dingtalk.unbindSession(request.params.id);
       await feishu.unbindSession(request.params.id);
+      await wecom.unbindSession(request.params.id);
       await sessions.remove(request.params.id);
       response.json({ id: request.params.id });
     } catch (error) { response.status(500).json({ error: (error as Error).message }); }

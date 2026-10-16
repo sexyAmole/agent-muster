@@ -149,9 +149,12 @@ export class SessionManager extends EventEmitter {
   }
 
   private addUsage(session: AgentSession, usage: TokenUsage, total = false): void {
+    const previous = session.usage;
     session.usage = total ? usage : {
-      inputTokens: (session.usage?.inputTokens || 0) + usage.inputTokens,
-      outputTokens: (session.usage?.outputTokens || 0) + usage.outputTokens,
+      inputTokens: (previous?.inputTokens || 0) + usage.inputTokens,
+      outputTokens: (previous?.outputTokens || 0) + usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens !== undefined && (!previous || previous.cacheReadTokens !== undefined) ? (previous?.cacheReadTokens || 0) + usage.cacheReadTokens : undefined,
+      cacheWriteTokens: usage.cacheWriteTokens !== undefined && (!previous || previous.cacheWriteTokens !== undefined) ? (previous?.cacheWriteTokens || 0) + usage.cacheWriteTokens : undefined,
     };
     this.append(session, { type: 'usage', text: JSON.stringify(session.usage) });
   }
@@ -306,7 +309,6 @@ export class SessionManager extends EventEmitter {
   private start(session: AgentSession, prompt: string, images?: AgentImage[]): void {
     const adapter = adapters[session.agent];
     const launch = adapter.launch(prompt, session.externalSessionId, session.model, images, { permissionMode: session.permissionMode, sandboxEnabled: getSandboxEnabled(session.agent) });
-    const read = adapter.createReader();
     const readRaw = adapter.createRawReader?.();
     const run: RunState = { id: randomUUID(), orders: new Map(), failed: false, settled: false, aborted: false };
     const child = spawn(launch.command, launch.args, {
@@ -315,10 +317,11 @@ export class SessionManager extends EventEmitter {
       detached: process.platform !== 'win32',
       env: session.agent === 'opencode' ? { ...(launch.env || process.env), PWD: session.cwd } : launch.env || process.env,
     });
+    const read = adapter.createReader(launch.connect?.(child));
     this.processes.set(session.id, child);
     session.pid = child.pid;
     this.status(session, 'running');
-    child.stdin.end(launch.prompt === undefined ? undefined : `${launch.prompt}\n`);
+    if (!launch.connect) child.stdin.end(launch.prompt === undefined ? undefined : `${launch.prompt}\n`);
 
     const consume = (channel: 'stdout' | 'stderr') => createLineReader(line => {
       this.recordResult(session, run, read(line, channel));

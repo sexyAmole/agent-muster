@@ -4,6 +4,7 @@ import { findJsonl } from '../jsonl.js';
 import { join, basename, resolve } from 'node:path';
 import { fullAutoMode, autoReviewMode, planMode, object, string, tokens, hasTokens, detail, json } from './shared.js';
 import type { AdapterEvent, AgentProvider, ParsedResult } from './shared.js';
+import type { TokenUsage } from '../../types.js';
 
 export const claude: AgentProvider = {
   id: 'claude',
@@ -44,6 +45,24 @@ export const claude: AgentProvider = {
     const blocks = new Map<number, AdapterEvent>();
     const nextIndices = new Map<string, number>();
     const tools = new Map<string, AdapterEvent>();
+    const messageUsages = new Map<string, Record<string, unknown>>();
+    function readUsage(key: string, usage: Record<string, unknown> | undefined): TokenUsage | undefined {
+      const fields = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'];
+      if (!usage || !hasTokens(usage, fields)) return undefined;
+      const previous = messageUsages.get(key);
+      const current = { ...previous };
+      for (const field of fields) {
+        if (typeof usage[field] === 'number') current[field] = Math.max(tokens(previous?.[field]), tokens(usage[field]));
+      }
+      messageUsages.set(key, current);
+      const delta = (field: string) => tokens(current[field]) - tokens(previous?.[field]);
+      return {
+        inputTokens: delta('input_tokens') + delta('cache_creation_input_tokens') + delta('cache_read_input_tokens'),
+        outputTokens: delta('output_tokens'),
+        cacheReadTokens: typeof current.cache_read_input_tokens === 'number' ? delta('cache_read_input_tokens') : undefined,
+        cacheWriteTokens: typeof current.cache_creation_input_tokens === 'number' ? delta('cache_creation_input_tokens') : undefined,
+      };
+    }
     function readBlock(block: Record<string, unknown>, key: string, index: number, streaming: boolean): AdapterEvent | undefined {
       const position = { orderKey: key, contentIndex: index };
       if (block.type === 'text' || block.type === 'thinking') {
@@ -77,8 +96,10 @@ export const claude: AgentProvider = {
       if (update?.type === 'message_start') {
         messageKey = string(object(update.message)?.id);
         blocks.clear();
+        return { externalSessionId, usage: messageKey ? readUsage(messageKey, object(object(update.message)?.usage)) : undefined };
       }
       if (!messageKey || !update) return { externalSessionId };
+      if (update.type === 'message_delta') return { externalSessionId, usage: readUsage(messageKey, object(update.usage)) };
       if (typeof update.index === 'number') activeIndex = update.index;
       if (update.type === 'content_block_start') {
         const content = object(update.content_block);
@@ -115,11 +136,7 @@ export const claude: AgentProvider = {
         return parsed?.text ? [parsed] : [];
       });
       nextIndices.set(key, (nextIndices.get(key) || 0) + content.length);
-      const usage = object(message?.usage);
-      return { externalSessionId, events, usage: usage && hasTokens(usage, ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens']) ? {
-        inputTokens: tokens(usage.input_tokens) + tokens(usage.cache_creation_input_tokens) + tokens(usage.cache_read_input_tokens),
-        outputTokens: tokens(usage.output_tokens),
-      } : undefined };
+      return { externalSessionId, events, usage: readUsage(key, object(message?.usage)) };
     }
 
     function readToolResults(event: Record<string, unknown>, externalSessionId: string | undefined): ParsedResult {

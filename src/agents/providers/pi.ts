@@ -36,6 +36,8 @@ function readPiResult(line: string): ParsedResult {
     return { ...result, thinking: thinking || undefined, text: text || undefined, error: string(message.errorMessage), usage: usage && hasTokens(usage, ['input', 'cacheRead', 'cacheWrite', 'output']) ? {
       inputTokens: tokens(usage.input) + tokens(usage.cacheRead) + tokens(usage.cacheWrite),
       outputTokens: tokens(usage.output),
+      cacheReadTokens: typeof usage.cacheRead === 'number' ? tokens(usage.cacheRead) : undefined,
+      cacheWriteTokens: typeof usage.cacheWrite === 'number' ? tokens(usage.cacheWrite) : undefined,
     } : undefined };
   }
   return result;

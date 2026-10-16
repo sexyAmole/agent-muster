@@ -9,6 +9,7 @@ import { listProjectDirectory, readProjectFile, searchProjectFiles } from '../..
 import type { SessionManager } from '../../sessions/manager.js';
 import type { DingTalkRegistry } from '../../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../../integrations/feishu/registry.js';
+import type { WecomRegistry } from '../../integrations/wecom/registry.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,7 +30,7 @@ async function chooseProjectDirectory(): Promise<string | null> {
   }
 }
 
-export function createProjectRouter(projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry) {
+export function createProjectRouter(projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry) {
   const router = Router();
   router.get('/projects', (_request, response) => response.json(projects.list()));
   router.get('/projects/names', (_request, response) => response.json(projects.names()));
@@ -78,12 +79,12 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
   }
   router.get('/projects/files', async (request, response) => {
     try {
-      const { path, query } = request.query;
+      const { path, query, content } = request.query;
       if (typeof path !== 'string' || typeof query !== 'string') throw new Error('需要项目路径和搜索词');
       if (!projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
         response.status(404).json({ error: '项目不存在' }); return;
       }
-      response.json(await searchProjectFiles(path, query));
+      response.json(await searchProjectFiles(path, query, content === 'true'));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.post('/projects', async (request, response) => {
@@ -108,9 +109,11 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
       }
       await dingtalk.unbindProject(path);
       await feishu.unbindProject(path);
+      await wecom.unbindProject(path);
       for (const session of projectSessions) {
         await dingtalk.unbindSession(session.id);
         await feishu.unbindSession(session.id);
+        await wecom.unbindSession(session.id);
         await sessions.remove(session.id);
       }
       if (registered) await projects.remove(path);

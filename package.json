@@ -47,6 +47,7 @@
     "@types/react-dom": "^19.1.0",
     "@types/semver": "^7.8.0",
     "@vitejs/plugin-react": "^4.7.0",
+    "@wecom/aibot-node-sdk": "^1.0.7",
     "dingtalk-stream": "2.1.6-beta.1",
     "esbuild": "^0.28.2",
     "express": "^5.1.0",

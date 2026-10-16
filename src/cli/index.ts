@@ -1,6 +1,7 @@
 import { AgentRegistry } from '../agents/registry.js';
 import { DingTalkRegistry } from '../integrations/dingtalk/registry.js';
 import { FeishuRegistry } from '../integrations/feishu/registry.js';
+import { WecomRegistry } from '../integrations/wecom/registry.js';
 import { ProjectRegistry } from '../projects/registry.js';
 import { SessionManager } from '../sessions/manager.js';
 import { printAgents, printHelp, printSessions, printVersion } from './commands.js';
@@ -34,6 +35,8 @@ export async function main(): Promise<void> {
   await dingtalk.load();
   const feishu = new FeishuRegistry();
   await feishu.load();
+  const wecom = new WecomRegistry();
+  await wecom.load();
 
   if (command === 'agents') {
     printAgents(registry);
@@ -43,5 +46,5 @@ export async function main(): Promise<void> {
     printSessions(sessions);
     return;
   }
-  await startWeb(options, registry, sessions, projects, dingtalk, feishu);
+  await startWeb(options, registry, sessions, projects, dingtalk, feishu, wecom);
 }
