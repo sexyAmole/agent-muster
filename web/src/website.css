@@ -1,4 +1,5 @@
 :root {
+  --focus-ring: #8aa4bd;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: #202020;
   background: #fafafa;
@@ -34,7 +35,7 @@ body { margin: 0; isolation: isolate; }
 a { color: inherit; text-decoration: none; }
 button { font: inherit; cursor: pointer; }
 button, a { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 5px; }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 5px; }
 img { display: block; max-width: 100%; height: auto; }
 figure, p, h1, h2, h3 { margin: 0; }
 p { font-size: 16px; line-height: 1.8; text-wrap: pretty; }

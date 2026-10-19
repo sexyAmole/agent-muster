@@ -416,16 +416,6 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
       const session = await api<SessionSummary>(`/api/sessions/${selected.id}/stop`, { method: 'POST' });
       onSessionUpdate(session);
       setSelected(current => current?.id === session.id ? { ...current, ...session } : current);
-      if (!message && !images.length) {
-        const lastMessage = [...selected.events].reverse().find(event => event.type === 'message');
-        if (lastMessage) {
-          setMessage(lastMessage.text);
-          setImages((lastMessage.images || []).map((image, index) => {
-            const id = shortPath(image.path);
-            return { id, file: new File([], id, { type: image.mimeType }), url: apiUrl(`/api/sessions/${selected.id}/messages/${lastMessage.id}/images/${index}`) };
-          }));
-        }
-      }
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(false); }
   }
@@ -530,10 +520,54 @@ type ConversationItemProps = {
   copyText: (text: string, target: 'conversation' | 'run-log' | number) => Promise<void>;
   pushToIm: (event: Event) => Promise<void>;
   followStream: () => void;
+  resendMessage?: (event: Event, content: string) => Promise<void>;
 };
 
 function AssistantReply({ event, session, showActions, copiedTarget, pushingId, imPlatform, copyText, pushToIm, followStream }: Omit<ConversationItemProps, 'item' | 'index'> & { event: Event }) {
   return <div className="chat-turn assistant-turn">{event.type === 'im_message' && <div className="dingtalk-sent-label">应用 · 已发送到{event.im?.platform === 'feishu' ? '飞书' : event.im?.platform === 'wecom' ? '企业微信' : '钉钉'}</div>}<div className="assistant-copy">{event.type === 'im_message' ? <div className="dingtalk-sent-content">{event.text}</div> : <StreamText text={event.text} streaming={event.streaming} onProgress={followStream}>{text => <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>}</StreamText>}</div><div className="reply-actions">{showActions && <button className="reply-copy" aria-label={copiedTarget === event.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(event.text, event.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === event.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}<MessageDate timestamp={event.timestamp} />{showActions && event.type === 'output' && Boolean(session.im?.length) && event.text.trim() && <button className="reply-push" disabled={pushingId !== null || event.pushedToIm} onClick={() => void pushToIm(event)}>{pushingId === event.id ? '推送中…' : event.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div></div>;
+}
+
+function UserMessage({ event, session, resendMessage }: Pick<ConversationItemProps, 'session' | 'resendMessage'> & { event: Event }) {
+  const [editing, setEditing] = useState(false);
+  const [content, setContent] = useState(event.text);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const editButton = useRef<HTMLButtonElement>(null);
+
+  function cancelEdit() {
+    setEditing(false);
+    requestAnimationFrame(() => editButton.current?.focus());
+  }
+
+  async function resend(submitEvent: React.FormEvent) {
+    submitEvent.preventDefault();
+    if (!resendMessage || busy || !content.trim()) return;
+    setBusy(true); setError('');
+    try {
+      await resendMessage(event, content.trim());
+      setEditing(false);
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  const images = event.images?.length ? <MessageImages sessionId={session.id} eventId={event.id} count={event.images.length} /> : null;
+  return <div className="chat-turn user-turn">
+    {editing && resendMessage ? <form className="user-message-editor" onSubmit={resend} aria-label="编辑上一条消息" aria-busy={busy}>
+      <FileMentionTextarea project={session.cwd} aria-label="修改消息内容" value={content} onChange={setContent} disabled={busy} autoFocus rows={2} onKeyDown={keyEvent => {
+        if (keyEvent.key === 'Escape' && !busy) { keyEvent.preventDefault(); cancelEdit(); }
+      }} />
+      {images}
+      {error && <p className="user-message-edit-error" role="alert">{error}</p>}
+      <div className="user-message-edit-actions"><button type="button" disabled={busy} onClick={cancelEdit}>取消</button><button type="submit" disabled={busy || !content.trim()}>{busy ? '发送中…' : '发送'}</button></div>
+    </form> : <div className="user-bubble">
+      {event.text}
+      {images}
+    </div>}
+    <div className="reply-actions user-message-actions">
+      <MessageDate timestamp={event.timestamp} />
+      {resendMessage && !editing && <button ref={editButton} type="button" className="user-message-edit-trigger" aria-label="编辑消息" onClick={() => { setContent(event.text); setError(''); setEditing(true); }}><ActionIcon type="edit" /></button>}
+    </div>
+  </div>;
 }
 
 function ConversationItem({ item, index, ...reply }: ConversationItemProps) {
@@ -543,7 +577,7 @@ function ConversationItem({ item, index, ...reply }: ConversationItemProps) {
     case 'thinking':
       return <details className="thinking-step"><summary className="thinking-label"><span>{item.streaming ? '思考中…' : '思考内容'}<span> · {Array.from(item.text).length} 字</span></span><span className="tool-call-chevron" aria-hidden="true" /></summary><div className="thinking-content"><StreamText text={item.text} streaming={item.streaming} onProgress={followStream} /></div></details>;
     case 'message':
-      return <div className="chat-turn user-turn"><div className="user-bubble">{item.text}{item.images && item.images.length > 0 && <MessageImages key={session.id} sessionId={session.id} eventId={item.id} count={item.images.length} />}</div><MessageDate timestamp={item.timestamp} /></div>;
+      return <UserMessage event={item} session={session} resendMessage={reply.resendMessage} />;
     case 'file_change':
       return <FileChange event={item} cwd={session.cwd} />;
     case 'error':
@@ -691,6 +725,13 @@ function ChatPaneContent({ index, pane, multi, active: focused, agents, projects
     finally { setPushingId(null); }
   }
 
+  const resendMessage = useCallback(async (event: Event, content: string) => {
+    if (!selected || selected.status !== 'stopped' || [...selected.events].reverse().find(item => item.type === 'message')?.id !== event.id) throw new Error('只能编辑当前已停止任务的最后一条消息');
+    const session = await api<SessionSummary>(`/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify({ content, model: selected.model, permissionMode: selected.permissionMode, imageIds: event.images?.map(image => shortPath(image.path)) }) });
+    onSessionUpdate(session);
+    setSelected(current => current?.id === session.id ? { ...current, ...session } : current);
+  }, [selected, onSessionUpdate]);
+
   const imPlatform = selected?.im?.some(binding => binding.platform === 'feishu') ? '飞书' : selected?.im?.some(binding => binding.platform === 'wecom') ? '企业微信' : '钉钉';
 
   const followStream = useCallback(() => {
@@ -699,9 +740,10 @@ function ChatPaneContent({ index, pane, multi, active: focused, agents, projects
 
   const conversation = useMemo(() => {
     if (!selected) return null;
+    const editableMessage = selected.status === 'stopped' && selected.externalSessionId && agents.some(agent => agent.id === selected.agent && agent.installed) ? [...selected.events].reverse().find(event => event.type === 'message') : undefined;
     const renderItem = (item: Event | Event[], showActions = false) => {
       const event = Array.isArray(item) ? item[0] : item;
-      return <ConversationItem key={event.streamId || event.id} item={item} index={index} session={selected} showActions={showActions} copiedTarget={copiedTarget} pushingId={pushingId} imPlatform={imPlatform} copyText={copyText} pushToIm={pushToIm} followStream={followStream} />;
+      return <ConversationItem key={event.streamId || event.id} item={item} index={index} session={selected} showActions={showActions} copiedTarget={copiedTarget} pushingId={pushingId} imPlatform={imPlatform} copyText={copyText} pushToIm={pushToIm} followStream={followStream} resendMessage={event.id === editableMessage?.id ? resendMessage : undefined} />;
     };
 
     let previousDay: string | undefined;
@@ -731,7 +773,7 @@ function ChatPaneContent({ index, pane, multi, active: focused, agents, projects
         </div>
       </React.Fragment>;
     });
-  }, [selected, index, agents, copiedTarget, pushingId, onSessionUpdate, followStream]);
+  }, [selected, index, agents, copiedTarget, pushingId, onSessionUpdate, followStream, resendMessage]);
 
   return <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
     <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected ? { ...selected, title: sessions.find(session => session.id === selected.id)?.title } : null} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={panelControls} />

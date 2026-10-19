@@ -74,7 +74,7 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow = new BrowserWindow({
       title: 'Agent Muster',
       icon,
-      ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const } : {}),
+      ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, transparent: true } : {}),
       width: 1280,
       height: 840,
       minWidth: 720,

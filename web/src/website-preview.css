@@ -61,7 +61,7 @@
 .demo-navigation button:hover, .demo-layout button:hover, .demo-platforms button:hover { background: #e8e8e8; }
 .demo-agent-options button:hover { border-color: #999; }
 .demo-composer a:hover, .demo-guide:hover { background: #424242; }
-.preview-demo select:focus-visible, .preview-demo textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.preview-demo select:focus-visible, .preview-demo textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 
 @keyframes preview-progress { to { transform: scaleX(1); } }
 @media (prefers-reduced-motion: no-preference) { .demo-workspace { animation: preview-appear .35s ease-out both; } @keyframes preview-appear { from { opacity: .3; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } } }

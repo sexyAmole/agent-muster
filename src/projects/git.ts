@@ -26,12 +26,21 @@ export async function readProjectGitStatus(project: string): Promise<ProjectGitS
     root = (await git(project, ['rev-parse', '--show-toplevel'])).trimEnd();
   } catch (reason) {
     if ((reason as { stderr?: string }).stderr?.includes('not a git repository')) {
-      return { repository: false, branch: null, commit: null, changes: [] };
+      return { repository: false, branch: null, commit: null, branches: [], changes: [] };
     }
     throw reason;
   }
-  const output = await git(project, ['-c', 'core.fsmonitor=false', 'status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all', '--', '.']);
-  const result: ProjectGitStatus = { repository: true, branch: null, commit: null, changes: [] };
+  const [output, refs] = await Promise.all([
+    git(project, ['-c', 'core.fsmonitor=false', 'status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all', '--', '.']),
+    git(project, ['for-each-ref', '--sort=refname', '--format=%(refname)%00%(symref)', 'refs/heads/', 'refs/remotes/']),
+  ]);
+  const branches = refs.split('\n').filter(Boolean).flatMap(record => {
+    const [ref, symbolicRef] = record.split('\0');
+    if (symbolicRef) return [];
+    const remote = ref!.startsWith('refs/remotes/');
+    return [{ name: ref!.slice(remote ? 13 : 11), remote }];
+  });
+  const result: ProjectGitStatus = { repository: true, branch: null, commit: null, branches, changes: [] };
   const projectRoot = await realpath(project);
   const projectPath = (path: string) => relative(projectRoot, join(root, path)).split(sep).join('/');
   const records = output.split('\0');
@@ -67,4 +76,29 @@ export async function readProjectGitDiff(project: string, path: string): Promise
     git(project, [...args, '--', ...paths]),
   ]);
   return { staged, unstaged, untracked: null };
+}
+
+export async function switchProjectGitBranch(project: string, name: string, remote: boolean): Promise<void> {
+  const status = await readProjectGitStatus(project);
+  if (!status.branches.some(branch => branch.name === name && branch.remote === remote)) {
+    throw new Error('分支已不存在，请刷新后重新选择');
+  }
+  try {
+    if (!remote) {
+      await git(project, ['switch', '--no-guess', '--', name]);
+      return;
+    }
+    const localName = name.slice(name.indexOf('/') + 1);
+    const remoteRef = `refs/remotes/${name}`;
+    if (status.branches.some(branch => !branch.remote && branch.name === localName)) {
+      const upstream = (await git(project, ['for-each-ref', '--format=%(upstream)', `refs/heads/${localName}`])).trimEnd();
+      if (upstream !== remoteRef) throw new Error(`本地分支 ${localName} 已存在且未跟踪 ${name}，请从本地分支列表选择，或先在终端配置跟踪关系`);
+      await git(project, ['switch', '--no-guess', '--', localName]);
+    } else {
+      await git(project, ['switch', '--track', '-c', localName, remoteRef]);
+    }
+  } catch (reason) {
+    const error = reason as Error & { stderr?: string };
+    throw new Error(`切换分支失败：${error.stderr?.trim() || error.message}`);
+  }
 }

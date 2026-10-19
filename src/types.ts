@@ -109,6 +109,7 @@ export interface ProjectGitStatus {
   repository: boolean;
   branch: string | null;
   commit: string | null;
+  branches: { name: string; remote: boolean }[];
   changes: ProjectGitChange[];
 }
 

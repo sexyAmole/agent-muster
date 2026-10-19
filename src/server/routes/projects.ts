@@ -6,7 +6,7 @@ import { dirname, isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { listProjectDirectory, readProjectFile, searchProjectFiles } from '../../projects/files.js';
-import { readProjectGitDiff, readProjectGitStatus } from '../../projects/git.js';
+import { readProjectGitDiff, readProjectGitStatus, switchProjectGitBranch } from '../../projects/git.js';
 import type { SessionManager } from '../../sessions/manager.js';
 import type { DingTalkRegistry } from '../../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../../integrations/feishu/registry.js';
@@ -101,6 +101,17 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
       } catch (error) { response.status(400).json({ error: (error as Error).message }); }
     });
   }
+  router.post('/projects/git-branch', async (request, response) => {
+    try {
+      const { path, name, remote } = request.body ?? {};
+      if (typeof path !== 'string' || typeof name !== 'string' || typeof remote !== 'boolean') throw new Error('需要项目路径、分支名称和分支类型');
+      if (!projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
+        response.status(404).json({ error: '项目不存在' }); return;
+      }
+      await switchProjectGitBranch(path, name, remote);
+      response.json({ success: true });
+    } catch (error) { response.status(400).json({ error: (error as Error).message }); }
+  });
   router.post('/projects', async (request, response) => {
     try {
       if (typeof request.body?.path !== 'string') throw new Error('Project directory is required');
