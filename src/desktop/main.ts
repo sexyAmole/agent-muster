@@ -8,6 +8,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type { WebContents } from 'electron';
 import { loadRuntime, startRuntime } from '../runtime.js';
 import { fullScreenChannel, windowControlChannel } from './window-controls.js';
+import { registerDesktopUpdates } from './updates.js';
 
 const execute = promisify(execFile);
 let mainWindow: BrowserWindow | undefined;
@@ -94,6 +95,7 @@ if (!app.requestSingleInstanceLock()) {
         if (action === 'toggle-fullscreen') mainWindow.setFullScreen(!mainWindow.isFullScreen());
       });
     }
+    registerDesktopUpdates(mainWindow);
     configureContents(mainWindow.webContents, pathToFileURL(pagePath).href, runtime.url);
     mainWindow.once('ready-to-show', () => mainWindow?.show());
     mainWindow.on('closed', () => { mainWindow = undefined; });

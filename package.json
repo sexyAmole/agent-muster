@@ -87,6 +87,7 @@
       "package.json"
     ],
     "mac": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "category": "public.app-category.developer-tools",
       "target": [
         "dmg"

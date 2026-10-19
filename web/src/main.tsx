@@ -11,6 +11,7 @@ import { AppIcon } from './app-icon';
 import { AgentIcon } from './agent-icon';
 import { AgentPanel } from './agent-panel';
 import { DesktopWindowControls } from './desktop-window-controls';
+import { DesktopUpdateButton } from './desktop-update-button';
 import { MessageProvider, useErrorMessage } from './message';
 import { MessageImages } from './message-images';
 import { FileMentionTextarea } from './file-mention-textarea';
@@ -1048,7 +1049,7 @@ function App() {
     <button className={`mobile-menu-backdrop ${mobileMenuOpen ? 'open' : ''}`} aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)} />
     <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`} id="project-menu">
       <DesktopWindowControls />
-      <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><strong>Agent Muster</strong><button className="menu-close" aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)}>×</button></div>
+      <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><strong>Agent Muster</strong><DesktopUpdateButton /><button className="menu-close" aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)}>×</button></div>
       <nav className="sidebar-menu" aria-label="快捷菜单">
         <button className="sidebar-create" disabled={picking} onClick={() => void pickProject()}><ActionIcon type="add" /><span>创建项目</span></button>
         <button className={`im-sidebar-link ${imOpen ? 'active' : ''}`} onClick={() => { setImOpen(true); setAgentsOpen(false); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" /></svg><span>IM 集成</span></button>
