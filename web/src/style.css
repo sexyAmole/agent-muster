@@ -47,6 +47,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .brand-symbol span:nth-child(2) { height: 14px; }
 .desktop-macos .sidebar { padding-top: 56px; }
 .desktop-macos .brand { -webkit-app-region: drag; user-select: none; }
+.desktop-macos :is(.chat-header, .file-panel-header, .topbar, .im-intro) { -webkit-app-region: drag; user-select: none; }
+.desktop-macos :is(.brand, .chat-header, .file-panel-header, .topbar, .im-intro) :is(button, a, input, textarea, select, summary, [role="button"], [role="tab"]) { -webkit-app-region: no-drag; }
 .desktop-titlebar { position: fixed; top: 0; left: 0; z-index: 120; display: flex; align-items: center; width: inherit; height: 44px; padding: 0 14px; -webkit-app-region: drag; user-select: none; }
 .desktop-traffic-lights { display: flex; align-items: center; }
 .desktop-traffic-lights button { position: relative; display: grid; place-items: center; width: 20px; height: 32px; padding: 0; border: 0; background: transparent; -webkit-app-region: no-drag; }
@@ -163,12 +165,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .chat-heading .chat-source { margin-top: 5px; white-space: normal; overflow-wrap: anywhere; }
 .output-actions { display: flex; align-items: center; gap: 6px; }
 .run-log { flex: none; }
-.run-log-drawer { position: fixed; inset: 0 0 0 auto; width: min(560px, 100vw); max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-left: 1px solid #e3e3e3; background: #fff; color: #181818; box-shadow: -12px 0 35px #0002; }
+.run-log-drawer { position: fixed; inset: 0 0 0 auto; width: min(560px, 100vw); max-width: none; height: 100dvh; max-height: none; overflow: hidden; margin: 0; padding: 0; border: 0; border-left: 1px solid #e3e3e3; background: #fff; color: #181818; box-shadow: -12px 0 35px #0002; -webkit-app-region: no-drag; }
 .run-log-drawer[open] { display: flex; flex-direction: column; animation: run-log-slide-in .2s ease-out; }
-.run-log-drawer::backdrop { background: #0005; }
+.run-log-drawer::backdrop { background: #0005; -webkit-app-region: no-drag; }
 .run-log-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #eee; }
 .run-log-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.run-log-content { flex: 1; min-height: 0; overflow: auto; padding: 0 16px 16px; }
+.run-log-content { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 16px 16px; }
 @keyframes run-log-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @media (prefers-reduced-motion: reduce) { .run-log-drawer[open] { animation: none; } }
 .run-log-content > div, .run-log-content > details { padding: 8px 0; border-bottom: 1px solid #eee; }

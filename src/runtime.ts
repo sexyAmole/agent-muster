@@ -26,7 +26,7 @@ export async function loadRuntime() {
   return { registry, sessions, projects, dingtalk, feishu, wecom };
 }
 
-export async function startRuntime(context: Awaited<ReturnType<typeof loadRuntime>>, port: number, dev = false) {
+export async function startRuntime(context: Awaited<ReturnType<typeof loadRuntime>>, port: number, dev = false, desktopToken?: string) {
   const { registry, sessions, projects, dingtalk, feishu, wecom } = context;
   for (const { sessionId, appId } of dingtalk.sessionBindings()) sessions.linkImSession(sessionId, { platform: 'dingtalk', appId });
   new DingTalkBridge(dingtalk, registry, sessions, projects);
@@ -34,7 +34,7 @@ export async function startRuntime(context: Awaited<ReturnType<typeof loadRuntim
   new FeishuBridge(feishu, registry, sessions, projects);
   for (const { sessionId, appId } of wecom.sessionBindings()) sessions.linkImSession(sessionId, { platform: 'wecom', appId });
   new WecomBridge(wecom, registry, sessions, projects);
-  const server = await startServer(port, registry, projects, sessions, dingtalk, feishu, wecom, dev);
+  const server = await startServer(port, registry, projects, sessions, dingtalk, feishu, wecom, dev, desktopToken);
   dingtalk.startSubscriptions();
   feishu.startSubscriptions();
   wecom.startSubscriptions();

@@ -19,7 +19,7 @@ import { createImageRouter } from './routes/images.js';
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 
-export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, dev = false) {
+export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, dev = false, desktopToken?: string) {
   let listeningPort = port;
   const app = express();
   app.disable('x-powered-by');
@@ -28,7 +28,24 @@ export async function startServer(port: number, registry: AgentRegistry, project
       response.status(403).json({ error: 'Invalid host' });
       return;
     }
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
+    if (desktopToken) {
+      if (request.query.desktopToken !== desktopToken) {
+        response.status(403).json({ error: 'Invalid desktop token' });
+        return;
+      }
+      if (request.headers.origin && request.headers.origin !== 'null') {
+        response.status(403).json({ error: 'Invalid origin' });
+        return;
+      }
+      response.setHeader('Access-Control-Allow-Origin', 'null');
+      response.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS');
+      response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Last-Event-ID');
+      response.setHeader('Referrer-Policy', 'no-referrer');
+      if (request.method === 'OPTIONS') {
+        response.sendStatus(204);
+        return;
+      }
+    } else if (request.method !== 'GET' && request.method !== 'HEAD') {
       const origin = request.headers.origin;
       if (origin && origin !== `http://127.0.0.1:${listeningPort}`) {
         response.status(403).json({ error: 'Invalid origin' });

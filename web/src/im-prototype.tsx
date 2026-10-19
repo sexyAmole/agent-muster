@@ -1,3 +1,4 @@
+import { apiUrl } from './api-url';
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { AppIcon } from './app-icon';
 import { Select } from './select';
@@ -13,7 +14,7 @@ type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; reason?:
 type Props = { active: boolean; sessions: SessionSummary[]; onOpenSession: (session: SessionSummary) => void; feishuApps: Application[]; onFeishuAppsChange: Dispatch<SetStateAction<Application[]>>; projects: string[]; agents: Agent[]; projectLabel: (path: string) => string };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...options?.headers } });
+  const response = await fetch(apiUrl(path), { ...options, headers: { 'Content-Type': 'application/json', ...options?.headers } });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || '请求失败');
   return result as T;
@@ -117,7 +118,7 @@ function ImIntegration({ active, sessions, onOpenSession, feishuApps, onFeishuAp
 
   useEffect(() => {
     if (provider === 'dingtalk' || !registration) return;
-    return () => { void fetch(`/api/${provider}/registration/${registration.id}`, { method: 'DELETE' }); };
+    return () => { void fetch(apiUrl(`/api/${provider}/registration/${registration.id}`), { method: 'DELETE' }); };
   }, [provider, registration]);
 
   function closeRegistration() { registrationAttempt.current++; setOpen(false); setRegistration(null); }
@@ -128,7 +129,7 @@ function ImIntegration({ active, sessions, onOpenSession, feishuApps, onFeishuAp
     try {
       const result = await request<Registration>(`/api/${provider}/registration`, { method: 'POST' });
       if (attempt === registrationAttempt.current) setRegistration(result);
-      else if (provider !== 'dingtalk') await fetch(`/api/${provider}/registration/${result.id}`, { method: 'DELETE' });
+      else if (provider !== 'dingtalk') await fetch(apiUrl(`/api/${provider}/registration/${result.id}`), { method: 'DELETE' });
     } catch (reason) { if (attempt === registrationAttempt.current) setScanError((reason as Error).message); }
     finally { if (attempt === registrationAttempt.current) setBusy(false); }
   }

@@ -1,3 +1,4 @@
+import { apiUrl } from './api-url';
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { FileTreeIcon } from './file-tree-icon';
 import type { ProjectFileDetail, ProjectFileEntry, ProjectGitChange, ProjectGitDiff, ProjectGitStatus } from '../../src/types';
@@ -12,7 +13,7 @@ function useFileResource<T>(url: string, revision: number) {
   useEffect(() => {
     if (!url) return;
     const controller = new AbortController();
-    fetch(url, { signal: controller.signal }).then(async response => {
+    fetch(apiUrl(url), { signal: controller.signal }).then(async response => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
       if (!controller.signal.aborted) setResult({ key, data: data as T });

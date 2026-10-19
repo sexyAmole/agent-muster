@@ -1,3 +1,4 @@
+import { apiUrl } from './api-url';
 import { useState } from 'react';
 
 type Props = {
@@ -11,6 +12,6 @@ export function AppIcon({ src, platform, className, fallbackClassName }: Props) 
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
 
   return src && src !== failedSrc
-    ? <img className={className} src={src} alt={`${platform}应用图标`} onError={() => setFailedSrc(src)} />
+    ? <img className={className} src={apiUrl(src)} alt={`${platform}应用图标`} onError={() => setFailedSrc(src)} />
     : <span className={fallbackClassName} aria-label={`${platform}应用`}>{platform[0]}</span>;
 }

@@ -1,3 +1,4 @@
+import { apiUrl } from './api-url';
 import { useEffect, useState } from 'react';
 import { useErrorMessage } from './message';
 import { AgentIcon } from './agent-icon';
@@ -8,7 +9,7 @@ type AgentOperation = { id: string; action: AgentAction };
 const actionLabels: Record<AgentAction, string> = { install: '安装', update: '更新', uninstall: '卸载' };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json' } });
+  const response = await fetch(apiUrl(path), { ...options, headers: { 'Content-Type': 'application/json' } });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error);
   return result as T;

@@ -1,3 +1,4 @@
+import { apiUrl } from './api-url';
 import { useEffect, useId, useRef, useState, type TextareaHTMLAttributes } from 'react';
 
 type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> & {
@@ -30,7 +31,7 @@ export function FileMentionTextarea({ project, value, onChange, onKeyDown, disab
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
-        const response = await fetch(`/api/projects/files?${new URLSearchParams({ path: project, query: query! })}`, { signal: controller.signal });
+        const response = await fetch(apiUrl(`/api/projects/files?${new URLSearchParams({ path: project, query: query! })}`), { signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error);
         if (!controller.signal.aborted) setResult({ key: searchKey, files: data as string[] });

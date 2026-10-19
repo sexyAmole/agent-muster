@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { fullScreenChannel, windowControlChannel } from './window-controls.js';
-import type { DesktopWindowApi } from './window-controls.js';
+import type { DesktopRuntimeConfig, DesktopWindowApi } from './window-controls.js';
+
+const configArgument = process.argv.find(argument => argument.startsWith('--agent-muster-runtime='));
+if (!configArgument) throw new Error('缺少桌面服务配置');
+const runtime: DesktopRuntimeConfig = JSON.parse(configArgument.slice('--agent-muster-runtime='.length));
+contextBridge.exposeInMainWorld('desktopRuntime', runtime);
 
 if (process.platform === 'darwin') {
   const controls: DesktopWindowApi = {

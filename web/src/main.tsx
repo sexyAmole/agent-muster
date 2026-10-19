@@ -1,3 +1,4 @@
+import { apiUrl } from './api-url';
 import React, { createContext, lazy, Suspense, useContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Select } from './select';
 import { DateRangePicker, localDate, type DateRange } from './date-range-picker';
@@ -51,7 +52,7 @@ function ProjectFolderIcon({ open }: { open: boolean }) {
 }
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...options?.headers } });
+  const response = await fetch(apiUrl(path), { ...options, headers: { 'Content-Type': 'application/json', ...options?.headers } });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || 'Request failed');
   return result as T;
@@ -421,7 +422,7 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
           setMessage(lastMessage.text);
           setImages((lastMessage.images || []).map((image, index) => {
             const id = shortPath(image.path);
-            return { id, file: new File([], id, { type: image.mimeType }), url: `/api/sessions/${selected.id}/messages/${lastMessage.id}/images/${index}` };
+            return { id, file: new File([], id, { type: image.mimeType }), url: apiUrl(`/api/sessions/${selected.id}/messages/${lastMessage.id}/images/${index}`) };
           }));
         }
       }
@@ -582,7 +583,7 @@ function ChatPaneContent({ index, pane, multi, active: focused, agents, projects
       setSelected(session);
       setHasMoreHistory(hasMore);
       onSessionUpdate(session);
-      source = new EventSource(`/api/sessions/${selectedId}/events?after=${Math.max(0, ...session.events.map(event => event.id))}`);
+      source = new EventSource(apiUrl(`/api/sessions/${selectedId}/events?after=${Math.max(0, ...session.events.map(event => event.id))}`));
       source.onmessage = messageEvent => {
         const event = JSON.parse(messageEvent.data) as Event;
         setSelected(previous => {

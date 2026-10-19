@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -29,20 +31,24 @@ function openExternal(url: string): void {
   }
 }
 
-function configureContents(contents: WebContents, origin: string): void {
+function configureContents(contents: WebContents, pageUrl: string, serverOrigin: string): void {
+  const isInternal = (url: string) => {
+    const target = new URL(url);
+    return url === pageUrl || target.origin === serverOrigin || (target.protocol === 'blob:' && target.origin === new URL(pageUrl).origin);
+  };
   contents.on('will-navigate', (event, url) => {
-    if (new URL(url).origin === origin) return;
+    if (isInternal(url)) return;
     event.preventDefault();
     openExternal(url);
   });
   contents.setWindowOpenHandler(({ url }) => {
-    if (new URL(url).origin === origin) {
+    if (isInternal(url)) {
       return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } } };
     }
     openExternal(url);
     return { action: 'deny' };
   });
-  contents.on('did-create-window', window => configureContents(window.webContents, origin));
+  contents.on('did-create-window', window => configureContents(window.webContents, pageUrl, serverOrigin));
 }
 
 app.setName('Agent Muster');
@@ -61,7 +67,9 @@ if (!app.requestSingleInstanceLock()) {
     if (app.dock) app.dock.setIcon(icon);
     await restoreShellPath();
     process.chdir(homedir());
-    runtime = await startRuntime(await loadRuntime(), 0);
+    const token = randomBytes(32).toString('hex');
+    runtime = await startRuntime(await loadRuntime(), 0, false, token);
+    const pagePath = resolve(import.meta.dirname, '../../web/dist/index.html');
     if (quitting) return;
     mainWindow = new BrowserWindow({
       title: 'Agent Muster',
@@ -73,7 +81,7 @@ if (!app.requestSingleInstanceLock()) {
       minHeight: 540,
       show: false,
       autoHideMenuBar: true,
-      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: join(import.meta.dirname, 'preload.cjs') },
+      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: join(import.meta.dirname, 'preload.cjs'), additionalArguments: [`--agent-muster-runtime=${JSON.stringify({ url: runtime.url, token })}`] },
     });
     if (process.platform === 'darwin') {
       mainWindow.setWindowButtonVisibility(false);
@@ -86,10 +94,10 @@ if (!app.requestSingleInstanceLock()) {
         if (action === 'toggle-fullscreen') mainWindow.setFullScreen(!mainWindow.isFullScreen());
       });
     }
-    configureContents(mainWindow.webContents, runtime.url);
+    configureContents(mainWindow.webContents, pathToFileURL(pagePath).href, runtime.url);
     mainWindow.once('ready-to-show', () => mainWindow?.show());
     mainWindow.on('closed', () => { mainWindow = undefined; });
-    await mainWindow.loadURL(runtime.url);
+    await mainWindow.loadFile(pagePath);
   }).catch(error => {
     dialog.showErrorBox('Agent Muster 启动失败', error.message);
     process.exitCode = 1;

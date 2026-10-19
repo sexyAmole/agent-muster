@@ -7,3 +7,8 @@ export interface DesktopWindowApi {
   toggleFullScreen(): void;
   onFullScreenChange(listener: (fullScreen: boolean) => void): () => void;
 }
+
+export interface DesktopRuntimeConfig {
+  url: string;
+  token: string;
+}
