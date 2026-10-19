@@ -20,16 +20,17 @@ import { createImageRouter } from './routes/images.js';
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 
 export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, dev = false) {
+  let listeningPort = port;
   const app = express();
   app.disable('x-powered-by');
   app.use((request, response, next) => {
-    if (request.headers.host !== `127.0.0.1:${port}`) {
+    if (request.headers.host !== `127.0.0.1:${listeningPort}`) {
       response.status(403).json({ error: 'Invalid host' });
       return;
     }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       const origin = request.headers.origin;
-      if (origin && origin !== `http://127.0.0.1:${port}`) {
+      if (origin && origin !== `http://127.0.0.1:${listeningPort}`) {
         response.status(403).json({ error: 'Invalid origin' });
         return;
       }
@@ -65,5 +66,8 @@ export async function startServer(port: number, registry: AgentRegistry, project
     server.once('error', reject);
     server.listen(port, '127.0.0.1', done);
   });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('无法获取本地服务端口');
+  listeningPort = address.port;
   return server;
 }

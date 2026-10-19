@@ -9,6 +9,7 @@ import { ImPrototype, type Application } from './im-prototype';
 import { AppIcon } from './app-icon';
 import { AgentIcon } from './agent-icon';
 import { AgentPanel } from './agent-panel';
+import { DesktopWindowControls } from './desktop-window-controls';
 import { MessageProvider, useErrorMessage } from './message';
 import { MessageImages } from './message-images';
 import { FileMentionTextarea } from './file-mention-textarea';
@@ -1000,9 +1001,10 @@ function App() {
   const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const activeSessionId = currentPane.sessionId;
 
-  return <ProjectNamesContext.Provider value={projectNames}><div className="app-shell">
+  return <ProjectNamesContext.Provider value={projectNames}><div className={`app-shell${window.desktopWindow ? ' desktop-macos' : ''}`}>
     <button className={`mobile-menu-backdrop ${mobileMenuOpen ? 'open' : ''}`} aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)} />
     <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`} id="project-menu">
+      <DesktopWindowControls />
       <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><strong>Agent Muster</strong><button className="menu-close" aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)}>×</button></div>
       <nav className="sidebar-menu" aria-label="快捷菜单">
         <button className="sidebar-create" disabled={picking} onClick={() => void pickProject()}><ActionIcon type="add" /><span>创建项目</span></button>

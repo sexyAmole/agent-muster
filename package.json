@@ -30,12 +30,16 @@
     "build": "tsc -p tsconfig.json --noEmit && node scripts/build.mjs && vite build --config web/vite.config.ts",
     "prepack": "pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "start": "node bin/agent-muster.js web --no-open"
+    "start": "node bin/agent-muster.js web --no-open",
+    "desktop": "pnpm build && electron .",
+    "desktop:pack": "pnpm build && electron-builder --dir",
+    "desktop:dist": "pnpm build && electron-builder"
   },
   "files": [
     "bin",
     "dist",
     "web/dist",
+    "resources/desktop",
     "README.zh-CN.md"
   ],
   "devDependencies": {
@@ -49,6 +53,8 @@
     "@vitejs/plugin-react": "^4.7.0",
     "@wecom/aibot-node-sdk": "^1.0.7",
     "dingtalk-stream": "2.1.6-beta.1",
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "express": "^5.1.0",
     "material-icon-theme": "^5.39.0",
@@ -66,5 +72,45 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "main": "dist/desktop/main.js",
+  "build": {
+    "appId": "com.agent-muster.desktop",
+    "productName": "Agent Muster",
+    "directories": {
+      "output": "release",
+      "buildResources": "resources/desktop"
+    },
+    "files": [
+      "dist/desktop/**/*",
+      "web/dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg"
+      ],
+      "icon": "resources/desktop/icon.icns"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "resources/desktop/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development",
+      "icon": "resources/desktop/icon.png"
+    },
+    "extraResources": [
+      {
+        "from": "resources/desktop/icon.png",
+        "to": "icon.png"
+      }
+    ]
   }
 }

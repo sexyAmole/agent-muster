@@ -248,8 +248,10 @@ export class SessionManager extends EventEmitter {
     this.sessions.delete(id);
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
+    const closed = [...this.processes.values()].map(child => new Promise<void>(resolve => child.once('close', () => resolve())));
     for (const id of this.processes.keys()) this.stop(id);
+    await Promise.all(closed);
   }
 
   private savePending(session: AgentSession): void {
