@@ -129,7 +129,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .pane-layout-switch { flex: none; }
 .sidebar-menu svg { flex: none; }
 .content { width: 100%; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: auto; padding: 0; }
-.workspace-grid { min-height: 100%; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 8px; }
+.workspace-grid { min-height: 100%; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 8px 8px 8px 0; }
 .workspace-grid.double, .workspace-grid.quad { min-width: 860px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .workspace-grid.quad { min-height: max(100%, 620px); grid-template-rows: repeat(2, minmax(0, 1fr)); }
 .pane-wrap { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -482,27 +482,46 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .panel-resizer:hover::after, .panel-resizer:focus-visible::after { background: #777; }
 .panel-resizer:focus-visible { outline: 2px solid #555; outline-offset: -2px; }
 .pane-wrap.files-open:has(.panel-resizer:active) { user-select: none; }
-.copy-button, .file-panel-toggle, .file-panel-header button, .layout-switch .select-input { position: relative; display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #555; }
-.copy-button:is(:hover, :focus-visible)::after, .file-panel-toggle:is(:hover, :focus-visible)::after, .file-panel-header button:is(:hover, :focus-visible)::after, .layout-switch .select-input:is(:hover, :focus-visible)::after { content: attr(aria-label); position: absolute; z-index: 10; top: calc(100% + 6px); right: 0; padding: 5px 8px; border-radius: 4px; background: #333; color: #fff; font-size: 11px; font-weight: 400; line-height: 1.4; white-space: nowrap; pointer-events: none; }
-.copy-button:hover, .file-panel-toggle:hover, .file-panel-header button:hover, .layout-switch .select-input:hover { background: #f4f4f4; }
+.copy-button, .file-panel-toggle, .file-panel-actions button, .layout-switch .select-input { position: relative; display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #555; }
+.copy-button:is(:hover, :focus-visible)::after, .file-panel-toggle:is(:hover, :focus-visible)::after, .file-panel-actions button:is(:hover, :focus-visible)::after, .layout-switch .select-input:is(:hover, :focus-visible)::after { content: attr(aria-label); position: absolute; z-index: 10; top: calc(100% + 6px); right: 0; padding: 5px 8px; border-radius: 4px; background: #333; color: #fff; font-size: 11px; font-weight: 400; line-height: 1.4; white-space: nowrap; pointer-events: none; }
+.copy-button:hover, .file-panel-toggle:hover, .file-panel-actions button:hover, .layout-switch .select-input:hover { background: #f4f4f4; }
 .copy-button[aria-expanded="true"], .file-panel-toggle[aria-expanded="true"] { background: #eee; color: #202020; }
 .file-panel { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
 .file-panel-header { min-height: 49px; display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #eee; }
-.file-panel-header strong { font-size: 12px; }
-.file-panel-header > div { display: flex; gap: 6px; }
-.file-panel-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.file-panel-actions { display: flex; gap: 6px; }
+.file-panel-header > .tabs-list { align-self: stretch; gap: 16px; margin: 0; border: 0; }
+.file-panel-header .tabs-trigger { margin-bottom: -9px; padding: 0 2px; font-size: 12px; }
+.file-panel-tabpanel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.file-panel-tabpanel[hidden] { display: none; }
+.file-panel-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 200px; }
+.file-panel-body[hidden] { display: none; }
+.file-panel.tree-hidden .file-panel-body { grid-template-columns: minmax(0, 1fr); }
+.file-panel-actions button[aria-expanded="true"] { background: #eee; color: #202020; }
+.git-branch { flex: none; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 4px 10px 12px; font-size: 11px; }
+.git-branch > span { color: #777; }
+.git-branch strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-change-status { flex: none; min-width: 2ch; color: #666; font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.git-diff-section { flex: none; min-width: 0; }
+.git-diff-section h3 { position: sticky; left: 0; margin: 0; padding: 8px 12px; border-block: 1px solid #eee; background: #fafafa; font-size: 11px; font-weight: 600; }
+.git-diff { margin: 0; padding: 8px 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+.git-diff:focus-visible { outline: 2px solid #555; outline-offset: -2px; }
+.git-diff > span { display: block; width: 100%; padding: 0 12px; }
+.git-diff-added { background: #e6f4e9; color: #215d32; }
+.git-diff-removed { background: #fce9e7; color: #922f2a; }
+.git-diff-hunk { background: #eef3f8; color: #425d79; }
 .file-detail { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 .file-metadata { display: flex; align-items: center; gap: 8px; flex: none; min-width: 0; margin: 0; padding: 8px 12px; font-size: 11px; }
 .file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 .file-size-tag { flex: none; padding: 1px 6px; border: 1px solid #e5e5e5; border-radius: 4px; background: #f6f6f6; color: #666; white-space: nowrap; }
 .file-preview { flex: 1; min-height: 100px; overflow: auto; }
 .file-preview > div { min-height: 100%; }
-.file-preview .shiki { min-width: 100%; width: max-content; min-height: 100%; margin: 0; padding: 12px 0; tab-size: 2; font: 11px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.file-preview .shiki { width: 100%; min-height: 100%; margin: 0; padding: 12px 0; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; font: 11px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .file-preview .shiki code { display: block; font: inherit; }
-.file-preview .shiki .line { display: inline-block; min-width: 100%; padding-right: 12px; }
-.file-preview .shiki .line::before { content: attr(data-line); display: inline-block; box-sizing: content-box; width: var(--file-line-digits); padding: 0 8px; margin-right: 12px; border-right: 1px solid #eee; color: #777; text-align: right; user-select: none; }
+.file-preview .shiki .line { position: relative; display: inline-block; width: 100%; padding: 0 12px 0 calc(var(--file-line-digits) + 29px); vertical-align: top; }
+.file-preview .shiki .line::before { content: attr(data-line); position: absolute; top: 0; left: 0; box-sizing: content-box; width: var(--file-line-digits); height: 100%; padding: 0 8px; border-right: 1px solid #eee; color: #777; text-align: right; user-select: none; }
 .file-preview .shiki:focus-visible { outline: none; }
-.file-tree { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 8px 0; }
+.file-tree { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 8px 0; border-left: 1px solid #eee; }
+.file-tree[hidden] { display: none; }
 .file-tree-project { padding: 4px 10px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
 .file-tree-search { flex: none; padding: 0 8px 8px; }
 .file-tree-search-row { display: flex; align-items: center; gap: 4px; }

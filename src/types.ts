@@ -98,6 +98,26 @@ export interface SessionEvent {
   images?: Pick<AgentImage, 'path' | 'mimeType'>[];
 }
 
+export interface ProjectGitChange {
+  path: string;
+  originalPath?: string;
+  indexStatus: string;
+  worktreeStatus: string;
+}
+
+export interface ProjectGitStatus {
+  repository: boolean;
+  branch: string | null;
+  commit: string | null;
+  changes: ProjectGitChange[];
+}
+
+export interface ProjectGitDiff {
+  staged: string;
+  unstaged: string;
+  untracked: ProjectFileDetail | null;
+}
+
 export interface SessionLog {
   id: number;
   text: string;

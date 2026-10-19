@@ -191,7 +191,7 @@ export class SessionManager extends EventEmitter {
     if (!session) throw new Error('Session not found');
     if (!message.trim()) throw new Error('Message is required');
     const child = this.processes.get(id);
-    if (child && session.status === 'completed') await once(child, 'close');
+    if (child && (session.status === 'completed' || session.status === 'stopped')) await once(child, 'close');
     if (this.sessions.get(id) !== session) throw new Error('Session not found');
     if (this.processes.has(id)) throw new Error('Wait for the current task to finish or stop it');
     if (!session.externalSessionId) throw new Error('This agent did not create a resumable session');

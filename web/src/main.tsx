@@ -306,6 +306,25 @@ type ChatComposerProps = Pick<PaneProps, 'index' | 'pane' | 'agents' | 'projects
   setError: React.Dispatch<React.SetStateAction<string>>;
 };
 
+type ComposerStateProps = Pick<ChatComposerProps, 'selected' | 'agents' | 'projects' | 'pane'> & {
+  agent: string;
+  message: string;
+  images: ComposerImage[];
+  busy: boolean;
+};
+
+function getComposerState({ selected, agents, projects, pane, agent, message, images, busy }: ComposerStateProps) {
+  const running = selected?.status === 'running' || selected?.status === 'starting';
+  const composerProject = selected?.cwd || (projects.includes(pane.cwd) ? pane.cwd : '');
+  const composerAgent = selected?.agent || agent;
+  const agentInfo = agents.find(item => item.id === composerAgent);
+  const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
+  const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'kimi' && composerAgent !== 'cursor');
+  const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
+
+  return { running, composerProject, composerAgent, agentInfo, composerDisabled, supportsImages, canSend };
+}
+
 function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange, onSessionCreated, onSessionUpdate, focused, selected, setSelected, setError }: ChatComposerProps) {
   const projectNames = useContext(ProjectNamesContext);
   const selectedId = pane.sessionId;
@@ -389,20 +408,27 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
   }
 
   async function stop() {
-    if (!selected) return;
+    if (!selected || busy) return;
     setError(''); setBusy(true);
-    try { await api(`/api/sessions/${selected.id}/stop`, { method: 'POST' }); }
-    catch (reason) { setError((reason as Error).message); }
+    try {
+      const session = await api<SessionSummary>(`/api/sessions/${selected.id}/stop`, { method: 'POST' });
+      onSessionUpdate(session);
+      setSelected(current => current?.id === session.id ? { ...current, ...session } : current);
+      if (!message && !images.length) {
+        const lastMessage = [...selected.events].reverse().find(event => event.type === 'message');
+        if (lastMessage) {
+          setMessage(lastMessage.text);
+          setImages((lastMessage.images || []).map((image, index) => {
+            const id = shortPath(image.path);
+            return { id, file: new File([], id, { type: image.mimeType }), url: `/api/sessions/${selected.id}/messages/${lastMessage.id}/images/${index}` };
+          }));
+        }
+      }
+    } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(false); }
   }
 
-  const running = selected?.status === 'running' || selected?.status === 'starting';
-  const composerProject = selected?.cwd || (projects.includes(pane.cwd) ? pane.cwd : '');
-  const composerAgent = selected?.agent || agent;
-  const agentInfo = agents.find(item => item.id === composerAgent);
-  const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
-  const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'kimi' && composerAgent !== 'cursor');
-  const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
+  const { running, composerProject, composerAgent, agentInfo, composerDisabled, supportsImages, canSend } = getComposerState({ selected, agents, projects, pane, agent, message, images, busy });
 
   useEffect(() => {
     if (running) {
@@ -442,6 +468,7 @@ function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange
 type ChatPaneProps = PaneProps & { layoutControls?: React.ReactNode };
 
 function ChatPane(props: ChatPaneProps) {
+  const { index, pane, panelProject, multi, active: focused, onFocus } = props;
   const [panelOpen, setPanelOpen] = useState(false);
   const [conversationRatio, setConversationRatio] = useState(0.5);
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 1100px)').matches);
@@ -456,15 +483,76 @@ function ChatPane(props: ChatPaneProps) {
 
   useEffect(() => { setPanelOpen(false); }, [props.panelProject, props.multi, narrow]);
 
-  return <ChatPaneContent key={props.pane.revision} {...props} panelOpen={panelOpen} setPanelOpen={setPanelOpen} conversationRatio={conversationRatio} setConversationRatio={setConversationRatio} narrow={narrow} />;
+  const paneRef = useRef<HTMLDivElement>(null);
+  const panelDrag = useRef({ x: 0, width: 0 });
+  const panelButton = useRef<HTMLButtonElement>(null);
+  const project = pane.cwd;
+  const canOpenPanel = !multi && !narrow && Boolean(project && project === panelProject);
+  const showPanel = canOpenPanel && panelOpen;
+
+  function resizeConversation(width: number) {
+    const available = paneRef.current!.clientWidth - 8;
+    setConversationRatio(Math.max(300, Math.min(available - 300, width)) / available);
+  }
+
+  return <div ref={paneRef} className={`pane-wrap ${focused && multi ? 'focused' : ''}${showPanel ? ' files-open' : ''}`} style={showPanel ? { gridTemplateColumns: `minmax(300px, ${conversationRatio}fr) 8px minmax(300px, ${1 - conversationRatio}fr)` } : undefined} onPointerDown={() => { if (!focused) onFocus(index); }} onFocusCapture={() => { if (!focused) onFocus(index); }}>
+    <ChatPaneContent key={props.pane.revision} {...props} panelControls={canOpenPanel && <button ref={panelButton} type="button" className="file-panel-toggle" aria-label={showPanel ? '收起面板' : '展开面板'} aria-expanded={showPanel} onClick={() => setPanelOpen(open => !open)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /></svg></button>} />
+    {showPanel && <div className="panel-resizer" role="separator" tabIndex={0} aria-label="调整会话与文件面板宽度" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(conversationRatio * 100)} onPointerDown={event => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.currentTarget.focus();
+      panelDrag.current = { x: event.clientX, width: paneRef.current!.querySelector<HTMLElement>('.output-panel')!.offsetWidth };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }} onPointerMove={event => {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeConversation(panelDrag.current.width + event.clientX - panelDrag.current.x);
+    }} onPointerUp={event => {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    }} onKeyDown={event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const width = paneRef.current!.querySelector<HTMLElement>('.output-panel')!.offsetWidth;
+      resizeConversation(event.key === 'Home' ? 300 : event.key === 'End' ? paneRef.current!.clientWidth - 308 : width + (event.key === 'ArrowLeft' ? -20 : 20));
+    }} />}
+    {showPanel && <Suspense fallback={<aside className="file-panel" role="status"><p className="file-panel-status">正在加载文件面板…</p></aside>}><FilePanel key={project} project={project} onClose={() => { setPanelOpen(false); panelButton.current?.focus(); }} /></Suspense>}
+  </div>;
 }
 
-function ChatPaneContent({ index, pane, panelProject, multi, active: focused, agents, projects, sessions, feishuApps, onFocus, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls, panelOpen, setPanelOpen, conversationRatio, setConversationRatio, narrow }: ChatPaneProps & {
-  panelOpen: boolean;
-  setPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  conversationRatio: number;
-  setConversationRatio: React.Dispatch<React.SetStateAction<number>>;
-  narrow: boolean;
+type ConversationItemProps = {
+  item: Event | Event[];
+  index: number;
+  session: Session;
+  showActions: boolean;
+  copiedTarget: 'conversation' | 'run-log' | number | null;
+  pushingId: number | null;
+  imPlatform: string;
+  copyText: (text: string, target: 'conversation' | 'run-log' | number) => Promise<void>;
+  pushToIm: (event: Event) => Promise<void>;
+  followStream: () => void;
+};
+
+function AssistantReply({ event, session, showActions, copiedTarget, pushingId, imPlatform, copyText, pushToIm, followStream }: Omit<ConversationItemProps, 'item' | 'index'> & { event: Event }) {
+  return <div className="chat-turn assistant-turn">{event.type === 'im_message' && <div className="dingtalk-sent-label">应用 · 已发送到{event.im?.platform === 'feishu' ? '飞书' : event.im?.platform === 'wecom' ? '企业微信' : '钉钉'}</div>}<div className="assistant-copy">{event.type === 'im_message' ? <div className="dingtalk-sent-content">{event.text}</div> : <StreamText text={event.text} streaming={event.streaming} onProgress={followStream}>{text => <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>}</StreamText>}</div><div className="reply-actions">{showActions && <button className="reply-copy" aria-label={copiedTarget === event.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(event.text, event.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === event.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}<MessageDate timestamp={event.timestamp} />{showActions && event.type === 'output' && Boolean(session.im?.length) && event.text.trim() && <button className="reply-push" disabled={pushingId !== null || event.pushedToIm} onClick={() => void pushToIm(event)}>{pushingId === event.id ? '推送中…' : event.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div></div>;
+}
+
+function ConversationItem({ item, index, ...reply }: ConversationItemProps) {
+  const { session, followStream } = reply;
+  if (Array.isArray(item)) return <ToolTimeline events={item} accordionName={`tools-${index}-${session.id}-${item[0].streamId || item[0].id}`} agent={session.agent} />;
+  switch (item.type) {
+    case 'thinking':
+      return <details className="thinking-step"><summary className="thinking-label"><span>{item.streaming ? '思考中…' : '思考内容'}<span> · {Array.from(item.text).length} 字</span></span><span className="tool-call-chevron" aria-hidden="true" /></summary><div className="thinking-content"><StreamText text={item.text} streaming={item.streaming} onProgress={followStream} /></div></details>;
+    case 'message':
+      return <div className="chat-turn user-turn"><div className="user-bubble">{item.text}{item.images && item.images.length > 0 && <MessageImages key={session.id} sessionId={session.id} eventId={item.id} count={item.images.length} />}</div><MessageDate timestamp={item.timestamp} /></div>;
+    case 'file_change':
+      return <FileChange event={item} cwd={session.cwd} />;
+    case 'error':
+      return <div className="chat-notice">{item.text}</div>;
+    default:
+      return <AssistantReply {...reply} event={item} />;
+  }
+}
+
+function ChatPaneContent({ index, pane, multi, active: focused, agents, projects, sessions, feishuApps, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls, panelControls }: ChatPaneProps & {
+  panelControls: React.ReactNode;
 }) {
   const selectedId = pane.sessionId;
   const [selected, setSelected] = useState<Session | null>(() => {
@@ -481,16 +569,6 @@ function ChatPaneContent({ index, pane, panelProject, multi, active: focused, ag
   const [copiedTarget, setCopiedTarget] = useState<'conversation' | 'run-log' | number | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const followConversation = useRef(true);
-  const paneRef = useRef<HTMLDivElement>(null);
-  const panelDrag = useRef({ x: 0, width: 0 });
-  const panelButton = useRef<HTMLButtonElement>(null);
-  const canOpenPanel = !multi && !narrow && Boolean(selected && selected.cwd === panelProject);
-  const showPanel = canOpenPanel && panelOpen;
-
-  function resizeConversation(width: number) {
-    const available = paneRef.current!.clientWidth - 8;
-    setConversationRatio(Math.max(300, Math.min(available - 300, width)) / available);
-  }
 
   useEffect(() => {
     if (!selectedId) { setSelected(null); return; }
@@ -619,17 +697,10 @@ function ChatPaneContent({ index, pane, panelProject, multi, active: focused, ag
 
   const conversation = useMemo(() => {
     if (!selected) return null;
-    const renderItem = (item: Event | Event[], showActions = false) => selected && (Array.isArray(item)
-              ? <ToolTimeline key={item[0].streamId || item[0].id} events={item} accordionName={`tools-${index}-${selected.id}-${item[0].streamId || item[0].id}`} agent={selected.agent} />
-              : item.type === 'thinking'
-                ? <details key={item.streamId || item.id} className="thinking-step"><summary className="thinking-label"><span>{item.streaming ? '思考中…' : '思考内容'}<span> · {Array.from(item.text).length} 字</span></span><span className="tool-call-chevron" aria-hidden="true" /></summary><div className="thinking-content"><StreamText text={item.text} streaming={item.streaming} onProgress={followStream} /></div></details>
-                : item.type === 'message'
-                ? <div key={item.streamId || item.id} className="chat-turn user-turn"><div className="user-bubble">{item.text}{item.images && item.images.length > 0 && <MessageImages key={selected.id} sessionId={selected.id} eventId={item.id} count={item.images.length} />}</div><MessageDate timestamp={item.timestamp} /></div>
-                : item.type === 'file_change'
-                  ? <FileChange key={item.streamId || item.id} event={item} cwd={selected.cwd} />
-                : item.type === 'error'
-                  ? <div key={item.streamId || item.id} className="chat-notice">{item.text}</div>
-                  : <div key={item.streamId || item.id} className="chat-turn assistant-turn">{item.type === 'im_message' && <div className="dingtalk-sent-label">应用 · 已发送到{item.im?.platform === 'feishu' ? '飞书' : item.im?.platform === 'wecom' ? '企业微信' : '钉钉'}</div>}<div className="assistant-copy">{item.type === 'im_message' ? <div className="dingtalk-sent-content">{item.text}</div> : <StreamText text={item.text} streaming={item.streaming} onProgress={followStream}>{text => <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>}</StreamText>}</div><div className="reply-actions">{showActions && <button className="reply-copy" aria-label={copiedTarget === item.id ? '已复制这条回复' : '复制这条回复'} onClick={() => void copyText(item.text, item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === item.id ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}<MessageDate timestamp={item.timestamp} />{showActions && item.type === 'output' && Boolean(selected.im?.length) && item.text.trim() && <button className="reply-push" disabled={pushingId !== null || item.pushedToIm} onClick={() => void pushToIm(item)}>{pushingId === item.id ? '推送中…' : item.pushedToIm ? '已推送' : `推送给${imPlatform}`}</button>}</div></div>);
+    const renderItem = (item: Event | Event[], showActions = false) => {
+      const event = Array.isArray(item) ? item[0] : item;
+      return <ConversationItem key={event.streamId || event.id} item={item} index={index} session={selected} showActions={showActions} copiedTarget={copiedTarget} pushingId={pushingId} imPlatform={imPlatform} copyText={copyText} pushToIm={pushToIm} followStream={followStream} />;
+    };
 
     let previousDay: string | undefined;
     const renderDatedItem = (item: Event | Event[], showActions = false) => {
@@ -660,39 +731,20 @@ function ChatPaneContent({ index, pane, panelProject, multi, active: focused, ag
     });
   }, [selected, index, agents, copiedTarget, pushingId, onSessionUpdate, followStream]);
 
-  return <div ref={paneRef} className={`pane-wrap ${focused && multi ? 'focused' : ''}${showPanel ? ' files-open' : ''}`} style={showPanel ? { gridTemplateColumns: `minmax(300px, ${conversationRatio}fr) 8px minmax(300px, ${1 - conversationRatio}fr)` } : undefined} onPointerDown={() => { if (!focused) onFocus(index); }} onFocusCapture={() => { if (!focused) onFocus(index); }}>
-    <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
-      <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected ? { ...selected, title: sessions.find(session => session.id === selected.id)?.title } : null} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={canOpenPanel && <button ref={panelButton} type="button" className="file-panel-toggle" aria-label={showPanel ? '收起面板' : '展开面板'} aria-expanded={showPanel} onClick={() => setPanelOpen(open => !open)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /></svg></button>} />
-      <div className="conversation-scroll" key={selected?.id} ref={conversationRef} role="log" aria-label={`窗口 ${index + 1} 对话记录`} onScroll={event => {
-        const element = event.currentTarget;
-        followConversation.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-        if (element.scrollTop <= 1) void loadHistory();
-      }}>
-        {selected ? <div className="chat-thread">
-          {hasMoreHistory && <button className="history-load" disabled={loadingHistory} onClick={() => void loadHistory()}>{loadingHistory ? '加载中…' : '加载更早消息'}</button>}
-          {conversation}
-        </div> : <div className="chat-empty"><strong>描述你想完成的任务</strong></div>}
-      </div>
-      <ChatComposer index={index} pane={pane} agents={agents} projects={projects} sessions={sessions} onProjectChange={onProjectChange} onSessionCreated={onSessionCreated} onSessionUpdate={onSessionUpdate} focused={focused} selected={selected} setSelected={setSelected} setError={setError} />
-    </section>
-    {showPanel && <div className="panel-resizer" role="separator" tabIndex={0} aria-label="调整会话与文件面板宽度" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(conversationRatio * 100)} onPointerDown={event => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      event.currentTarget.focus();
-      panelDrag.current = { x: event.clientX, width: paneRef.current!.querySelector<HTMLElement>('.output-panel')!.offsetWidth };
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }} onPointerMove={event => {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeConversation(panelDrag.current.width + event.clientX - panelDrag.current.x);
-    }} onPointerUp={event => {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    }} onKeyDown={event => {
-      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-      event.preventDefault();
-      const width = paneRef.current!.querySelector<HTMLElement>('.output-panel')!.offsetWidth;
-      resizeConversation(event.key === 'Home' ? 300 : event.key === 'End' ? paneRef.current!.clientWidth - 308 : width + (event.key === 'ArrowLeft' ? -20 : 20));
-    }} />}
-    {showPanel && selected && <Suspense fallback={<aside className="file-panel" role="status"><p className="file-panel-status">正在加载文件面板…</p></aside>}><FilePanel key={selected.cwd} project={selected.cwd} onClose={() => { setPanelOpen(false); panelButton.current?.focus(); }} /></Suspense>}
-  </div>;
+  return <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
+    <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected ? { ...selected, title: sessions.find(session => session.id === selected.id)?.title } : null} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={panelControls} />
+    <div className="conversation-scroll" key={selected?.id} ref={conversationRef} role="log" aria-label={`窗口 ${index + 1} 对话记录`} onScroll={event => {
+      const element = event.currentTarget;
+      followConversation.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+      if (element.scrollTop <= 1) void loadHistory();
+    }}>
+      {selected ? <div className="chat-thread">
+        {hasMoreHistory && <button className="history-load" disabled={loadingHistory} onClick={() => void loadHistory()}>{loadingHistory ? '加载中…' : '加载更早消息'}</button>}
+        {conversation}
+      </div> : <div className="chat-empty"><strong>描述你想完成的任务</strong></div>}
+    </div>
+    <ChatComposer index={index} pane={pane} agents={agents} projects={projects} sessions={sessions} onProjectChange={onProjectChange} onSessionCreated={onSessionCreated} onSessionUpdate={onSessionUpdate} focused={focused} selected={selected} setSelected={setSelected} setError={setError} />
+  </section>;
 }
 
 function App() {

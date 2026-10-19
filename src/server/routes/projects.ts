@@ -6,6 +6,7 @@ import { dirname, isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { listProjectDirectory, readProjectFile, searchProjectFiles } from '../../projects/files.js';
+import { readProjectGitDiff, readProjectGitStatus } from '../../projects/git.js';
 import type { SessionManager } from '../../sessions/manager.js';
 import type { DingTalkRegistry } from '../../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../../integrations/feishu/registry.js';
@@ -87,6 +88,19 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
       response.json(await searchProjectFiles(path, query, content === 'true'));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
+  for (const kind of ['git', 'git-diff'] as const) {
+    router.get(`/projects/${kind}`, async (request, response) => {
+      try {
+        const { path, file } = request.query;
+        if (typeof path !== 'string') throw new Error('需要项目路径');
+        if (!projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
+          response.status(404).json({ error: '项目不存在' }); return;
+        }
+        if (kind === 'git-diff' && typeof file !== 'string') throw new Error('需要变更文件路径');
+        response.json(kind === 'git' ? await readProjectGitStatus(path) : await readProjectGitDiff(path, file as string));
+      } catch (error) { response.status(400).json({ error: (error as Error).message }); }
+    });
+  }
   router.post('/projects', async (request, response) => {
     try {
       if (typeof request.body?.path !== 'string') throw new Error('Project directory is required');

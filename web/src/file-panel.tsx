@@ -1,6 +1,6 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { FileTreeIcon } from './file-tree-icon';
-import type { ProjectFileDetail, ProjectFileEntry } from '../../src/types';
+import type { ProjectFileDetail, ProjectFileEntry, ProjectGitChange, ProjectGitDiff, ProjectGitStatus } from '../../src/types';
 
 const FileCodePreview = lazy(() => import('./file-code-preview').then(module => ({ default: module.FileCodePreview })));
 
@@ -51,7 +51,89 @@ const previewMessages: Record<Exclude<ProjectFileDetail['preview'], 'text'>, str
   unsupported: '文件不是支持的 UTF-8 编码，仅展示基本信息。',
 };
 
+function GitDiffPreview({ title, content }: { title: string; content: string }) {
+  return <section className="git-diff-section" aria-label={title}>
+    <h3>{title}</h3>
+    <pre className="git-diff" tabIndex={0} aria-label={`${title}差异`}>{content.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'git-diff-added' : line.startsWith('-') ? 'git-diff-removed' : line.startsWith('@@') ? 'git-diff-hunk' : undefined}>{line}{'\n'}</span>)}</pre>
+  </section>;
+}
+
+const gitStatusNames: Record<string, string> = { M: '修改', A: '新增', D: '删除', R: '重命名', C: '复制', T: '类型变化', U: '冲突' };
+
+function gitChangeLabel(change: ProjectGitChange): string {
+  if (change.indexStatus === '?') return '未跟踪';
+  if (['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'].includes(change.indexStatus + change.worktreeStatus)) return '冲突';
+  return [change.indexStatus !== '.' ? `已暂存${gitStatusNames[change.indexStatus]}` : '', change.worktreeStatus !== '.' ? `未暂存${gitStatusNames[change.worktreeStatus]}` : ''].filter(Boolean).join('，');
+}
+
+function GitChangesTree({ changes, directory = '', selected, onSelect }: { changes: ProjectGitChange[]; directory?: string; selected: string | null; onSelect: (path: string) => void }) {
+  const [collapsed, setCollapsed] = useState<string[]>([]);
+  const folders = new Map<string, ProjectGitChange[]>();
+  const files: ProjectGitChange[] = [];
+  for (const change of changes) {
+    const path = change.path.slice(directory.length);
+    const separator = path.indexOf('/');
+    if (separator === -1) files.push(change);
+    else {
+      const name = path.slice(0, separator);
+      const children = folders.get(name);
+      if (children) children.push(change);
+      else folders.set(name, [change]);
+    }
+  }
+  return <ul className="file-tree-list">
+    {[...folders].sort(([a], [b]) => a.localeCompare(b)).map(([name, children]) => {
+      const open = !collapsed.includes(name);
+      const path = `${directory}${name}/`;
+      return <li key={path}>
+        <button type="button" className="file-tree-entry" title={path} aria-expanded={open} onClick={() => setCollapsed(current => open ? [...current, name] : current.filter(value => value !== name))}>
+          <span className="file-tree-marker" aria-hidden="true">{open ? '▾' : '▸'}</span><FileTreeIcon name={name} directory expanded={open} /><span>{name}</span>
+        </button>
+        {open && <GitChangesTree changes={children} directory={path} selected={selected} onSelect={onSelect} />}
+      </li>;
+    })}
+    {files.sort((a, b) => a.path.localeCompare(b.path)).map(change => <li key={change.path}>
+      <button type="button" className="file-tree-entry" title={`${change.path}（${gitChangeLabel(change)}）`} aria-pressed={selected === change.path} onClick={() => onSelect(change.path)}>
+        <span className="git-change-status" aria-label={gitChangeLabel(change)}>{change.indexStatus === '?' ? '?' : `${change.indexStatus}${change.worktreeStatus}`}</span><FileTreeIcon name={change.path.split('/').at(-1)!} directory={false} expanded={false} /><span>{change.path.slice(directory.length)}</span>
+      </button>
+    </li>)}
+  </ul>;
+}
+
+function GitPanel({ project, revision, showTree, treeId }: { project: string; revision: number; showTree: boolean; treeId: string }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const status = useFileResource<ProjectGitStatus>(`/api/projects/git?${new URLSearchParams({ path: project })}`, revision);
+  const current = status?.data;
+  const selectedChange = current?.changes.find(change => change.path === selected);
+  const result = useFileResource<ProjectGitDiff>(selectedChange ? `/api/projects/git-diff?${new URLSearchParams({ path: project, file: selectedChange.path })}` : '', revision);
+  const diff = result?.data;
+  const untracked = diff?.untracked;
+  return <div className="file-panel-body">
+    <section className="file-detail" aria-label="Git 变更详情" aria-busy={Boolean(selectedChange) && !result}>
+      {!selectedChange ? <p className="file-panel-status">从右侧变更列表选择文件查看差异</p> : !result ? <p className="file-panel-status" role="status">正在读取差异…</p> : result.error ? <p className="file-panel-status file-panel-error" role="alert">{result.error}</p> : diff && <>
+        <div className="file-metadata"><span className="file-path" title={selectedChange.path}>{selectedChange.originalPath ? `${selectedChange.originalPath} → ${selectedChange.path}` : selectedChange.path}</span></div>
+        {diff.staged && <GitDiffPreview title="已暂存" content={diff.staged} />}
+        {diff.unstaged && <GitDiffPreview title="未暂存" content={diff.unstaged} />}
+        {untracked && (untracked.preview === 'text' ? untracked.content ? <GitDiffPreview title="未跟踪文件" content={untracked.content.split('\n').map(line => `+${line}`).join('\n')} /> : <p className="file-panel-status">未跟踪的空文件</p> : <p className="file-panel-status">{previewMessages[untracked.preview]}</p>)}
+        {!untracked && !diff.staged && !diff.unstaged && <p className="file-panel-status">没有可显示的文本差异，文件可能仅有子模块状态变化</p>}
+      </>}
+    </section>
+    <nav className="file-tree" id={treeId} aria-label="Git 变更文件" hidden={!showTree}>
+      {!status ? <p className="file-panel-status" role="status">正在读取 Git 状态…</p> : status.error ? <p className="file-panel-status file-panel-error" role="alert">{status.error}</p> : current && (!current.repository ? <p className="file-panel-status">当前项目不是 Git 仓库</p> : <>
+        <div className="git-branch" title={current.branch ?? current.commit ?? undefined}><span>当前分支</span><strong>{current.branch ?? `分离 HEAD · ${current.commit?.slice(0, 7)}`}</strong></div>
+        <div className="file-tree-content">
+          {!current.changes.length ? <p className="file-panel-status">工作区干净，没有变更文件</p> : <GitChangesTree changes={current.changes} selected={selected} onSelect={setSelected} />}
+        </div>
+      </>)}
+    </nav>
+  </div>;
+}
+
 export function FilePanel({ project, onClose }: { project: string; onClose: () => void }) {
+  const [showGit, setShowGit] = useState(false);
+  const [showTree, setShowTree] = useState(true);
+  const tabsId = useId();
+  const tabsRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [includeContent, setIncludeContent] = useState(false);
@@ -75,9 +157,23 @@ export function FilePanel({ project, onClose }: { project: string; onClose: () =
       setCopyResult({ path, error: `复制路径失败：${(reason as Error).message}` });
     }
   }
-  return <aside className="file-panel" aria-label="项目文件面板">
-    <header className="file-panel-header"><strong>文件</strong><div><button type="button" onClick={() => setRevision(value => value + 1)} aria-label="刷新文件"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.1 6.1A8 8 0 0 1 19.7 10M4.3 14A8 8 0 0 0 17.9 17.9" /></svg></button><button type="button" onClick={onClose} aria-label="关闭文件面板"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div></header>
-    <div className="file-panel-body">
+  return <aside className={`file-panel${showTree ? '' : ' tree-hidden'}`} aria-label="项目文件面板">
+    <header className="file-panel-header">
+      <div ref={tabsRef} className="tabs-list" role="tablist" aria-label="面板视图">
+        {['文件', 'Git'].map((label, index) => <button key={label} id={`${tabsId}-tab-${index}`} type="button" className="tabs-trigger" role="tab" aria-selected={showGit === (index === 1)} aria-controls={`${tabsId}-panel-${index}`} tabIndex={showGit === (index === 1) ? 0 : -1}
+          onClick={() => setShowGit(index === 1)} onKeyDown={event => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - index;
+            setShowGit(next === 1);
+            tabsRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next].focus();
+          }}>{label}</button>)}
+      </div>
+      <div className="file-panel-actions"><button type="button" onClick={() => setShowTree(value => !value)} aria-label={showTree ? '隐藏目录树' : '显示目录树'} aria-expanded={showTree} aria-controls={`${tabsId}-tree-${showGit ? 1 : 0}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /><path d={showTree ? 'm7 9 3 3-3 3' : 'm10 9-3 3 3 3'} /></svg></button><button type="button" onClick={() => setRevision(value => value + 1)} aria-label={showGit ? '刷新 Git 状态' : '刷新文件'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.1 6.1A8 8 0 0 1 19.7 10M4.3 14A8 8 0 0 0 17.9 17.9" /></svg></button><button type="button" onClick={onClose} aria-label="关闭文件面板"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div></header>
+    <div className="file-panel-tabpanel" id={`${tabsId}-panel-1`} role="tabpanel" aria-labelledby={`${tabsId}-tab-1`} hidden={!showGit}>
+      {showGit && <GitPanel project={project} revision={revision} showTree={showTree} treeId={`${tabsId}-tree-1`} />}
+    </div>
+    <div className="file-panel-body" id={`${tabsId}-panel-0`} role="tabpanel" aria-labelledby={`${tabsId}-tab-0`} hidden={showGit}>
       <section className="file-detail" aria-label="文件详情" aria-busy={selected !== null && !result}>
         {selected === null ? <p className="file-panel-status">从右侧文件树选择文件</p> : !result ? <p className="file-panel-status" role="status">正在读取文件…</p> : result.error ? <p className="file-panel-status file-panel-error" role="alert">{result.error}</p> : file && <>
           <div className="file-metadata"><span className="file-size-tag">{file.size.toLocaleString()} 字节</span><span className="file-path" title={file.path}>{file.path}</span><button type="button" className="copy-button" aria-label={copied ? '已复制路径' : '复制文件路径'} onClick={() => void copyPath(file.path)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copied ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button></div>
@@ -85,7 +181,7 @@ export function FilePanel({ project, onClose }: { project: string; onClose: () =
           {file.preview === 'text' ? file.content ? <Suspense fallback={<p className="file-panel-status" role="status">正在加载代码预览…</p>}><FileCodePreview path={file.path} content={file.content} /></Suspense> : <p className="file-panel-status">空文件</p> : <p className="file-panel-status">{previewMessages[file.preview]}</p>}
         </>}
       </section>
-      <nav className="file-tree" aria-label="项目文件树">
+      <nav className="file-tree" id={`${tabsId}-tree-0`} aria-label="项目文件树" hidden={!showTree}>
         <div className="file-tree-project" title={project}>{project.split(/[\\/]/).filter(Boolean).at(-1)}</div>
         <div className="file-tree-search">
           <div className="file-tree-search-row">
