@@ -1,5 +1,6 @@
 export const windowControlChannel = 'desktop:window-control';
 export const fullScreenChannel = 'desktop:fullscreen';
+export const runtimeConfigChannel = 'desktop:runtime-config';
 
 export interface DesktopWindowApi {
   close(): void;

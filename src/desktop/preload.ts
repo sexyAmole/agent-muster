@@ -1,13 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { fullScreenChannel, windowControlChannel } from './window-controls.js';
+import { fullScreenChannel, runtimeConfigChannel, windowControlChannel } from './window-controls.js';
 import type { DesktopRuntimeConfig, DesktopWindowApi } from './window-controls.js';
 import { checkUpdateChannel, updateProgressChannel } from './update-api.js';
 import type { DesktopUpdateApi } from './update-api.js';
 
-const configArgument = process.argv.find(argument => argument.startsWith('--agent-muster-runtime='));
-if (!configArgument) throw new Error('缺少桌面服务配置');
-const runtime: DesktopRuntimeConfig = JSON.parse(configArgument.slice('--agent-muster-runtime='.length));
-contextBridge.exposeInMainWorld('desktopRuntime', runtime);
+const pageArgument = process.argv.find(argument => argument.startsWith('--agent-muster-page='));
+if (!pageArgument) throw new Error('缺少桌面页面配置');
+if (location.href === pageArgument.slice('--agent-muster-page='.length)) {
+  const runtime: DesktopRuntimeConfig | null = ipcRenderer.sendSync(runtimeConfigChannel);
+  if (!runtime) throw new Error('缺少桌面服务配置');
+  contextBridge.exposeInMainWorld('desktopRuntime', runtime);
+}
 
 if (process.platform === 'darwin') {
   const updates: DesktopUpdateApi = {

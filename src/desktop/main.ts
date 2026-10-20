@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type { WebContents } from 'electron';
 import { loadRuntime, startRuntime } from '../runtime.js';
-import { fullScreenChannel, windowControlChannel } from './window-controls.js';
+import { fullScreenChannel, runtimeConfigChannel, windowControlChannel } from './window-controls.js';
 import { registerDesktopUpdates } from './updates.js';
 
 const execute = promisify(execFile);
@@ -66,11 +66,10 @@ if (!app.requestSingleInstanceLock()) {
   const startup = app.whenReady().then(async () => {
     const icon = app.isPackaged ? join(process.resourcesPath, 'icon.png') : resolve(import.meta.dirname, '../../resources/desktop/icon.png');
     if (app.dock) app.dock.setIcon(icon);
-    await restoreShellPath();
-    process.chdir(homedir());
     const token = randomBytes(32).toString('hex');
-    runtime = await startRuntime(await loadRuntime(), 0, false, token);
     const pagePath = resolve(import.meta.dirname, '../../web/dist/index.html');
+    const pageUrl = pathToFileURL(pagePath).href;
+    const loadingPath = resolve(import.meta.dirname, '../../resources/desktop/loading.html');
     if (quitting) return;
     mainWindow = new BrowserWindow({
       title: 'Agent Muster',
@@ -83,7 +82,7 @@ if (!app.requestSingleInstanceLock()) {
       autoHideMenuBar: true,
       backgroundColor: '#fff6f6f6',
       ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, frame: false, transparent: true, hasShadow: false } : {}),
-      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: join(import.meta.dirname, 'preload.cjs'), additionalArguments: [`--agent-muster-runtime=${JSON.stringify({ url: runtime.url, token })}`] },
+      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: join(import.meta.dirname, 'preload.cjs'), additionalArguments: [`--agent-muster-page=${pageUrl}`] },
     });
     if (process.platform === 'darwin') {
       mainWindow.setWindowButtonVisibility(false);
@@ -97,11 +96,24 @@ if (!app.requestSingleInstanceLock()) {
       });
     }
     registerDesktopUpdates(mainWindow);
-    configureContents(mainWindow.webContents, pathToFileURL(pagePath).href, runtime.url);
+    ipcMain.on(runtimeConfigChannel, event => {
+      event.returnValue = mainWindow && runtime && event.sender === mainWindow.webContents && event.senderFrame === mainWindow.webContents.mainFrame && event.senderFrame.url === pageUrl
+        ? { url: runtime.url, token }
+        : null;
+    });
     mainWindow.once('ready-to-show', () => mainWindow?.show());
     mainWindow.on('closed', () => { mainWindow = undefined; });
+    await mainWindow.loadFile(loadingPath);
+    if (quitting) return;
+    await restoreShellPath();
+    if (quitting) return;
+    process.chdir(homedir());
+    runtime = await startRuntime(await loadRuntime(), 0, false, token);
+    if (quitting || !mainWindow) return;
+    configureContents(mainWindow.webContents, pageUrl, runtime.url);
     await mainWindow.loadFile(pagePath);
   }).catch(error => {
+    if (quitting) return;
     dialog.showErrorBox('Agent Muster 启动失败', error.message);
     process.exitCode = 1;
     app.quit();

@@ -6,7 +6,7 @@ export async function executablePath(command: string): Promise<string | undefine
   const pathValue = process.env.PATH;
   if (!pathValue) return undefined;
   const extensions = process.platform === 'win32' ? ['.exe', '.cmd', '.bat'] : [''];
-  for (const directory of pathValue.split(delimiter)) {
+  for (const directory of new Set(pathValue.split(delimiter))) {
     if (!directory) continue;
     for (const extension of extensions) {
       const path = join(directory, command + extension);

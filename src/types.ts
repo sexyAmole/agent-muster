@@ -29,6 +29,7 @@ export interface AgentInfo {
   name: string;
   command: string;
   installed: boolean;
+  path?: string;
   version?: string;
   versionError?: string;
   models: ModelInfo[];
@@ -38,7 +39,6 @@ export interface AgentInfo {
 export type AgentAction = 'install' | 'update' | 'uninstall';
 
 export interface ManagedAgent extends AgentInfo {
-  path?: string;
   management?: 'npm' | 'cursor';
   managementError?: string;
 }

@@ -92,6 +92,8 @@
     "files": [
       "dist/desktop/**/*",
       "web/dist/**/*",
+      "resources/desktop/loading.html",
+      "resources/desktop/icon.svg",
       "package.json"
     ],
     "mac": {

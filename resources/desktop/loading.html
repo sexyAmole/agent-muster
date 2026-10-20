@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Agent Muster</title>
+    <style>
+      :root { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif; color: #222; background: #f6f6f6; color-scheme: light; }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      main { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 100dvh; padding: 44px 24px; user-select: none; }
+      .logo { width: 128px; height: 128px; animation: logo-bounce 1.2s ease-in-out infinite; }
+      h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.04em; }
+      p { margin: 0; color: #666; font-size: 13px; line-height: 1.5; }
+      header { position: fixed; inset: 0 0 auto; display: flex; align-items: center; height: 44px; padding: 0 14px; -webkit-app-region: drag; }
+      [hidden] { display: none; }
+      button { position: relative; display: grid; place-items: center; width: 20px; height: 32px; padding: 0; border: 0; background: transparent; cursor: pointer; -webkit-app-region: no-drag; }
+      button::before { content: ''; position: absolute; width: 12px; height: 12px; border: 1px solid #0002; border-radius: 50%; background: var(--control-color); }
+      button::after { content: attr(aria-label); position: absolute; top: calc(100% + 3px); left: 0; display: none; padding: 5px 8px; border-radius: 4px; background: #333; color: #fff; font: 11px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; white-space: nowrap; pointer-events: none; }
+      button:is(:hover, :focus-visible)::after { display: block; }
+      button:focus-visible { outline: 2px solid #8aa4bd; outline-offset: 2px; border-radius: 4px; }
+      button:active::before { filter: brightness(.88); }
+      button:disabled { cursor: default; }
+      button:disabled::before { background: #d7d7d7; }
+      button svg { position: relative; width: 12px; height: 12px; fill: none; stroke: #0009; stroke-width: 1.2; stroke-linecap: round; opacity: 0; }
+      header:is(:hover, :focus-within) button:not(:disabled) svg { opacity: 1; }
+      @keyframes logo-bounce { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-12px); } }
+      @media (prefers-reduced-motion: reduce) { .logo { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <header hidden role="group" aria-label="窗口控制">
+      <button id="close" aria-label="关闭窗口" style="--control-color: #ff5f57"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4 4 4 4m0-4L4 8" /></svg></button>
+      <button id="minimize" aria-label="最小化窗口" style="--control-color: #febc2e"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 6h5" /></svg></button>
+      <button id="fullscreen" aria-label="进入全屏" style="--control-color: #28c840"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 5V3h2m4 4v2H7" /></svg></button>
+    </header>
+    <main role="status" aria-live="polite" aria-busy="true">
+      <img class="logo" src="./icon.svg" alt="" />
+      <h1>Agent Muster</h1>
+      <p>正在启动，请稍候…</p>
+    </main>
+    <script>
+      const controls = window.desktopWindow;
+      if (controls) {
+        document.querySelector('header').hidden = false;
+        document.getElementById('close').onclick = () => controls.close();
+        document.getElementById('minimize').onclick = () => controls.minimize();
+        document.getElementById('fullscreen').onclick = () => controls.toggleFullScreen();
+        controls.onFullScreenChange(fullScreen => {
+          document.getElementById('minimize').disabled = fullScreen;
+          document.getElementById('fullscreen').setAttribute('aria-label', fullScreen ? '退出全屏' : '进入全屏');
+          document.querySelector('#fullscreen path').setAttribute('d', fullScreen ? 'M3 5h2V3m4 4H7v2' : 'M3 5V3h2m4 4v2H7');
+        });
+      }
+    </script>
+  </body>
+</html>

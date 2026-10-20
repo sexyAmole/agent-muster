@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
-import { AgentRegistry, executablePath } from './registry.js';
+import { AgentRegistry } from './registry.js';
 import { providers } from './providers/index.js';
 import type { AgentAction, ManagedAgent } from '../types.js';
 
@@ -22,7 +22,7 @@ export class AgentManagement {
     const root = resolve(stdout.trim());
     return Promise.all(this.registry.list().map(async agent => {
       const installation = providers.get(agent.id)!.installation;
-      const path = await executablePath(agent.command);
+      const path = agent.path;
       if (!path) {
         const supported = installation.kind === 'npm' || installation.supported;
         return { ...agent, management: supported ? installation.kind : undefined, managementError: installation.kind === 'cursor' && !installation.supported ? installation.unsupportedMessage : undefined };

@@ -14,8 +14,9 @@ export class AgentRegistry {
 
   async scan(): Promise<AgentInfo[]> {
     const agents = await Promise.all([...providers.values()].map(async definition => {
-      const installed = Boolean(await executablePath(definition.command));
-      return { sandboxSupported: definition.sandboxSupported, sandboxEnabled: definition.sandboxSupported && getSandboxEnabled(definition.id), permissionModes: definition.permissionModes, id: definition.id, name: definition.name, command: definition.command, installed, models: [] };
+      const path = await executablePath(definition.command);
+      const installed = Boolean(path);
+      return { sandboxSupported: definition.sandboxSupported, sandboxEnabled: definition.sandboxSupported && getSandboxEnabled(definition.id), permissionModes: definition.permissionModes, id: definition.id, name: definition.name, command: definition.command, installed, path, models: [] };
     }));
     this.modelQueries.clear();
     this.versionQueries.clear();
