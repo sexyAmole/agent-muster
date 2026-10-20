@@ -1,0 +1,107 @@
+name: 发布安装包
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建 ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: mac
+            arch: arm64
+            asset: release/*.dmg
+          - os: macos-15-intel
+            platform: mac
+            arch: x64
+            asset: release/*.dmg
+          - os: windows-2022
+            platform: win
+            arch: x64
+            asset: release/*.exe
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+            asset: release/*.AppImage
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.2'
+
+      - name: 校验发布版本
+        shell: bash
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+            if (process.env.GITHUB_REF_NAME !== `v${version}`) {
+              throw new Error(`Tag 必须与 package.json 版本一致：v${version}`);
+            }
+          '
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 检查类型
+        run: pnpm typecheck
+
+      - name: 构建安装包
+        run: pnpm desktop:dist --${{ matrix.platform }} --${{ matrix.arch }} --publish never
+
+      - name: 保存安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    name: 发布 GitHub Release
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: 下载全部安装包
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: installers
+          merge-multiple: true
+
+      - name: 创建并发布 Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          args=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            args+=(--prerelease --latest=false)
+          else
+            args+=(--latest)
+          fi
+          gh release create "$RELEASE_TAG" installers/* \
+            --verify-tag --draft --title "$RELEASE_TAG" --generate-notes
+          gh release edit "$RELEASE_TAG" --draft=false "${args[@]}"
