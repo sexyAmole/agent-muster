@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AmbientBackground } from './components/ambient-background';
 import { WebsitePreview } from './components/website-preview';
-import { agents, documentation, features, installMethods, repository } from './data';
+import { agents, desktopDownloads, documentation, features, installMethods, repository } from './data';
 import './website.css';
 
 function Arrow() {
@@ -92,11 +92,11 @@ export function Website() {
       </section>
 
       <section className="download-section page-width" id="download" aria-labelledby="download-title">
-        <div className="section-heading"><h2 id="download-title">在桌面，集合你的 Agent</h2><p>桌面安装包将通过 GitHub Releases 发布，选择适合你的系统。</p></div>
+        <div className="section-heading"><h2 id="download-title">在桌面，集合你的 Agent</h2><p>下载适合你系统的桌面安装包，开始使用本地工作台。</p></div>
         <ul className="desktop-downloads">
-          {['macOS · Apple 芯片', 'Windows · 64 位', 'Linux · AppImage'].map(platform => <li key={platform}><span>{platform}</span><button type="button" disabled aria-label={`${platform} 安装包待发布`}>待发布</button></li>)}
+          {desktopDownloads.map(item => <li key={item.platform}><span>{item.platform}</span><a href={item.url} aria-label={`下载 ${item.platform} 安装包`}>{item.label}</a></li>)}
         </ul>
-        <p className="download-note">桌面安装包尚未发布，现在可以通过命令行启动。</p>
+        <p className="download-note">支持 macOS Apple 芯片与 Windows 64 位，安装包由 GitHub Releases 提供。</p>
         <a className="text-link" href={`${repository}/releases`} target="_blank" rel="noreferrer">查看 GitHub Releases <span aria-hidden="true">↗</span></a>
       </section>
 

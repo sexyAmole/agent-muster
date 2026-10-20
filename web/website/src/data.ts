@@ -12,6 +12,10 @@ import pi from '../../src/shared/assets/agents/pi.svg';
 
 export const repository = 'https://github.com/sexyAmole/agent-muster';
 export const documentation = `${repository}/blob/main/README.zh-CN.md`;
+export const desktopDownloads = [
+  { platform: 'macOS · Apple 芯片', label: '下载 macOS 版', url: `${repository}/releases/download/v0.0.16/Agent.Muster-0.1.15-arm64.dmg` },
+  { platform: 'Windows · 64 位', label: '下载 Windows 版', url: `${repository}/releases/download/v0.0.16/Agent.Muster-0.1.15-x64-Setup.exe` },
+];
 export const agents = [
   { name: 'Codex', icon: codex },
   { name: 'Claude Code', icon: claude },

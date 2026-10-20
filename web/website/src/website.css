@@ -85,6 +85,8 @@ h2 { font-size: clamp(30px, 3vw, 42px); line-height: 1.4; letter-spacing: -1.3px
 .desktop-downloads { display: flex; flex-wrap: wrap; justify-content: center; gap: 32px 48px; list-style: none; padding: 0; margin: 0; }
 .desktop-downloads li { display: flex; flex-direction: column; align-items: center; gap: 16px; font-size: 16px; }
 .desktop-downloads button { min-width: 180px; padding: 14px 24px; border: 0; border-radius: 28px; background: var(--surface); color: var(--secondary); font-size: 14px; cursor: not-allowed; }
+.desktop-downloads a { display: inline-flex; justify-content: center; min-width: 180px; padding: 14px 24px; border-radius: 28px; background: var(--ink); color: var(--white); font-size: 14px; transition: background .18s; }
+.desktop-downloads a:hover { background: #424242; }
 .download-note { color: var(--secondary); margin-top: 28px; margin-bottom: 16px; }
 .start-section { padding-top: 148px; }
 .start-heading { margin-bottom: 36px; }
