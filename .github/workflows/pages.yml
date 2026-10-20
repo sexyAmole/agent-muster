@@ -1,0 +1,62 @@
+name: 部署官网
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 构建官网
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.2'
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 检查类型
+        run: pnpm typecheck
+
+      - name: 构建官网
+        run: pnpm exec vite build --config web/website/vite.config.ts
+
+      - name: 上传官网产物
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist/website
+
+  deploy:
+    name: 发布 GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 配置 GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: 部署官网
+        id: deployment
+        uses: actions/deploy-pages@v4

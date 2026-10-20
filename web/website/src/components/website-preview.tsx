@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import favicon from '../../../public/favicon.svg';
 import './website-preview.css';
 
 const slides = [
@@ -64,7 +65,7 @@ export function WebsitePreview({ agents }: { agents: { name: string; icon: strin
     <div className="preview-stage">
       <div className="preview-demo" id="preview-demo" data-ui>
         <aside className="demo-sidebar">
-          <div className="demo-brand"><img src="/favicon.svg" width="26" height="26" alt="" /><strong>Agent Muster</strong></div>
+          <div className="demo-brand"><img src={favicon} width="26" height="26" alt="" /><strong>Agent Muster</strong></div>
           <span className="demo-tag">交互演示</span>
           <div className="demo-navigation">
             <button type="button" aria-pressed={slide !== 2} onClick={() => selectSlide(0)}>项目与会话</button>

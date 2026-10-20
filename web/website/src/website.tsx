@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import favicon from '../../public/favicon.svg';
 import { AmbientBackground } from './components/ambient-background';
 import { WebsitePreview } from './components/website-preview';
 import { agents, desktopDownloads, documentation, features, installMethods, repository } from './data';
@@ -9,7 +10,7 @@ function Arrow() {
 }
 
 function Brand() {
-  return <a className="brand" href="#top" aria-label="Agent Muster 首页"><img src="/favicon.svg" width="34" height="34" alt="" /><span>Agent Muster</span></a>;
+  return <a className="brand" href="#top" aria-label="Agent Muster 首页"><img src={favicon} width="34" height="34" alt="" /><span>Agent Muster</span></a>;
 }
 
 export function Website() {

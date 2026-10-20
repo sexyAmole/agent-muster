@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "website/src/**/*.ts", "website/src/**/*.tsx", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "website/src/**/*.ts", "website/src/**/*.tsx", "website/vite.config.ts", "vite.config.ts"]
 }
