@@ -19,6 +19,7 @@ export default defineConfig({
   root: 'web',
   base: './',
   plugins: [react()],
+  worker: { format: 'es' },
   define: { __MATERIAL_ICON_THEME__: JSON.stringify(iconTheme) },
   build: {
     outDir: 'dist',

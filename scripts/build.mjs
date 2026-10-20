@@ -11,7 +11,7 @@ await build({
   platform: 'node',
   format: 'esm',
   target: 'node22.19',
-  external: ['vite', 'electron'],
+  external: ['vite', 'electron', 'node-pty', 'ws', '@xterm/headless', '@xterm/addon-serialize'],
   banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url); const __dirname = import.meta.dirname;" },
   logLevel: 'info',
 });

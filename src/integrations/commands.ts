@@ -56,11 +56,14 @@ export async function handleCommand(content: string, appId: string, conversation
   const command = match[1];
   const argument = match[2]?.trim() || '';
   const binding = registry.getBinding(appId, conversation);
-  const agent = binding?.agent ? agents.get(binding.agent) : undefined;
+  let agent = binding?.agent ? agents.get(binding.agent) : undefined;
   const invalid = `指令无效。\n${help}`;
   if (argument && command !== '/project' && command !== '/model') {
     await reply(invalid);
     return true;
+  }
+  if (agent?.installed && (command === '/models' || (command === '/model' && argument !== 'default') || command === '/status')) {
+    agent = await agents.loadModels(agent.id);
   }
   let response: string;
   switch (command) {

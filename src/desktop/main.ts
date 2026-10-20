@@ -75,13 +75,14 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow = new BrowserWindow({
       title: 'Agent Muster',
       icon,
-      ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, transparent: true } : {}),
       width: 1280,
       height: 840,
       minWidth: 720,
       minHeight: 540,
       show: false,
       autoHideMenuBar: true,
+      backgroundColor: '#fff6f6f6',
+      ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, frame: false, transparent: true, hasShadow: false } : {}),
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: join(import.meta.dirname, 'preload.cjs'), additionalArguments: [`--agent-muster-runtime=${JSON.stringify({ url: runtime.url, token })}`] },
     });
     if (process.platform === 'darwin') {

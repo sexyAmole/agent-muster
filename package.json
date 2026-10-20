@@ -33,14 +33,16 @@
     "start": "node bin/agent-muster.js web --no-open",
     "desktop": "pnpm build && electron .",
     "desktop:pack": "pnpm build && electron-builder --dir",
-    "desktop:dist": "pnpm build && electron-builder"
+    "desktop:dist": "pnpm build && electron-builder",
+    "postinstall": "node scripts/prepare-terminal.mjs"
   },
   "files": [
     "bin",
     "dist",
     "web/dist",
     "resources/desktop",
-    "README.zh-CN.md"
+    "README.zh-CN.md",
+    "scripts/prepare-terminal.mjs"
   ],
   "devDependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0",
@@ -50,8 +52,11 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@types/semver": "^7.8.0",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^4.7.0",
     "@wecom/aibot-node-sdk": "^1.0.7",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "dingtalk-stream": "2.1.6-beta.1",
     "electron": "^44.9.0",
     "electron-builder": "^26.15.3",
@@ -112,6 +117,21 @@
         "from": "resources/desktop/icon.png",
         "to": "icon.png"
       }
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
+    "npmRebuild": false
+  },
+  "dependencies": {
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
+    "node-pty": "^1.1.0",
+    "ws": "^8.22.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "node-pty"
     ]
   }
 }

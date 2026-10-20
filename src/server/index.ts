@@ -16,6 +16,7 @@ import { createDingTalkRouter } from './routes/dingtalk.js';
 import { createFeishuRouter } from './routes/feishu.js';
 import { createWecomRouter } from './routes/wecom.js';
 import { createImageRouter } from './routes/images.js';
+import { attachTerminalServer } from '../terminals/server.js';
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 
@@ -57,15 +58,17 @@ export async function startServer(port: number, registry: AgentRegistry, project
   app.use('/api/images', createImageRouter(sessions));
   app.use('/api', express.json({ limit: '128kb' }));
 
+  const server = createServer(app);
+  const terminals = attachTerminalServer(server, path => projects.list().includes(path) || sessions.list().some(session => session.cwd === path), desktopToken);
+
   const agentManagement = new AgentManagement(registry);
   app.use('/api', createAgentRouter(registry, agentManagement, sessions));
-  app.use('/api', createProjectRouter(projects, sessions, dingtalk, feishu, wecom));
+  app.use('/api', createProjectRouter(projects, sessions, dingtalk, feishu, wecom, terminals.closeProject));
   app.use('/api', createDingTalkRouter(dingtalk, projects, registry));
   app.use('/api', createFeishuRouter(feishu, projects, registry));
   app.use('/api', createWecomRouter(wecom, projects, registry));
   app.use('/api', createSessionRouter(sessions, registry, agentManagement, dingtalk, feishu, wecom));
 
-  const server = createServer(app);
   if (dev) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -86,5 +89,5 @@ export async function startServer(port: number, registry: AgentRegistry, project
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('无法获取本地服务端口');
   listeningPort = address.port;
-  return server;
+  return Object.assign(server, { shutdownTerminals: terminals.shutdown });
 }

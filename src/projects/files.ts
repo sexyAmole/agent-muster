@@ -39,7 +39,7 @@ export async function readProjectFile(project: string, file: string): Promise<Pr
     const detail: ProjectFileDetail = {
       path, type: extname(path) || '无扩展名', size: info.size, modifiedAt: info.mtimeMs, preview: 'text',
     };
-    const limit = 1024 * 1024;
+    const limit = 10 * 1024 * 1024;
     if (info.size > limit) return { ...detail, preview: 'too-large' };
     const buffer = Buffer.alloc(limit + 1);
     let length = 0;

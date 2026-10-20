@@ -31,7 +31,7 @@ async function chooseProjectDirectory(): Promise<string | null> {
   }
 }
 
-export function createProjectRouter(projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry) {
+export function createProjectRouter(projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, closeTerminal: (path: string) => void) {
   const router = Router();
   router.get('/projects', (_request, response) => response.json(projects.list()));
   router.get('/projects/names', (_request, response) => response.json(projects.names()));
@@ -142,6 +142,7 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
         await sessions.remove(session.id);
       }
       if (registered) await projects.remove(path);
+      closeTerminal(path);
       response.json({ path });
     } catch (error) { response.status(500).json({ error: (error as Error).message }); }
   });

@@ -7,6 +7,10 @@ import type { SessionManager } from '../../sessions/manager.js';
 export function createAgentRouter(registry: AgentRegistry, agentManagement: AgentManagement, sessions: SessionManager) {
   const router = Router();
   router.get('/agents', (_request, response) => response.json(registry.list()));
+  router.get('/agents/:id/models', async (request, response) => {
+    try { response.json(await registry.loadModels(request.params.id)); }
+    catch (error) { response.status(400).json({ error: (error as Error).message }); }
+  });
   router.get('/agents/management', async (_request, response) => {
     try { response.json(await agentManagement.list()); }
     catch (error) { response.status(500).json({ error: (error as Error).message }); }

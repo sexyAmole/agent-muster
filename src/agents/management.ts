@@ -17,6 +17,7 @@ export class AgentManagement {
   get operating(): boolean { return this.busy; }
 
   async list(): Promise<ManagedAgent[]> {
+    await Promise.all(this.registry.list().map(agent => this.registry.loadVersion(agent.id)));
     const { stdout } = await execute(npmCommand, ['root', '--global'], { shell: process.platform === 'win32', timeout: 10000 });
     const root = resolve(stdout.trim());
     return Promise.all(this.registry.list().map(async agent => {

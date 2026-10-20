@@ -68,7 +68,7 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       if (agentManagement.operating) throw new Error('正在执行 Agent 操作，请完成后再创建会话');
       if (typeof agent !== 'string' || !registry.get(agent)?.installed) throw new Error('Agent is not installed');
       if (typeof cwd !== 'string' || typeof prompt !== 'string') throw new Error('Project and prompt are required');
-      if (model !== undefined && (typeof model !== 'string' || (model && !registry.get(agent)?.models.some(item => item.id === model)))) throw new Error('Invalid model');
+      if (model !== undefined && (typeof model !== 'string' || (model && !(await registry.loadModels(agent)).models.some(item => item.id === model)))) throw new Error('Invalid model');
       const images = await sessions.readImages(imageIds, agent);
       response.status(201).json(sessionMetadata(await sessions.create(agent, cwd, prompt, model || undefined, undefined, images, permissionMode)));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
@@ -81,7 +81,7 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       const session = sessions.get(request.params.id);
       if (!session) throw new Error('Session not found');
       if (!registry.get(session.agent)?.installed) throw new Error('此 Agent 已卸载，请先重新安装');
-      if (model !== undefined && (typeof model !== 'string' || (model && !registry.get(session.agent)?.models.some(item => item.id === model)))) throw new Error('Invalid model');
+      if (model !== undefined && (typeof model !== 'string' || (model && !(await registry.loadModels(session.agent)).models.some(item => item.id === model)))) throw new Error('Invalid model');
       const images = await sessions.readImages(imageIds, session.agent);
       response.json(sessionMetadata(await sessions.send(request.params.id, content, model, undefined, images, permissionMode)));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }

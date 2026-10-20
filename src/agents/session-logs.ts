@@ -14,8 +14,8 @@ export async function readSessionLogs(session: AgentSession, limit: number, befo
     id++;
     if (before !== undefined && id >= before) break;
     if (!line.trim()) continue;
-    const record = JSON.parse(line) as { type?: string; role?: string; timestamp?: string | number; startTime?: string };
-    const value = record.timestamp ?? record.startTime;
+    const record = JSON.parse(line) as { type?: string; role?: string; timestamp?: string | number };
+    const value = record.timestamp;
     const timestamp = typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : undefined;
     events.push({ id, text: line, type: record.type ?? record.role, ...(timestamp !== undefined && Number.isFinite(timestamp) ? { timestamp } : {}) });
     if (events.length > limit + 1) events.shift();

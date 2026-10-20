@@ -46,6 +46,7 @@ export async function startRuntime(context: Awaited<ReturnType<typeof loadRuntim
       dingtalk.shutdown();
       feishu.shutdown();
       wecom.shutdown();
+      server.shutdownTerminals();
       const closed = new Promise<void>((resolve, reject) => {
         server.close(error => error ? reject(error) : resolve());
         server.closeAllConnections();
