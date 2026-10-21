@@ -2,6 +2,8 @@ import type { OptionHTMLAttributes, ReactNode } from 'react';
 import { Children, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+type SelectVariant = 'default' | 'ghost';
+
 type SelectProps = {
   value: string;
   onChange: (value: string) => void;
@@ -11,10 +13,12 @@ type SelectProps = {
   renderIcon?: (value: string) => ReactNode;
   title?: string;
   disabled?: boolean;
+  variant?: SelectVariant;
+  roundedFull?: boolean;
   'aria-label': string;
 };
 
-export function Select({ value, onChange, onOpen, children, triggerLabel, renderIcon, title, disabled, 'aria-label': label }: SelectProps) {
+export function Select({ value, onChange, onOpen, children, triggerLabel, renderIcon, title, disabled, variant = 'default', roundedFull = false, 'aria-label': label }: SelectProps) {
   const options = Children.toArray(children).filter(isValidElement<OptionHTMLAttributes<HTMLOptionElement>>).map(option => ({
     value: String(option.props.value),
     label: option.props.children,
@@ -78,7 +82,8 @@ export function Select({ value, onChange, onOpen, children, triggerLabel, render
     if (expanded) menuRef.current?.querySelector<HTMLElement>(`[id="${menuId}-${activeIndex}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex, expanded, menuId]);
 
-  return <span className="select-control">
+  const controlClass = `select-control${variant === 'ghost' ? ' select-ghost' : ''}${roundedFull ? ' select-rounded-full' : ''}`;
+  return <span className={controlClass}>
     <button ref={triggerRef} type="button" className="select-input" title={title} disabled={disabled} role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={expanded} aria-controls={expanded ? menuId : undefined} aria-activedescendant={expanded && activeIndex >= 0 ? `${menuId}-${activeIndex}` : undefined}
       onClick={() => expanded ? setOpen(false) : showMenu()}
       onBlur={() => setOpen(false)}
