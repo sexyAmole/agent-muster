@@ -81,7 +81,7 @@ export class DingTalkBridge {
         if (part.type === 'picture') {
           const downloadCode = part.downloadCode ?? part.pictureDownloadCode;
           if (!downloadCode) throw new Error('钉钉图片消息缺少下载码');
-          if (agent === 'kimi' || agent === 'cursor') {
+          if (agent === 'cursor') {
             await this.dingtalk.reply(appId, message.sessionWebhook, `当前 ${this.agents.get(agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
             return;
           }

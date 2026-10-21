@@ -68,7 +68,7 @@ export class WecomBridge {
   }
 
   private async downloadImages(appId: string, chatId: string, agent: string, attachments: ImageContent[]): Promise<AgentImage[] | undefined> {
-    if (attachments.length && (agent === 'kimi' || agent === 'cursor')) {
+    if (attachments.length && agent === 'cursor') {
       await this.wecom.send(appId, chatId, `当前 ${this.agents.get(agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
       return;
     }

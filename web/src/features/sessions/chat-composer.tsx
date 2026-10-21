@@ -71,7 +71,7 @@ function getComposerState({ selected, agents, projects, pane, agent, message, im
   const composerAgent = selected?.agent || agent;
   const agentInfo = agents.find(item => item.id === composerAgent);
   const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
-  const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'kimi' && composerAgent !== 'cursor');
+  const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'cursor');
   const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
 
   return { running, composerProject, composerAgent, agentInfo, composerDisabled, supportsImages, canSend };

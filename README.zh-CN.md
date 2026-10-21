@@ -7,7 +7,7 @@
 
 ## 功能
 
-- 自动检测本机已安装的 Codex、Claude Code、Pi、Kimi CLI、Gemini CLI、OpenCode 和 Cursor。
+- 自动检测本机已安装的 Codex、Claude Code、Pi、Gemini CLI、OpenCode 和 Cursor。
 - 按项目管理对话，支持单窗、双窗和四窗布局，同时查看和继续不同任务。
 - 选择 Agent 和模型，实时查看回复、工具调用、执行状态及可用的 Token 用量。
 - 保存项目和对话记录，支持继续对话和停止正在运行的任务。
@@ -50,7 +50,6 @@
 | Codex | `codex` |
 | Claude Code | `claude` |
 | Pi | `pi` |
-| Kimi CLI | `kimi` |
 | Gemini CLI | `gemini` |
 | OpenCode | `opencode` |
 | Cursor | `cursor-agent` |
@@ -150,7 +149,7 @@ Agent 在选中的项目目录中执行任务。模型列表取决于对应 CLI 
 
 钉钉和飞书都支持独立图片及图文消息中的多张图片。图片会作为附件交给 Agent；只有图片时，会使用「请查看这张图片。」作为任务文本。群聊中需提及机器人，飞书可在同一条富文本消息中包含提及、文字和图片。
 
-图片输入支持 Codex、Claude Code、Pi、Gemini CLI 和 OpenCode，所选模型也需支持图片。当前 Kimi CLI 和 Cursor 接入不支持图片附件，会回复明确提示。支持 PNG、JPEG、GIF 和 WebP 图片。
+图片输入支持 Codex、Claude Code、Pi、Gemini CLI 和 OpenCode，所选模型也需支持图片。当前 Cursor 接入不支持图片附件，会回复明确提示。支持 PNG、JPEG、GIF 和 WebP 图片。
 
 飞书下载用户发送的图片使用「获取消息中的资源文件」接口。新扫码创建的应用会申请 `im:message:readonly` 权限；已有应用需要在飞书开放平台开通该权限并发布应用版本。图片下载失败时，机器人会返回具体说明。
 

@@ -6,7 +6,6 @@ import claude from '../../src/shared/assets/agents/claude.svg';
 import codex from '../../src/shared/assets/agents/codex.svg';
 import cursor from '../../src/shared/assets/agents/cursor.svg';
 import gemini from '../../src/shared/assets/agents/gemini.svg';
-import kimi from '../../src/shared/assets/agents/kimi.svg';
 import opencode from '../../src/shared/assets/agents/opencode.svg';
 import pi from '../../src/shared/assets/agents/pi.svg';
 
@@ -20,7 +19,6 @@ export const agents = [
   { name: 'Codex', icon: codex },
   { name: 'Claude Code', icon: claude },
   { name: 'Pi', icon: pi },
-  { name: 'Kimi CLI', icon: kimi },
   { name: 'Gemini CLI', icon: gemini },
   { name: 'OpenCode', icon: opencode },
   { name: 'Cursor', icon: cursor },

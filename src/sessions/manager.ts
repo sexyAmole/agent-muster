@@ -50,7 +50,7 @@ export class SessionManager extends EventEmitter {
   async readImages(ids: unknown, agent: string): Promise<AgentImage[]> {
     if (ids === undefined) return [];
     if (!Array.isArray(ids) || !ids.every(id => typeof id === 'string')) throw new Error('图片列表无效');
-    if (ids.length && (agent === 'kimi' || agent === 'cursor')) throw new Error('当前 Agent 接入不支持图片附件');
+    if (ids.length && agent === 'cursor') throw new Error('当前 Agent 接入不支持图片附件');
     return this.store.readImages(ids);
   }
 

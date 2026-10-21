@@ -7,7 +7,7 @@ Manage local AI coding agents, projects, and conversations in your browser. Send
 
 ## Features
 
-- Detect installed Codex, Claude Code, Pi, Kimi CLI, Gemini CLI, OpenCode, and Cursor agents.
+- Detect installed Codex, Claude Code, Pi, Gemini CLI, OpenCode, and Cursor agents.
 - Organize conversations by project and work across one, two, or four conversation panes.
 - Select agents and models, and view live replies, tool calls, execution status, and available token usage.
 - Save projects and conversation history, resume conversations, and stop running tasks.
@@ -50,7 +50,6 @@ Manage integrations through the DingTalk and Feishu tabs and start setup with th
 | Codex | `codex` |
 | Claude Code | `claude` |
 | Pi | `pi` |
-| Kimi CLI | `kimi` |
 | Gemini CLI | `gemini` |
 | OpenCode | `opencode` |
 | Cursor | `cursor-agent` |
@@ -150,7 +149,7 @@ Messages in the same IM conversation reuse its local agent session and are proce
 
 Both DingTalk and Feishu support standalone images and multiple images within rich-text messages. Images are passed to the agent as attachments. Image-only messages use “请查看这张图片。” as the task prompt. In groups, mention the bot; a Feishu rich-text message can include a mention, text, and images together.
 
-Image input is supported by the Codex, Claude Code, Pi, Gemini CLI, and OpenCode integrations, provided the selected model supports images. The Kimi CLI and Cursor integrations currently reject image attachments with an explanation. Supported formats are PNG, JPEG, GIF, and WebP.
+Image input is supported by the Codex, Claude Code, Pi, Gemini CLI, and OpenCode integrations, provided the selected model supports images. The Cursor integration currently rejects image attachments with an explanation. Supported formats are PNG, JPEG, GIF, and WebP.
 
 Feishu downloads user images through the message resource API. Newly created applications request the `im:message:readonly` permission. For existing applications, enable this permission in the Feishu developer console and publish a new application version. The bot returns an explanation if an image download fails.
 

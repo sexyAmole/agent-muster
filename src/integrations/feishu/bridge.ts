@@ -103,7 +103,7 @@ export class FeishuBridge {
   }
 
   private async downloadImages(appId: string, message: FeishuMessage['message']['message'], agent: string, imageKeys: string[]): Promise<AgentImage[] | undefined> {
-    if (imageKeys.length && (agent === 'kimi' || agent === 'cursor')) {
+    if (imageKeys.length && agent === 'cursor') {
       await this.feishu.send(appId, message.chat_id, `当前 ${this.agents.get(agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
       return;
     }
