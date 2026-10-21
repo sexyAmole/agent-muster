@@ -17,7 +17,7 @@ const dataFile = join(directory, 'apps.json');
 const imageDirectory = join(directory, 'images');
 type Application = {
   id: string; clientId: string; clientSecret: string; name: string | null; icon: string | null;
-  project: string | null; agent: string | null; permissionMode?: string; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
+  project: string | null; agent: string | null; permissionMode?: string; createdAt?: number; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
 };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; appId?: string; reason?: string };
 type Registration = { controller: AbortController; expiresAt?: number; result: PollResult };
@@ -32,7 +32,14 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
 
   async load(): Promise<void> {
     await moveLegacyPath(join(rootDirectory, 'feishu-apps.json'), dataFile);
-    try { this.apps = JSON.parse(await readFile(dataFile, 'utf8')) as Application[]; }
+    try {
+      this.apps = JSON.parse(await readFile(dataFile, 'utf8')) as Application[];
+      let needsPersist = false;
+      for (const app of this.apps) {
+        if (!app.createdAt) { app.createdAt = Date.now(); needsPersist = true; }
+      }
+      if (needsPersist) await this.persist();
+    }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   }
 
@@ -91,7 +98,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
         if (result.user_info?.tenant_brand === 'lark') throw new Error('请使用飞书账号创建应用');
         const app: Application = {
           id: randomUUID(), clientId: result.client_id, clientSecret: result.client_secret,
-          name: 'Agent Muster', icon: null, project: null, agent: null, conversations: {},
+          name: 'Agent Muster', icon: null, project: null, agent: null, createdAt: Date.now(), conversations: {},
         };
         this.apps.push(app);
         try { await this.persist(); }

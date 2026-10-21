@@ -15,6 +15,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return result as T;
 }
 
+async function copyToClipboard(text: string) {
+  await navigator.clipboard.writeText(text);
+}
+
 type AgentEntryProps = {
   agent: ManagedAgent;
   active: boolean;
@@ -29,6 +33,7 @@ function AgentEntry({ agent, active, revision, disabled, operation, onRun }: Age
   const [loading, setLoading] = useState(agent.installed);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
+  const [copied, setCopied] = useState<'command' | 'path' | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -41,23 +46,69 @@ function AgentEntry({ agent, active, revision, disabled, operation, onRun }: Age
     return () => controller.abort();
   }, [active, agent, revision, retry]);
 
+  function handleCopy(field: 'command' | 'path', text: string) {
+    void copyToClipboard(text).then(() => {
+      setCopied(field);
+      window.setTimeout(() => setCopied(null), 1200);
+    });
+  }
+
   const info = details || agent;
   const action = operation?.id === agent.id ? operation.action : undefined;
   const failed = Boolean(error || info.versionError || info.latestVersionError);
+  const currentVersion = agent.installed ? (loading ? '' : info.version || '读取失败') : '未安装';
+  const showUpdate = !loading && info.updateAvailable === true;
+  const canManage = Boolean(info.management);
+
   return <article className="agent-entry" aria-label={agent.name}>
-    <div className="agent-entry-heading"><span className="agent-entry-name"><AgentIcon agent={agent.id} /><strong>{agent.name}</strong></span><div className={`agent-entry-heading-actions${action === 'uninstall' ? ' operating' : ''}`}><span className={`agent-install-status ${agent.installed ? 'installed' : ''}`}>{agent.installed ? '已安装' : '未安装'}</span>{agent.installed && <button type="button" className={`agent-card-icon agent-uninstall${action === 'uninstall' ? ' operating' : ''}`} aria-label={action === 'uninstall' ? `正在卸载 ${agent.name}` : `卸载 ${agent.name}`} disabled={disabled || loading || !info.management} onClick={() => void onRun(info, 'uninstall')}>{action === 'uninstall' ? <span className="agent-loading-dot" aria-hidden="true" /> : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M5 6l1 14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-14M10 10v7M14 10v7" /></svg>}</button>}</div></div>
+    <div className="agent-entry-heading">
+      <span className="agent-entry-name"><AgentIcon agent={agent.id} /><strong>{agent.name}</strong></span>
+      <div className="agent-entry-heading-actions">
+        <span className={`agent-status-tag ${agent.installed ? 'installed' : ''}`}>{agent.installed ? '已安装' : '未安装'}</span>
+        {showUpdate && <span className="agent-status-tag update">可更新</span>}
+      </div>
+    </div>
     <dl className="agent-details">
-      <div><dt>版本</dt><dd className="agent-version">{agent.installed ? loading ? <span className="agent-version-loading" role="status"><span className="agent-loading-dot" aria-hidden="true" />读取中…</span> : info.version || '读取失败' : '未安装'}{!loading && info.updateAvailable === true && <button type="button" className="agent-upgrade" aria-label={action === 'update' ? `正在升级 ${agent.name}` : `升级 ${agent.name} 至 ${info.latestVersion}`} disabled={disabled || !info.management} onClick={() => void onRun(info, 'update')}>{action === 'update' ? '更新中…' : '可更新'}</button>}</dd></div>
-      <div><dt>命令</dt><dd><code>{agent.command}</code></dd></div>
-      {agent.path && <div><dt>路径</dt><dd className="agent-path" title={agent.path}>{agent.path}</dd></div>}
+      <div className="agent-detail-row">
+        <dt>当前版本</dt>
+        <dd>{loading && agent.installed ? <span className="agent-version-loading" role="status"><span className="agent-loading-dot" aria-hidden="true" />读取中…</span> : currentVersion}</dd>
+      </div>
+      <div className="agent-detail-row">
+        <dt>最新版本</dt>
+        <dd>{info.latestVersion || (loading ? '—' : (info.latestVersionError ? '检查失败' : '—'))}</dd>
+      </div>
+      <div className="agent-detail-row">
+        <dt>命令</dt>
+        <dd className="agent-command-cell">
+          <span className="agent-command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8" /></svg><code>{agent.command}</code></span>
+          <button type="button" className="agent-copy-button" aria-label={copied === 'command' ? '已复制' : '复制命令'} onClick={() => handleCopy('command', agent.command)}>
+            {copied === 'command' ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg> : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>}
+          </button>
+        </dd>
+      </div>
+      {agent.path && <div className="agent-detail-row">
+        <dt>安装路径</dt>
+        <dd className="agent-command-cell">
+          <span className="agent-path" title={agent.path}>{agent.path}</span>
+          <button type="button" className="agent-copy-button" aria-label={copied === 'path' ? '已复制' : '复制安装路径'} onClick={() => handleCopy('path', agent.path!)}>
+            {copied === 'path' ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg> : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>}
+          </button>
+        </dd>
+      </div>}
     </dl>
     {error && <p className="agent-entry-error">{error}</p>}
     {info.versionError && <p className="agent-entry-error">版本读取失败：{info.versionError}</p>}
     {info.latestVersionError && <p className="agent-entry-error">最新版本检查失败：{info.latestVersionError}</p>}
     {info.managementError && <p className="agent-entry-error">{info.managementError}</p>}
     <div className="agent-entry-actions">
-      {!agent.installed && <button className="im-primary-button" disabled={disabled || loading || !info.management} onClick={() => void onRun(info, 'install')}>{action === 'install' ? '安装中…' : '安装'}</button>}
-      {!loading && (failed || info.updateAvailable === undefined && agent.installed) && <button className="im-sync-button" disabled={disabled} onClick={() => setRetry(value => value + 1)}>重新检查</button>}
+      {!agent.installed && <button type="button" className="agent-update-button" disabled={disabled || loading || !canManage} onClick={() => void onRun(info, 'install')}>{action === 'install' ? '安装中…' : `安装 ${agent.name}`}</button>}
+      {agent.installed && (
+        <>
+          {showUpdate && <button type="button" className="agent-update-button" disabled={disabled || !canManage} aria-label={action === 'update' ? `正在更新 ${agent.name}` : `更新 ${agent.name}`} onClick={() => void onRun(info, 'update')}>{action === 'update' ? '更新中…' : '更新'}</button>}
+          <button type="button" className="agent-heading-action danger" disabled={disabled || loading || !canManage} aria-label={`卸载 ${agent.name}`} onClick={() => void onRun(info, 'uninstall')}>{action === 'uninstall' ? '卸载中…' : '卸载'}</button>
+        </>
+      )}
+      {!loading && (failed || (info.updateAvailable === undefined && agent.installed)) && <button className="im-sync-button" disabled={disabled} onClick={() => setRetry(value => value + 1)}>重新检查</button>}
     </div>
   </article>;
 }

@@ -203,7 +203,7 @@ export function ChatPaneContent({ index, pane, multi, active: focused, agents, p
   }, [selected, index, agents, copiedTarget, pushingId, onSessionUpdate, followStream, resendMessage]);
 
   return <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
-    <ChatHeader index={index} multi={multi} agents={agents} projects={projects} feishuApps={feishuApps} selected={selected ? { ...selected, title: sessions.find(session => session.id === selected.id)?.title } : null} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={panelControls} />
+    <ChatHeader index={index} multi={multi} projects={projects} feishuApps={feishuApps} selected={selected ? { ...selected, title: sessions.find(session => session.id === selected.id)?.title } : null} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={panelControls} />
     <div className="conversation-scroll" key={selected?.id} ref={conversationRef} role="log" aria-label={`窗口 ${index + 1} 对话记录`} onScroll={event => {
       const element = event.currentTarget;
       followConversation.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;

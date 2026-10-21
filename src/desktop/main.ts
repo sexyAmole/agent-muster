@@ -81,7 +81,7 @@ if (!app.requestSingleInstanceLock()) {
       show: false,
       autoHideMenuBar: true,
       backgroundColor: '#fff6f6f6',
-      ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, frame: false, transparent: true, hasShadow: false } : {}),
+      ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, frame: false, hasShadow: false } : {}),
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: join(import.meta.dirname, 'preload.cjs'), additionalArguments: [`--agent-muster-page=${pageUrl}`] },
     });
     if (process.platform === 'darwin') {

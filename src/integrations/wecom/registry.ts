@@ -15,7 +15,7 @@ const dataFile = join(directory, 'apps.json');
 const imageDirectory = join(directory, 'images');
 type Application = {
   id: string; clientId: string; clientSecret: string; name: string | null; icon: string | null;
-  project: string | null; agent: string | null; permissionMode?: string; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
+  project: string | null; agent: string | null; permissionMode?: string; createdAt?: number; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
 };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; appId?: string; reason?: string };
 type Registration = { scode: string; expiresAt: number; result: PollResult; pending?: Promise<PollResult> };
@@ -39,7 +39,14 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
   private writeQueue = Promise.resolve();
 
   async load(): Promise<void> {
-    try { this.apps = JSON.parse(await readFile(dataFile, 'utf8')) as Application[]; }
+    try {
+      this.apps = JSON.parse(await readFile(dataFile, 'utf8')) as Application[];
+      let needsPersist = false;
+      for (const app of this.apps) {
+        if (!app.createdAt) { app.createdAt = Date.now(); needsPersist = true; }
+      }
+      if (needsPersist) await this.persist();
+    }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   }
 
@@ -113,7 +120,7 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
       if (!data.bot_info?.botid || !data.bot_info.secret) throw new Error('企业微信未返回机器人凭证，请重新扫码');
       const app: Application = {
         id: randomUUID(), clientId: data.bot_info.botid, clientSecret: data.bot_info.secret,
-        name: null, icon: null, project: null, agent: null, conversations: {},
+        name: null, icon: null, project: null, agent: null, createdAt: Date.now(), conversations: {},
       };
       if (this.apps.some(item => item.clientId === app.clientId)) return registration.result = { status: 'FAIL', reason: '此机器人已接入' };
       this.apps.push(app);

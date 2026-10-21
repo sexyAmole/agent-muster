@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { AgentInfo, AgentSession } from '../../../../src/types';
 import { AppIcon } from '../../shared/components/app-icon';
 import { useErrorMessage } from '../../shared/components/message';
@@ -6,7 +6,7 @@ import { Select } from '../../shared/components/select';
 import { Tabs } from '../../shared/components/tabs';
 import { apiUrl } from '../../shared/lib/api-url';
 
-export type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; permissionMode?: string; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
+export type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; permissionMode?: string; createdAt?: number; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
 type SessionSummary = Omit<AgentSession, 'events'>;
 type Agent = Pick<AgentInfo, 'id' | 'name' | 'installed' | 'permissionModes'>;
 type Registration = { id: string; userCode?: string; verificationUrl: string; qrCode: string; expiresAt: number; interval: number };
@@ -27,15 +27,97 @@ export function ImPanel(props: Props) {
   </Tabs></div>;
 }
 
-function ImActionMenu({ label, appName, children }: { label: string; appName: string; children: ReactNode }) {
-  return <details className="im-action-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
-    <summary aria-label={`${appName} ${label}`}>{label}<span className="im-action-chevron" aria-hidden="true" /></summary>
-    <div className="im-action-popover">{children}</div>
-  </details>;
+function formatCreatedAt(timestamp?: number): string {
+  if (!timestamp) return '未知';
+  const date = new Date(timestamp);
+  return date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function formatConversationTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+type ImRobotEntryProps = {
+  app: Application;
+  platform: '钉钉' | '飞书' | '企业微信';
+  provider: 'dingtalk' | 'feishu' | 'wecom';
+  agents: Agent[];
+  projects: string[];
+  projectLabel: (path: string) => string;
+  conversations: SessionSummary[];
+  syncing: boolean;
+  deleting: boolean;
+  onBind: (id: string, binding: { project?: string | null; agent?: string | null; permissionMode?: string }) => void;
+  onSync: (id: string) => void;
+  onDelete: (app: Application) => void;
+  onOpenSession: (session: SessionSummary) => void;
+};
+
+function ImRobotEntry({ app, platform, provider, agents, projects, projectLabel, conversations, syncing, deleting, onBind, onSync, onDelete, onOpenSession }: ImRobotEntryProps) {
+  const agentInfo = agents.find(agent => agent.id === app.agent);
+  const selectedPermission = agentInfo?.permissionModes.find(mode => mode.id === (app.permissionMode || 'full-auto'));
+
+  return <div className="im-robot-entry">
+    <div className="im-robot-header">
+      <div className="im-robot-meta">
+        <span className="im-robot-mark"><AppIcon src={app.icon} platform={platform} className="im-robot-app-icon" fallbackClassName="im-robot-app-icon-fallback" /></span>
+        <div className="im-robot-titles">
+          <div className="im-robot-title-row">
+            <strong>{app.name || app.clientId}</strong>
+            <span className="im-bound-badge">已关联</span>
+          </div>
+          <small>{platform}应用 · 创建时间 {formatCreatedAt(app.createdAt)}</small>
+        </div>
+      </div>
+      <div className="im-header-actions">
+        {provider !== 'wecom' && <button className="im-sync-button" disabled={syncing} aria-label={`同步 ${app.name || app.clientId} 的名称和图标`} onClick={() => onSync(app.id)}>{syncing ? '同步中…' : '一键同步'}</button>}
+        <button className="im-delete-button" disabled={deleting} aria-label={`删除 ${app.name || app.clientId} 的 IM 接入`} onClick={() => onDelete(app)}>{deleting ? '删除中…' : '删除'}</button>
+      </div>
+    </div>
+    <div className="im-binding-row">
+      <label className="im-binding-cell">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2Z" /></svg>
+        <Select aria-label={`绑定 ${app.name || app.clientId} 的项目`} value={app.project || ''} onChange={value => onBind(app.id, { project: value || null })} variant="ghost" triggerLabel={app.project ? projectLabel(app.project) : '选择项目'}>
+          <option value="">选择项目</option>
+          {projects.map(path => <option key={path} value={path}>{projectLabel(path)}</option>)}
+        </Select>
+      </label>
+      <span className="im-binding-divider" />
+      <label className="im-binding-cell">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="14" rx="3" /><path d="M12 6V3M8 11h.01M16 11h.01M8 16h8M1 11v4M23 11v4" /></svg>
+        <Select aria-label={`选择 ${app.name || app.clientId} 的 Agent`} value={app.agent || ''} onChange={value => onBind(app.id, { agent: value || null })} variant="ghost" triggerLabel={app.agent ? (agents.find(agent => agent.id === app.agent)?.name || app.agent) : '选择 Agent'}>
+          <option value="">选择 Agent</option>
+          {agents.map(agent => <option key={agent.id} value={agent.id} disabled={!agent.installed}>{agent.name}{agent.installed ? '' : '（未安装）'}</option>)}
+        </Select>
+      </label>
+      <span className="im-binding-divider" />
+      <label className="im-binding-cell">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+        <Select aria-label={`设置 ${app.name || app.clientId} 的权限模式`} value={app.permissionMode || 'full-auto'} disabled={!agentInfo?.installed} title={selectedPermission?.description} onChange={value => onBind(app.id, { permissionMode: value })} variant="ghost" triggerLabel={selectedPermission?.name || '选择权限'}>
+          {agentInfo?.permissionModes.map(mode => <option key={mode.id} value={mode.id}>{mode.name}</option>)}
+        </Select>
+      </label>
+    </div>
+    <div className="im-conversations">
+      <div className="im-conversations-header">
+        <h2>关联对话 ({conversations.length})</h2>
+      </div>
+      {conversations.length ? <ul>{conversations.map(session => <li key={session.id}>
+        <button className="im-conversation" onClick={() => onOpenSession(session)}>
+          <span className="im-conversation-main">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" /></svg>
+            <span className="im-conversation-info"><strong title={session.title ?? session.prompt}>{session.title ?? session.prompt}</strong><small title={session.cwd}>{projectLabel(session.cwd)} · {agents.find(agent => agent.id === session.agent)?.name || session.agent}</small></span>
+          </span>
+          <span className="im-conversation-time"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg><time dateTime={new Date(session.updatedAt).toISOString()}>{formatConversationTime(session.updatedAt)}</time></span>
+        </button>
+      </li>)}</ul> : <p className="im-conversations-empty">暂无关联对话</p>}
+    </div>
+  </div>;
 }
 
 function ImIntegration({ active, sessions, onOpenSession, feishuApps, onFeishuAppsChange, projects, agents, projectLabel, provider }: Props & { provider: 'dingtalk' | 'feishu' | 'wecom' }) {
-  const platform = provider === 'feishu' ? '飞书' : provider === 'wecom' ? '企业微信' : '钉钉';
+  const platform: '钉钉' | '飞书' | '企业微信' = provider === 'feishu' ? '飞书' : provider === 'wecom' ? '企业微信' : '钉钉';
   const [localApps, setLocalApps] = useState<Application[]>([]);
   const apps = provider === 'feishu' ? feishuApps : localApps;
   const setApps = provider === 'feishu' ? onFeishuAppsChange : setLocalApps;
@@ -163,36 +245,28 @@ function ImIntegration({ active, sessions, onOpenSession, feishuApps, onFeishuAp
   }
 
   return <div>
-    <div className="im-intro"><h1>{platform}接入</h1><button className="im-primary-button" onClick={() => void startRegistration()}>扫码创建应用</button></div>
+    <div className="im-intro"><div><h1>IM 集成</h1><p className="im-intro-desc">管理钉钉、飞书和企业微信应用，绑定项目与 Agent。</p></div><button className="im-primary-button" onClick={() => void startRegistration()}>扫码创建应用</button></div>
     <div className="im-robot-list">
       {apps.length ? apps.map(app => {
-        const agentInfo = agents.find(agent => agent.id === app.agent);
         const conversations = sessions.filter(session => session.im?.some(binding => binding.platform === provider && binding.appId === app.id))
           .sort((a, b) => b.updatedAt - a.updatedAt);
-        return <div className="im-robot-entry" key={app.id}>
-        <div className="im-robot-row"><div className="im-robot-mark"><AppIcon src={app.icon} platform={platform} /></div><div className="im-app-info"><strong>{app.name || app.clientId}</strong>{app.connectionStatus && <small className="im-connection-status">{{ idle: '未连接', connecting: '连接中', connected: '消息监听已连接', reconnecting: '重新连接中', failed: '消息监听连接失败' }[app.connectionStatus]}</small>}</div>
-          <div className="im-row-actions">
-            <ImActionMenu label="Agent 操作" appName={app.name || app.clientId}>
-              <label className="im-binding">项目<Select aria-label={`绑定 ${app.name || app.clientId} 的项目`} value={app.project || ''} onChange={value => void bind(app.id, { project: value || null })}><option value="">未绑定</option>{projects.map(path => <option key={path} value={path}>{projectLabel(path)}</option>)}</Select></label>
-              <label className="im-binding">Agent<Select aria-label={`选择 ${app.name || app.clientId} 的 Agent`} value={app.agent || ''} onChange={value => void bind(app.id, { agent: value || null })}><option value="">未选择</option>{agents.map(agent => <option key={agent.id} value={agent.id} disabled={!agent.installed}>{agent.name}{agent.installed ? '' : '（未安装）'}</option>)}</Select></label>
-              <label className="im-binding">权限<Select aria-label={`设置 ${app.name || app.clientId} 的权限模式`} value={app.permissionMode || 'full-auto'} disabled={!agentInfo?.installed} title={agentInfo?.permissionModes.find(mode => mode.id === (app.permissionMode || 'full-auto'))?.description} onChange={value => void bind(app.id, { permissionMode: value })}>{agentInfo?.permissionModes.map(mode => <option key={mode.id} value={mode.id}>{mode.name}</option>)}</Select></label>
-            </ImActionMenu>
-            <ImActionMenu label="应用操作" appName={app.name || app.clientId}>
-              {provider !== 'wecom' && <button className="im-sync-button" disabled={syncingId !== null} aria-label={`同步 ${app.name || app.clientId} 的名称和图标`} onClick={() => void syncApp(app.id)}>{syncingId === app.id ? '同步中…' : '一键同步'}</button>}
-              <button className="im-delete-button" disabled={deletingId !== null} aria-label={`删除 ${app.name || app.clientId} 的 IM 接入`} onClick={() => void deleteApp(app)}>{deletingId === app.id ? '删除中…' : '删除'}</button>
-            </ImActionMenu>
-          </div>
-        </div>
-        <div className="im-conversations">
-          <h2>关联对话</h2>
-          {conversations.length ? <ul>{conversations.map(session => <li key={session.id}>
-            <button className="im-conversation" onClick={() => onOpenSession(session)}>
-              <span className="im-conversation-info"><strong title={session.title ?? session.prompt}>{session.title ?? session.prompt}</strong><small title={session.cwd}>{projectLabel(session.cwd)} · {agents.find(agent => agent.id === session.agent)?.name || session.agent}</small></span>
-              <time dateTime={new Date(session.updatedAt).toISOString()}>{new Date(session.updatedAt).toLocaleString('zh-CN')}</time>
-            </button>
-          </li>)}</ul> : <p className="im-conversations-empty">暂无关联对话</p>}
-        </div>
-      </div>; }) : <div className="im-empty">暂无{platform}应用</div>}
+        return <ImRobotEntry
+          key={app.id}
+          app={app}
+          platform={platform}
+          provider={provider}
+          agents={agents}
+          projects={projects}
+          projectLabel={projectLabel}
+          conversations={conversations}
+          syncing={syncingId === app.id}
+          deleting={deletingId === app.id}
+          onBind={(id, binding) => void bind(id, binding)}
+          onSync={(id) => void syncApp(id)}
+          onDelete={(app) => void deleteApp(app)}
+          onOpenSession={onOpenSession}
+        />;
+      }) : <div className="im-empty">暂无{platform}应用</div>}
     </div>
     {open && <div className="im-scan-layer" role="presentation"><button className="im-scan-backdrop" aria-label="关闭扫码窗口" onClick={closeRegistration} /><section ref={scanDialog} className="im-scan-dialog" onKeyDown={event => {
       if (event.key === 'Escape') { event.preventDefault(); closeRegistration(); }
