@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { providers } from './providers/index.js';
@@ -11,15 +11,15 @@ export function getSandboxEnabled(id: string): boolean {
   return settings[id]?.sandboxEnabled ?? true;
 }
 
-export function setSandbox(id: string, enabled: unknown): void {
-  if (!providers.get(id)?.sandboxSupported) throw new Error('此 Agent 不支持内置沙箱');
-  if (typeof enabled !== 'boolean') throw new Error('沙箱设置无效');
-  const next = { ...settings, [id]: { sandboxEnabled: enabled } };
-  mkdirSync(join(homedir(), '.agent-muster'), { recursive: true, mode: 0o700 });
-  const temporary = `${settingsFile}.${process.pid}.tmp`;
-  writeFileSync(temporary, JSON.stringify(next), { mode: 0o600 });
-  renameSync(temporary, settingsFile);
-  Object.assign(settings, next);
+export function sessionSandboxEnabled(agent: string, permissionMode: string, value: unknown): boolean {
+  const supported = Boolean(providers.get(agent)?.sandboxSupported);
+  if (value !== undefined && typeof value !== 'boolean') throw new Error('沙箱设置无效');
+  if (value === true && !supported) throw new Error('此 Agent 不支持内置沙箱');
+  if (agent === 'codex' && ['read-only', 'workspace-write', 'auto-review'].includes(permissionMode)) {
+    if (value === false) throw new Error('所选权限模式必须开启沙箱');
+    return true;
+  }
+  return value === undefined ? supported : value;
 }
 
 export function validatePermissionMode(agent: string, value: unknown): asserts value is string | null | undefined {

@@ -257,8 +257,8 @@ export function App() {
     setLayout(next);
   }
 
-  const updateSession = useCallback((session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId'>>) => {
-    setSessions(current => current.map(item => item.id === session.id ? { ...item, status: session.status, updatedAt: session.updatedAt, externalSessionId: session.externalSessionId ?? item.externalSessionId } : item));
+  const updateSession = useCallback((session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId' | 'permissionMode' | 'sandboxEnabled'>>) => {
+    setSessions(current => current.map(item => item.id === session.id ? { ...item, status: session.status, updatedAt: session.updatedAt, externalSessionId: session.externalSessionId ?? item.externalSessionId, permissionMode: session.permissionMode ?? item.permissionMode, sandboxEnabled: session.sandboxEnabled ?? item.sandboxEnabled } : item));
   }, []);
 
   function sessionCreated(index: number, session: SessionSummary) {
@@ -374,7 +374,7 @@ export function App() {
         <div className={`workspace-grid ${layout}`} style={{ display: imOpen || agentsOpen ? 'none' : undefined }}>
           {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.cwd}`} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); expandProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
         </div>
-        <div className="management-page" hidden={!agentsOpen}><AgentPanel active={agentsOpen} onChange={setAgents} /></div>
+        <div className="management-page" hidden={!agentsOpen}><AgentPanel agents={agents} active={agentsOpen} onChange={setAgents} /></div>
         <div className="management-page" hidden={!imOpen}><ImPanel active={imOpen} sessions={sessions} onOpenSession={openConversation} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects, projectNames)} /></div>
       </div>
     </main>

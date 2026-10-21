@@ -1,4 +1,3 @@
-import { setSandbox } from '../../agents/settings.js';
 import { Router } from 'express';
 import type { AgentRegistry } from '../../agents/registry.js';
 import type { AgentManagement } from '../../agents/management.js';
@@ -19,13 +18,9 @@ export function createAgentRouter(registry: AgentRegistry, agentManagement: Agen
     try { response.json(await agentManagement.refresh()); }
     catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
-  router.patch('/agents/:id/settings', async (request, response) => {
+  router.get('/agents/:id/details', async (request, response) => {
     try {
-      if (!registry.get(request.params.id)) throw new Error('Agent 不存在');
-      if (agentManagement.operating) throw new Error('正在执行 Agent 操作，请稍后重试');
-      if (sessions.list().some(session => session.agent === request.params.id && sessions.isRunning(session.id))) throw new Error('请先停止此 Agent 正在运行的会话，再修改沙箱设置');
-      setSandbox(request.params.id, request.body?.sandboxEnabled);
-      response.json(registry.list());
+      response.json(await agentManagement.details(request.params.id, request.query.refresh === 'true'));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.post('/agents/:id/actions', async (request, response) => {

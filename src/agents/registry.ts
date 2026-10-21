@@ -1,4 +1,3 @@
-import { getSandboxEnabled } from './settings.js';
 import { executablePath } from './executable.js';
 import { providers } from './providers/index.js';
 import { execFileAsync } from './providers/shared.js';
@@ -16,7 +15,7 @@ export class AgentRegistry {
     const agents = await Promise.all([...providers.values()].map(async definition => {
       const path = await executablePath(definition.command);
       const installed = Boolean(path);
-      return { sandboxSupported: definition.sandboxSupported, sandboxEnabled: definition.sandboxSupported && getSandboxEnabled(definition.id), permissionModes: definition.permissionModes, id: definition.id, name: definition.name, command: definition.command, installed, path, models: [] };
+      return { sandboxSupported: definition.sandboxSupported, permissionModes: definition.permissionModes, id: definition.id, name: definition.name, command: definition.command, installed, path, models: [] };
     }));
     this.modelQueries.clear();
     this.versionQueries.clear();
@@ -44,10 +43,15 @@ export class AgentRegistry {
     return query;
   }
 
-  async loadVersion(id: string): Promise<void> {
+  async loadVersion(id: string, refresh = false): Promise<void> {
     const agent = this.agents.get(id);
     if (!agent) throw new Error('Agent 不存在');
     if (!agent.installed) return;
+    if (refresh) {
+      this.versionQueries.delete(id);
+      delete agent.version;
+      delete agent.versionError;
+    }
     let query = this.versionQueries.get(id);
     if (!query) {
       query = (async () => {
@@ -63,7 +67,7 @@ export class AgentRegistry {
   }
 
   list(): AgentInfo[] {
-    return [...this.agents.values()].map(agent => ({ ...agent, sandboxEnabled: agent.sandboxSupported && getSandboxEnabled(agent.id) }));
+    return [...this.agents.values()].map(agent => ({ ...agent }));
   }
 
   get(id: string): AgentInfo | undefined {

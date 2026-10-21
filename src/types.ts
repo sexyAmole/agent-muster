@@ -23,7 +23,6 @@ export interface PermissionMode {
 
 export interface AgentInfo {
   sandboxSupported: boolean;
-  sandboxEnabled: boolean;
   permissionModes: PermissionMode[];
   id: string;
   name: string;
@@ -41,6 +40,9 @@ export type AgentAction = 'install' | 'update' | 'uninstall';
 export interface ManagedAgent extends AgentInfo {
   management?: 'npm' | 'cursor';
   managementError?: string;
+  latestVersion?: string;
+  latestVersionError?: string;
+  updateAvailable?: boolean;
 }
 
 export interface ModelInfo {
@@ -145,6 +147,7 @@ export interface AgentSession {
   title?: string;
   model?: string;
   permissionMode?: string;
+  sandboxEnabled: boolean;
   usage?: SessionUsage;
   externalSessionId?: string;
   pid?: number;

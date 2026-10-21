@@ -18,6 +18,6 @@ export type PaneProps = {
   onFocus: (index: number) => void;
   onProjectChange: (index: number, path: string) => void;
   onSessionCreated: (index: number, session: SessionSummary) => void;
-  onSessionUpdate: (session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId'>>) => void;
+  onSessionUpdate: (session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId' | 'permissionMode' | 'sandboxEnabled'>>) => void;
 };
 export type ChatPaneProps = PaneProps & { layoutControls?: React.ReactNode };
