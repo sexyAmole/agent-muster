@@ -37,7 +37,7 @@ export class SessionManager extends EventEmitter {
       if (session.status === 'running' || session.status === 'starting') {
         session.status = 'stopped';
         session.pid = undefined;
-        this.store.saveMetadata(session);
+        this.status(session, 'stopped');
       }
       this.sessions.set(session.id, session);
     }
@@ -109,8 +109,8 @@ export class SessionManager extends EventEmitter {
     return this.processes.has(id);
   }
 
-  private save(session: AgentSession): void {
-    try { this.store.saveMetadata(session); }
+  private save(session: AgentSession, event?: SessionEvent): void {
+    try { this.store.saveMetadata(session, event); }
     catch (error) { console.error('保存会话失败：', error); }
   }
 
@@ -127,7 +127,7 @@ export class SessionManager extends EventEmitter {
     };
     session.updatedAt = event.timestamp;
     if (!event.streaming) {
-      this.save(session);
+      this.save(session, event);
       try { this.store.appendEvent(session.id, event); }
       catch (error) { console.error('保存会话事件失败：', error); }
     }
@@ -148,14 +148,16 @@ export class SessionManager extends EventEmitter {
     this.append(session, { type: 'status', text: status });
   }
 
-  private addUsage(session: AgentSession, usage: TokenUsage, total = false): void {
+  private addUsage(session: AgentSession, usage: TokenUsage | undefined, total = false, contextTokens?: number): void {
     const previous = session.usage;
-    session.usage = total ? usage : {
+    if (!usage && contextTokens === undefined) return;
+    const consumption = usage ? total ? usage : {
       inputTokens: (previous?.inputTokens || 0) + usage.inputTokens,
       outputTokens: (previous?.outputTokens || 0) + usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens !== undefined && (!previous || previous.cacheReadTokens !== undefined) ? (previous?.cacheReadTokens || 0) + usage.cacheReadTokens : undefined,
       cacheWriteTokens: usage.cacheWriteTokens !== undefined && (!previous || previous.cacheWriteTokens !== undefined) ? (previous?.cacheWriteTokens || 0) + usage.cacheWriteTokens : undefined,
-    };
+    } : previous || { inputTokens: 0, outputTokens: 0 };
+    session.usage = { ...consumption, ...(contextTokens !== undefined || previous?.contextTokens !== undefined ? { contextTokens: contextTokens ?? previous?.contextTokens } : {}) };
     this.append(session, { type: 'usage', text: JSON.stringify(session.usage) });
   }
 
@@ -272,9 +274,10 @@ export class SessionManager extends EventEmitter {
       session.events = session.events.filter(event => !event.streaming || !clearStreamIds.includes(event.streamId!));
       append({ type: 'status', text: session.status, clearStreamIds });
     }
+    if (result.contextTokens !== undefined && !result.events.some(event => event.type === 'usage')) this.addUsage(session, undefined, false, result.contextTokens);
     for (const event of result.events) {
       if (event.type === 'usage') {
-        this.addUsage(session, event.usage, event.total);
+        this.addUsage(session, event.usage, event.total, result.contextTokens);
         continue;
       }
       const id = event.streamId ? streamId(event.streamId) : undefined;
@@ -303,7 +306,8 @@ export class SessionManager extends EventEmitter {
         run.failed = true;
         this.append(session, { type: 'error', text: settlementError });
       }
-      this.status(session, run.aborted ? 'stopped' : code === 0 && !run.failed ? 'completed' : 'failed');
+      const status = run.aborted ? 'stopped' : code === 0 && !run.failed ? 'completed' : 'failed';
+      if (session.status !== status) this.status(session, status);
     }
     this.emit(`${session.id}:idle`);
   }

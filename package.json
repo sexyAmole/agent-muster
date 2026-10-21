@@ -97,6 +97,8 @@
       "package.json"
     ],
     "mac": {
+      "identity": "-",
+      "notarize": false,
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "category": "public.app-category.developer-tools",
       "target": [

@@ -55,7 +55,10 @@ export const opencode: AgentProvider = {
       if (event.type === 'step_finish') {
         const usage = object(part?.tokens);
         const cache = object(usage?.cache);
-        return { externalSessionId, usage: usage && hasTokens(usage, ['input', 'output']) ? {
+        const contextTokens = usage && ['input', 'output'].every(field => typeof usage[field] === 'number' && Number.isFinite(usage[field]) && usage[field] >= 0)
+          ? tokens(usage.input) + tokens(cache?.read) + tokens(cache?.write) + tokens(usage.output) + tokens(usage.reasoning)
+          : undefined;
+        return { externalSessionId, contextTokens, usage: usage && hasTokens(usage, ['input', 'output']) ? {
           inputTokens: tokens(usage.input) + tokens(cache?.read) + tokens(cache?.write),
           outputTokens: tokens(usage.output) + tokens(usage.reasoning),
           cacheReadTokens: typeof cache?.read === 'number' ? tokens(cache.read) : undefined,

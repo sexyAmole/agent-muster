@@ -33,7 +33,8 @@ function readPiResult(line: string): ParsedResult {
       return block?.type === 'thinking' ? string(block.thinking) : undefined;
     }).filter(Boolean).join('\n');
     const usage = object(message.usage);
-    return { ...result, thinking: thinking || undefined, text: text || undefined, error: string(message.errorMessage), usage: usage && hasTokens(usage, ['input', 'cacheRead', 'cacheWrite', 'output']) ? {
+    const contextTokens = usage?.totalTokens;
+    return { ...result, contextTokens: typeof contextTokens === 'number' && Number.isFinite(contextTokens) && contextTokens >= 0 ? contextTokens : undefined, thinking: thinking || undefined, text: text || undefined, error: string(message.errorMessage), usage: usage && hasTokens(usage, ['input', 'cacheRead', 'cacheWrite', 'output']) ? {
       inputTokens: tokens(usage.input) + tokens(usage.cacheRead) + tokens(usage.cacheWrite),
       outputTokens: tokens(usage.output),
       cacheReadTokens: typeof usage.cacheRead === 'number' ? tokens(usage.cacheRead) : undefined,

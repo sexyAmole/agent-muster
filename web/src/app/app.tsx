@@ -268,11 +268,10 @@ export function App() {
   }
 
   const visibleSessions = sessionDateRange ? sessions.filter(session => {
-    const date = localDate(session.createdAt);
+    const date = localDate(session.updatedAt);
     return date >= sessionDateRange.start && date <= sessionDateRange.end;
   }) : sessions;
   const visibleProjects = sessionDateRange ? projects.filter(path => visibleSessions.some(session => session.cwd === path)) : projects;
-  const agentName = (id: string) => agents.find(item => item.id === id)?.name || id;
   const activeSessionId = currentPane.sessionId;
 
   return <ProjectNamesContext.Provider value={projectNames}><div className={`app-shell${window.desktopWindow ? ' desktop-macos' : ''}`}>
@@ -351,7 +350,7 @@ export function App() {
                 const wecomBinding = session.im?.find(binding => binding.platform === 'wecom');
                 const feishuIcon = feishuApps.find(app => app.id === feishuBinding?.appId)?.icon;
                 return <div className="conversation-row" key={session.id}><button className={`conversation-item ${activeSessionId === session.id ? 'selected' : ''}`} onClick={() => openConversation(session)} title={session.title ?? session.prompt}>
-                  <span className="conversation-icon">{wecomBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" platform="企业微信" />}{dingtalkBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}{feishuBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<AgentIcon agent={session.agent} className={dingtalkBinding || feishuBinding || wecomBinding ? 'conversation-agent-badge' : undefined} /></span><span className="conversation-text"><strong>{session.title ?? session.prompt}</strong><small>{agentName(session.agent)} · {time(session.createdAt)}</small></span>{(session.status === 'starting' || session.status === 'running') && <span className="conversation-loading" role="status" aria-label={statusLabel[session.status]} />}{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
+                  <span className="conversation-icon">{wecomBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" platform="企业微信" />}{dingtalkBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={`/api/dingtalk/apps/${dingtalkBinding.appId}/icon`} platform="钉钉" />}{feishuBinding && <AppIcon className="conversation-app-icon" fallbackClassName="feishu-app-mark" src={feishuIcon} platform="飞书" />}<AgentIcon agent={session.agent} className={dingtalkBinding || feishuBinding || wecomBinding ? 'conversation-agent-badge' : undefined} /></span><span className="conversation-text"><strong>{session.title ?? session.prompt}</strong><small>{time(session.updatedAt)}</small></span>{(session.status === 'starting' || session.status === 'running') && <span className="conversation-loading" role="status" aria-label={statusLabel[session.status]} />}{paneCount > 1 && openIndex >= 0 && <span className="pane-marker" aria-label={`窗口 ${openIndex + 1}`}>{openIndex + 1}</span>}
                 </button><button className="conversation-rename" aria-label="重命名会话" data-tooltip="重命名会话" onClick={event => {
                   sessionRenameButton.current = event.currentTarget;
                   setSessionTitle(session.title ?? session.prompt);

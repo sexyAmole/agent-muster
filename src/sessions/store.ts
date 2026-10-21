@@ -6,8 +6,9 @@ import { dirname, join } from 'node:path';
 import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, ImBinding, SessionEvent } from '../types.js';
 import { projectDirectory } from '../projects/storage.js';
 import { mergeSessionEvents } from './events.js';
+import { applyEventMetadata, applyMetadataChanges, metadataChanges, sessionEvent, sessionMetadata, storedEvent } from './records.js';
+import type { SessionMetadata, SessionRecord } from './records.js';
 
-type SessionMetadata = Omit<AgentSession, 'events'>;
 type HistoryRecord = ({ type: 'session' } & SessionMetadata) | SessionEvent | { type: 'im_pushed'; eventId: number };
 type LegacyRecord = { session: SessionMetadata; event?: SessionEvent; pushedEventId?: number };
 
@@ -80,7 +81,7 @@ function* records<T = HistoryRecord>(file: string, reverse = false): Generator<T
 
 export class SessionStore {
   private files = new Map<string, string>();
-  private metadataKeys = new Map<string, string>();
+  private metadataSnapshots = new Map<string, SessionMetadata>();
   private pendingKeys = new Map<string, string>();
 
   constructor(private directory = join(homedir(), '.agent-muster')) {}
@@ -122,6 +123,7 @@ export class SessionStore {
       for (const name of readdirSync(projectPath).filter(file => file.endsWith('.jsonl') && !file.endsWith('.raw.jsonl'))) {
         const source = join(projectPath, name);
         this.migrateRecords(source);
+        this.migrateStorage(source);
         const target = this.sessionFile(this.metadata(source));
         mkdirSync(dirname(target), { recursive: true });
         try { await stat(target); }
@@ -142,9 +144,10 @@ export class SessionStore {
       for (const name of readdirSync(directory).filter(file => file.endsWith('.jsonl') && !file.endsWith('.raw.jsonl'))) {
         const file = join(directory, name);
         this.migrateRecords(file);
+        this.migrateStorage(file);
         const metadata = this.metadata(file);
         this.files.set(metadata.id, file);
-        this.metadataKeys.set(metadata.id, metadataKey(metadata));
+        this.metadataSnapshots.set(metadata.id, structuredClone(metadata));
         this.recoverPending(metadata);
         sessions.push({ ...metadata, events: this.history(metadata.id, 10).events });
       }
@@ -152,25 +155,32 @@ export class SessionStore {
     return sessions;
   }
 
-  saveMetadata(session: AgentSession): void {
-    const { events, ...metadata } = session;
+  saveMetadata(session: AgentSession, event?: SessionEvent): void {
+    const metadata = sessionMetadata(session);
     const file = this.files.get(session.id) || this.sessionFile(metadata);
-    if (!this.files.has(session.id)) mkdirSync(dirname(file), { recursive: true });
-    const key = metadataKey(metadata);
-    if (this.metadataKeys.get(session.id) !== key) this.appendRecord(file, { type: 'session', ...metadata });
+    const previous = this.metadataSnapshots.get(session.id);
+    if (!previous) {
+      mkdirSync(dirname(file), { recursive: true });
+      this.appendRecord(file, { type: 'session', formatVersion: 2, ...metadata });
+    } else {
+      const changes = metadataChanges(previous, metadata, event);
+      if (Object.keys(changes).length) this.appendRecord(file, { type: 'session_update', timestamp: session.updatedAt, changes });
+    }
     this.files.set(session.id, file);
-    this.metadataKeys.set(session.id, key);
+    this.metadataSnapshots.set(session.id, structuredClone(metadata));
   }
 
   appendEvent(id: string, event: SessionEvent): void {
-    this.appendRecord(this.files.get(id)!, event);
+    const file = this.files.get(id)!;
+    this.appendRecord(file, storedEvent(event));
+    if (event.pushedToIm) this.markImPushed(id, event.id);
   }
 
   markImPushed(id: string, eventId: number): void {
     this.appendRecord(this.files.get(id)!, { type: 'im_pushed', eventId });
   }
 
-  private appendRecord(file: string, record: HistoryRecord): void {
+  private appendRecord(file: string, record: SessionRecord): void {
     appendFileSync(file, `${JSON.stringify(record)}\n`);
   }
 
@@ -181,10 +191,10 @@ export class SessionStore {
     const pushed = new Set<number>();
     let rounds = 0;
     let hasMore = false;
-    for (const record of records(this.files.get(id)!, true)) {
+    for (const record of records<SessionRecord>(this.files.get(id)!, true)) {
       if (record.type === 'im_pushed') { pushed.add(record.eventId); continue; }
-      if (record.type === 'session') continue;
-      const event = record;
+      if (record.type === 'session' || record.type === 'session_update') continue;
+      const event = sessionEvent(record);
       if (event.type === 'raw_stdout' || event.type === 'raw_stderr') continue;
       if (before !== undefined && event.id >= before) continue;
       if (rounds === limit) { hasMore = true; break; }
@@ -198,9 +208,12 @@ export class SessionStore {
     const file = this.files.get(id);
     if (!file) return undefined;
     let pushed = false;
-    for (const record of records(file, true)) {
+    for (const record of records<SessionRecord>(file, true)) {
       if (record.type === 'im_pushed') { if (record.eventId === eventId) pushed = true; continue; }
-      if (record.type !== 'session' && record.id === eventId) return pushed ? { ...record, pushedToIm: true } : record;
+      if (record.type !== 'session' && record.type !== 'session_update' && record.id === eventId) {
+        const event = sessionEvent(record);
+        return pushed ? { ...event, pushedToIm: true } : event;
+      }
     }
     return undefined;
   }
@@ -208,13 +221,16 @@ export class SessionStore {
   *eventsAfter(id: string, after: number): Generator<SessionEvent> {
     const file = this.files.get(id)!;
     const pushed = new Set<number>();
-    for (const record of records(file, true)) {
+    for (const record of records<SessionRecord>(file, true)) {
       if (record.type === 'im_pushed') { if (record.eventId > after) pushed.add(record.eventId); continue; }
-      if (record.type !== 'session' && record.id <= after) break;
+      if (record.type !== 'session' && record.type !== 'session_update' && record.id <= after) break;
     }
-    for (const record of records(file)) {
-      if (record.type === 'session' || record.type === 'im_pushed' || record.type === 'raw_stdout' || record.type === 'raw_stderr') continue;
-      if (record.id > after) yield pushed.has(record.id) ? { ...record, pushedToIm: true } : record;
+    for (const record of records<SessionRecord>(file)) {
+      if (record.type === 'session' || record.type === 'session_update' || record.type === 'im_pushed' || record.type === 'raw_stdout' || record.type === 'raw_stderr') continue;
+      if (record.id > after) {
+        const event = sessionEvent(record);
+        yield pushed.has(event.id) ? { ...event, pushedToIm: true } : event;
+      }
     }
   }
 
@@ -225,7 +241,7 @@ export class SessionStore {
     const rawFile = this.rawFile(file);
     if (existsSync(rawFile)) unlinkSync(rawFile);
     this.files.delete(id);
-    this.metadataKeys.delete(id);
+    this.metadataSnapshots.delete(id);
   }
 
   savePending(id: string, events: SessionEvent[]): void {
@@ -273,15 +289,20 @@ export class SessionStore {
   }
 
   private metadata(file: string): SessionMetadata {
-    let updatedAt: number | undefined;
-    for (const record of records(file, true)) {
+    let metadata: SessionMetadata | undefined;
+    for (const record of records<SessionRecord>(file)) {
       if (record.type === 'session') {
-        const { type, ...metadata } = record;
-        return updatedAt === undefined ? metadata : { ...metadata, updatedAt: Math.max(metadata.updatedAt, updatedAt) };
+        const { type, formatVersion, ...initial } = record;
+        metadata = initial;
+      } else if (metadata && record.type === 'session_update') {
+        applyMetadataChanges(metadata, record.changes);
+        metadata.updatedAt = Math.max(metadata.updatedAt, record.timestamp);
+      } else if (metadata && record.type !== 'session_update' && record.type !== 'im_pushed') {
+        applyEventMetadata(metadata, sessionEvent(record));
       }
-      if (record.type !== 'im_pushed' && updatedAt === undefined) updatedAt = record.timestamp;
     }
-    throw new Error('会话文件缺少会话信息');
+    if (!metadata) throw new Error('会话文件缺少会话信息');
+    return metadata;
   }
 
   private migrateRecords(file: string): void {
@@ -311,10 +332,97 @@ export class SessionStore {
     renameSync(temporary, file);
   }
 
+  private migrateStorage(file: string): void {
+    type MigrationRecord = HistoryRecord | SessionRecord;
+    let required = false;
+    for (const record of records<MigrationRecord>(file)) {
+      if ((record.type === 'session' && (!('formatVersion' in record) || record.formatVersion !== 2))
+        || (record.type === 'usage' && 'text' in record)) {
+        required = true;
+        break;
+      }
+    }
+    if (!required) return;
+    const temporary = `${file}.${process.pid}.tmp`;
+    const descriptor = openSync(temporary, 'w');
+    const write = (record: SessionRecord) => writeSync(descriptor, `${JSON.stringify(record)}\n`);
+    let current: SessionMetadata | undefined;
+    let pending: SessionMetadata | undefined;
+    let latestSnapshot: SessionMetadata | undefined;
+    let legacySnapshot = false;
+    const flush = (event?: SessionEvent) => {
+      if (!pending) return;
+      if (!current) {
+        write({ type: 'session', formatVersion: 2, ...pending });
+      } else {
+        const changes = metadataChanges(current, pending);
+        if (event?.type === 'status' && event.text === pending.status) delete changes.status;
+        if (event?.type === 'usage' && JSON.stringify(JSON.parse(event.text)) === JSON.stringify(pending.usage)) delete changes.usage;
+        if (Object.keys(changes).length || pending.updatedAt > Math.max(current.updatedAt, event?.timestamp ?? 0)) write({ type: 'session_update', timestamp: pending.updatedAt, changes });
+      }
+      current = pending;
+      pending = undefined;
+    };
+    const restoreSnapshot = () => {
+      if (!current || !latestSnapshot) return;
+      const changes = metadataChanges(current, latestSnapshot);
+      if (Object.keys(changes).length) {
+        write({ type: 'session_update', timestamp: current.updatedAt, changes });
+        applyMetadataChanges(current, changes);
+      }
+    };
+    try {
+      for (const record of records<MigrationRecord>(file)) {
+        if (record.type === 'session') {
+          flush();
+          const { type, pid, contextTokens, formatVersion, ...metadata } = record as typeof record & { pid?: number; contextTokens?: number; formatVersion?: number };
+          legacySnapshot = formatVersion !== 2;
+          if (contextTokens !== undefined) metadata.usage = { inputTokens: 0, outputTokens: 0, ...metadata.usage, contextTokens };
+          pending = metadata;
+          latestSnapshot = structuredClone(metadata);
+        } else if (record.type === 'session_update') {
+          flush();
+          if (legacySnapshot) restoreSnapshot();
+          write(record);
+          if (current) {
+            applyMetadataChanges(current, record.changes);
+            current.updatedAt = Math.max(current.updatedAt, record.timestamp);
+            latestSnapshot = structuredClone(current);
+            legacySnapshot = false;
+          }
+        } else if (record.type === 'im_pushed') {
+          flush();
+          write(record);
+        } else {
+          const original = record.type === 'usage' && 'usage' in record ? sessionEvent(record) : record as SessionEvent;
+          const contextTokens = pending?.usage?.contextTokens ?? current?.usage?.contextTokens;
+          const event = original.type === 'usage' && contextTokens !== undefined
+            ? { ...original, text: JSON.stringify({ contextTokens, ...JSON.parse(original.text) }) }
+            : original;
+          flush(event);
+          if (legacySnapshot && record.type === 'usage' && 'usage' in record) restoreSnapshot();
+          write(storedEvent(event));
+          if (event.pushedToIm) write({ type: 'im_pushed', eventId: event.id });
+          if (current) {
+            applyEventMetadata(current, event);
+            if (record.type === 'usage' && 'usage' in record) legacySnapshot = false;
+            if (!legacySnapshot) latestSnapshot = structuredClone(current);
+          }
+        }
+      }
+      flush();
+      if (!current || !latestSnapshot) throw new Error('会话文件缺少会话信息');
+      restoreSnapshot();
+    } finally { closeSync(descriptor); }
+    copyFileSync(file, `${file}.${Date.now()}.bak`);
+    renameSync(temporary, file);
+  }
+
   private importSession(session: SessionMetadata, events: Iterable<SessionEvent>): void {
     const file = this.sessionFile(session);
     try {
       this.migrateRecords(file);
+      this.migrateStorage(file);
       if (this.metadata(file).updatedAt >= session.updatedAt) return;
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     mkdirSync(dirname(file), { recursive: true });
@@ -326,8 +434,10 @@ export class SessionStore {
         if (event.type === 'error' && event.text.trim().split(/\r?\n/).every(line => /^\S+\s+WARN\b/.test(line))) event.type = 'warning';
         writeSync(descriptor, `${JSON.stringify(event)}\n`);
       }
+      writeSync(descriptor, `${JSON.stringify({ type: 'session', ...session })}\n`);
     } finally { closeSync(descriptor); }
     renameSync(temporary, file);
+    this.migrateStorage(file);
   }
 
   private async migrate(): Promise<void> {

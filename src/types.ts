@@ -56,6 +56,10 @@ export interface TokenUsage {
   cacheWriteTokens?: number;
 }
 
+export interface SessionUsage extends TokenUsage {
+  contextTokens?: number;
+}
+
 export interface AgentImage {
   type: 'image';
   mimeType: string;
@@ -141,7 +145,7 @@ export interface AgentSession {
   title?: string;
   model?: string;
   permissionMode?: string;
-  usage?: TokenUsage;
+  usage?: SessionUsage;
   externalSessionId?: string;
   pid?: number;
   status: SessionStatus;

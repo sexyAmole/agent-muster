@@ -44,10 +44,15 @@ function ComposerSettings({ index, composerAgent, agentInfo, model, permissionMo
 function TokenUsageStatus({ usage }: { usage: Session['usage'] }) {
   const usedTokens = usage ? usage.inputTokens + usage.outputTokens : undefined;
   return <div className="token-usage-status">
-    <span title={usage ? `累计输入 ${usage.inputTokens.toLocaleString()} Token，累计输出 ${usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>累计 {usedTokens === undefined ? '暂无用量' : `${tokenCount(usedTokens)} Token`}</span>
-    <span>输入 {usage ? tokenCount(usage.inputTokens) : '—'}</span>
-    <span title="缓存命中属于输入的一部分，不会重复计入累计 Token">缓存命中 {usage?.cacheReadTokens === undefined ? '—' : tokenCount(usage.cacheReadTokens)}</span>
-    <span>输出 {usage ? tokenCount(usage.outputTokens) : '—'}</span>
+    <div className="token-usage-group" role="group" aria-label="累计用量">
+      <span title={usage ? `累计输入 ${usage.inputTokens.toLocaleString()} Token，累计输出 ${usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>累计 {usedTokens === undefined ? '—' : `${tokenCount(usedTokens)} Token`}</span>
+      <span>输入 {usage ? tokenCount(usage.inputTokens) : '—'}</span>
+      <span title="缓存命中属于输入的一部分，不会重复计入累计 Token">缓存 {usage?.cacheReadTokens === undefined ? '—' : tokenCount(usage.cacheReadTokens)}</span>
+      <span>输出 {usage ? tokenCount(usage.outputTokens) : '—'}</span>
+    </div>
+    <div className="token-usage-group" role="group" aria-label="当前上下文">
+      <span title="Agent 最近一次报告的当前上下文 Token 数">当前 {usage?.contextTokens === undefined ? '—' : `${tokenCount(usage.contextTokens)} Token`}</span>
+    </div>
   </div>;
 }
 

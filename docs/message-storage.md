@@ -1,12 +1,12 @@
 # 会话与消息存储规范
 
-本文规定 Agent Muster 当前的消息记录格式、模块职责和读写行为，适用于所有 Agent 及 Web、钉钉、飞书入口。类型定义以 `src/types.ts` 为准；格式变更时应同步更新本文和迁移逻辑。
+本文规定 Agent Muster 当前的消息记录格式、模块职责和读写行为，适用于所有 Agent 及 Web、钉钉、飞书入口。接口类型定义以 `src/types.ts` 为准，磁盘记录类型以 `src/sessions/records.ts` 为准；格式变更时应同步更新本文和迁移逻辑。
 
 ## 1. 基本原则
 
 - 应用仅写入会话元信息、业务事件和未完成流式快照；运行日志直接读取 Agent 本地 JSONL 会话文件。
 - Agent 协议解析、噪声过滤、协议相关去重和流式内容整理归属 adapters；文件读写、分页和迁移归属 SessionStore。
-- 正常运行时，持久历史采用追加写入。元信息变化追加完整快照，推送状态变化追加标记，不原地修改已有消息。
+- 正常运行时，持久历史采用追加写入。初始会话信息写入一次，后续元信息仅追加差量；状态、用量从业务事件恢复，推送状态变化追加标记，不原地修改已有消息。
 - stdout/stderr 仅用于协议解析，不再保存原始日志副本；标准事件供业务和界面使用。
 - IM 平台统一使用 `im` 字段，通过 `platform` 区分；不得继续新增平台专属的会话顶层字段或消息类型。
 - 内存事件列表是缓存，不能代替持久历史。完整查询和 IM 推送读取必须通过存储接口。
@@ -23,11 +23,12 @@
 | `src/agents/session-logs.ts`、`src/agents/jsonl.ts` | JSONL 文件查找工具、只读访问与分页 | 硬编码各 Agent 会话目录 |
 | `src/sessions/manager.ts` | 会话生命周期、事件编号、用量累计、缓存及广播 | 解析各 Agent 的原生消息结构 |
 | `src/sessions/store.ts` | 文件定位、追加写入、历史读取、推送标记合并、快照恢复及迁移 | 执行 Agent、调用 IM SDK、决定界面布局 |
+| `src/sessions/records.ts` | 磁盘记录类型、元信息差量、持久事件与接口事件转换 | 执行 Agent 或决定界面布局 |
 | `src/sessions/events.ts` | 按流标识合并事件及按展示顺序排序 | 解析协议或访问文件 |
 | `src/integrations/*/bridge.ts` | 平台消息转换、会话路由、平台回复 | 直接写入会话 JSONL |
 | 前端 | 消费共享类型、替换流式快照、按界面用途展示事件 | 自行解析 Agent 原生 stdout |
 
-Adapter 对外返回 `AdapterResult`，消息内容统一位于 `events: AgentEvent[]`。`externalSessionId`、`settled`、`aborted`、`failed` 和 `clearStreamIds` 是执行控制信息。Adapter 内部的 `ParsedResult` 不属于持久格式或前端接口。 Provider 标准事件仅包含 `output`、`thinking`、`tool`、`usage`、`error`、`warning`；原生 JSONL 日志按原文读取，不受业务事件类型限制。
+Adapter 对外返回 `AdapterResult`，消息内容统一位于 `events: AgentEvent[]`。`externalSessionId`、`settled`、`aborted`、`failed` 和 `clearStreamIds` 是执行控制信息。可选的 `contextTokens` 表示 Agent 最近报告的上下文 Token 数，Manager 将其合入会话用量。Adapter 内部的 `ParsedResult` 不属于持久格式或前端接口。 Provider 标准事件仅包含 `output`、`thinking`、`tool`、`usage`、`error`、`warning`；原生 JSONL 日志按原文读取，不受业务事件类型限制。
 
 所有协议适配器统一实现 `createReader()`，每次执行创建独立的逐行解析函数。可选的 `createRawReader()` 创建原始数据块解析函数，接收 UTF-8 解码后的文本块和 `stdout`/`stderr` 通道；在分行前调用，不等待 LF，不执行 `trim()`。数据块边界由进程输出决定，不保证是完整协议消息；适配器负责缓存、拼接和去重。
 
@@ -52,7 +53,7 @@ Adapter 对外返回 `AdapterResult`，消息内容统一位于 `events: AgentEv
 | 文件 | 内容与格式 |
 | --- | --- |
 | `project.json` | JSON 对象，`path` 为项目路径 |
-| `<会话标识>.jsonl` | 会话元信息快照、已持久化业务事件、IM 推送标记 |
+| `<会话标识>.jsonl` | 单次会话初始信息、元信息差量、已持久化业务事件、IM 推送标记 |
 | `<会话标识>.jsonl.pending` | 未完成流式事件的 JSON 数组，不是 JSONL；没有未完成内容时删除 |
 
 项目标识为 `SHA-256(resolve(cwd))` 的十六进制字符串。新建本地会话 ID 为 `ses_<UUID>`，文件名使用 `encodeURIComponent(session.id)`。Agent 的 `externalSessionId` 用于续聊和定位 Agent 本地会话文件，不作为 Muster 业务文件名。
@@ -65,17 +66,31 @@ JSONL 使用 UTF-8，每行一个 JSON 对象，并以 LF 结尾。文本中的�
 
 ### 4.1 会话元信息
 
-记录类型为 `{ type: 'session' } & Omit<AgentSession, 'events'>`。其中 `id` 是字符串会话 ID，与事件的数字 ID 不同。
+磁盘格式版本为 `2`。文件头是 `SessionHeader`，只写入一次：`{ type: 'session', formatVersion: 2 } & Omit<AgentSession, 'events' | 'pid'>`。其中 `id` 是字符串会话 ID，与事件的数字 ID 不同。
 
-```json
-{"type":"session","id":"ses_example","agent":"codex","cwd":"/workspace/demo","prompt":"查看项目结构","status":"running","createdAt":1791800000000,"updatedAt":1791800000100,"externalSessionId":"agent-session-example"}
+```jsonl
+{"type":"session","formatVersion":2,"id":"ses_example","agent":"codex","cwd":"/workspace/demo","prompt":"查看项目结构","status":"starting","permissionMode":"full-auto","createdAt":1791800000000,"updatedAt":1791800000000}
+{"type":"session_update","timestamp":1791800000100,"changes":{"externalSessionId":"agent-session-example"}}
+{"type":"session_update","timestamp":1791800000200,"changes":{"model":"example-model","title":"查看项目结构"}}
+{"type":"session_update","timestamp":1791800000300,"changes":{"model":null}}
 ```
 
-元信息包含会话身份、项目路径、首次提示词、模型、状态、时间戳以及可选的 IM 绑定、用量、外部会话 ID 和进程 ID。不得嵌入 `events` 数组。
+文件头保存创建时的初始元信息，可以包含初始模型、IM 绑定及导入会话的初始状态和用量；不嵌入 `events`，不持久化运行时 `pid`。首次提示词仍保留在文件头中，以保持现有接口及导入行为；后续不会随元信息更新重复写入。
 
-`saveMetadata()` 比较除 `updatedAt` 外的元信息；内容变化才追加快照。仅更新时间变化不产生新快照。加载时读取最后一份快照，并结合其后的主文件事件时间恢复 `updatedAt`；原始日志文件的时间不参与这一步。
+`session_update` 只包含 `timestamp` 与 `changes`，不分配业务事件 ID，也不进入历史消息或 SSE。`changes` 仅保存实际变化的字段，例如标题、模型、权限、外部会话 ID、IM 绑定。`null` 表示删除可选字段，`im: []` 表示清空绑定。嵌套字段变化时替换该字段的完整值，不进行深层合并。
+
+`saveMetadata(session, event)` 比较前后元信息，忽略单独的 `updatedAt` 变化。如果紧接着写入的是 `status` 或 `usage` 事件，跳过该事件已经表达的状态或用量变化，避免相同数据再写一份差量。直接保存元信息时，这些字段的变化仍可记录在差量中。
+
+加载时按文件顺序读取初始信息、应用元信息差量，并从状态、用量事件恢复对应字段。`updatedAt` 取初始值、差量及业务事件时间的最大值；原始日志文件的时间不参与计算。API 仍返回组装后的完整 `AgentSession`，不直接返回磁盘记录。
 
 ### 4.2 业务事件
+
+磁盘 `StoredEvent` 与接口 `SessionEvent` 分开定义。下表说明接口事件；持久化时的区别是：
+
+- `usage` 事件将 `text` 中的 JSON 转为 `usage` 对象，避免在磁盘中嵌套 JSON 字符串；读取历史、单事件或 SSE 补发时再转换回接口的 `text`。
+- 已完成事件不保存 `streaming`；带 `streamId` 的记录读取时补充 `streaming: false`。未完成预览仍使用 `.pending`。
+- 不保存事件上的 `pushedToIm`，由独立 `im_pushed` 标记恢复。
+- 保留 `id`、`timestamp`、`streamId`、`order`、`contentIndex` 等不能重新推导的关联和排序信息。
 
 | 字段 | 约定 |
 | --- | --- |
@@ -99,14 +114,48 @@ JSONL 使用 UTF-8，每行一个 JSON 对象，并以 LF 结尾。文本中的�
 | `thinking` | 思考内容 |
 | `output` | 助手回复 |
 | `tool` | 工具名称或命令，参数和结果放在 `detail` |
-| `usage` | 当前会话用量对象的 JSON 字符串，包含 `inputTokens`、`outputTokens` |
+| `usage` | 完整 `SessionUsage` 的 JSON 字符串，包含累计消耗及可选的最新上下文 Token |
 | `status` | `starting`、`running`、`waiting`、`completed`、`failed` 或 `stopped` |
 | `error`、`warning` | 错误或警告信息；事件类型本身不等同于最终执行状态 |
 | `im_message` | 应用侧记录的 IM 消息内容，平台由 `im.platform` 指定 |
 
 新写入的普通 `text` 最长保留 50,000 个 JavaScript 字符串代码单元；带 `streamId` 的内容不受此截断。`detail` 同样截断至 50,000，`tool` 详情除外。Agent 本地 JSONL 日志只读展示原文。
 
-### 4.3 IM 推送标记
+### 4.3 用量与上下文
+
+```ts
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+}
+
+interface SessionUsage extends TokenUsage {
+  contextTokens?: number;
+}
+```
+
+磁盘记录：
+
+```json
+{"type":"usage","id":7,"timestamp":1791800000400,"usage":{"inputTokens":18387,"outputTokens":14,"cacheReadTokens":13184,"cacheWriteTokens":0,"contextTokens":18401}}
+```
+
+对应历史接口和 SSE 事件：
+
+```json
+{"type":"usage","id":7,"timestamp":1791800000400,"text":"{\"inputTokens\":18387,\"outputTokens\":14,\"cacheReadTokens\":13184,\"cacheWriteTokens\":0,\"contextTokens\":18401}"}
+```
+
+- Provider 的 `TokenUsage` 可以是累计值或增量值，Manager 按 `usageIsTotal` 更新累计消耗。磁盘 `usage` 始终保存合并后的完整会话用量，恢复时替换，不再次累加。
+- 输入包含缓存 Token，缓存明细不额外计入输入与输出的累计总数。
+- `contextTokens` 是最近一次 Agent 报告的上下文数量，每次覆盖，允许下降和零值；未提供时保留已有值。它不加入累计消耗，也不是模型窗口容量。
+- Codex 从 `thread/tokenUsage/updated.params.tokenUsage.last.totalTokens` 获取上下文，`total` 继续用于累计消耗。Pi 从助手 `message_end.message.usage.totalTokens` 获取上下文，单条消息的消耗仍按增量累计。Claude Code 从主会话最近一条助手消息的 `message.usage` 获取单次输入与输出之和；输入包含缓存读取与写入，子 Agent 消息不替换主会话上下文。累计消耗仍从 `result.modelUsage` 获取。OpenCode 从 `step_finish.part.tokens` 取得单次调用用量，输入包含缓存读取与写入，输出包含 reasoning Token，两者之和覆盖上下文。Cursor 和 Gemini 当前输出未提供可确认的单次调用上下文，不使用执行累计值推算，界面保持 `—`。
+- 只有上下文更新、没有累计用量更新时，也生成完整 `usage` 事件，更新持久记录和 SSE。此前没有累计值时输入、输出从零开始。
+- 顶层 `session.contextTokens` 已移除，接口统一读取 `session.usage.contextTokens`。前端沿用现有 `usage` 消费逻辑，在对话输入区底部以同一行、垂直居中的“累计、输入、缓存、输出、当前”展示统计，保留累计用量与当前上下文的分组和提示，窄栏允许自然换行；未提供显示 `—`，零值显示 `0`，数值沿用 Token 缩写格式。
+
+### 4.4 IM 推送标记
 
 ```json
 {"type":"im_pushed","eventId":3}
@@ -127,8 +176,10 @@ JSONL 使用 UTF-8，每行一个 JSON 对象，并以 LF 结尾。文本中的�
 1. 将 stdout/stderr 行交给当前执行实例的 adapter reader；stdout 解析前执行 `trim()`。
 2. Adapter 返回标准事件和执行控制信息。
 3. `recordResult()` 根据标准事件更新会话状态、累计用量和流式展示顺序。Providers 和 Manager 均不再生成或处理 `system`、`file_change` 业务事件，文件编辑调用仍作为 `tool` 保留名称、参数和结果；不额外生成文件差异。
-4. 普通业务事件通过 `append()` 分配 ID，保存元信息，再调用 `appendEvent()`，最后更新缓存并广播。
+4. 普通业务事件通过 `append()` 分配 ID，将待写事件交给 `saveMetadata()` 以排除重复状态/用量，再由 `appendEvent()` 转为磁盘格式追加，最后更新缓存并广播。
 5. 流式未完成事件只更新缓存及广播，按下一节规则保存快照。
+
+Agent 报告任务完成后，进程退出时只在最终状态变化时追加状态事件，避免连续写入两个 `completed`。如果进程随后异常退出，仍追加 `failed` 更正状态。
 
 `saveMetadata()` 必须先于该会话首次事件写入，以建立文件映射。元信息和业务事件的写入是独立操作；当前 Manager 会记录存储异常并继续处理，因此收到 SSE 不能视为持久化成功确认。
 
@@ -145,7 +196,7 @@ JSONL 使用 UTF-8，每行一个 JSON 对象，并以 LF 结尾。文本中的�
 
 进程关闭时，剩余预览以 `streaming: false` 追加到主文件，随后清理快照。这里的“结束”表示停止更新，不表示任务成功；成功与否读取会话状态。
 
-服务启动时恢复遗留快照：跳过已有非流式最终记录的 `streamId`，其余内容使用大于已有历史最大 ID 的新编号追加，并保留原快照时间戳，最后删除快照。会话元信息中的 `running`、`starting` 会转换为 `stopped`，清除 `pid`。
+服务启动时恢复遗留快照：跳过已有非流式最终记录的 `streamId`，其余内容使用大于已有历史最大 ID 的新编号追加，并保留原快照时间戳，最后删除快照。会话元信息中的 `running`、`starting` 会转换为 `stopped`，清除 `pid`，并追加 `stopped` 状态事件。
 
 突然退出可能丢失最近一次快照之后的预览。当前实现不会通过重放 Agent 本地会话文件自动重建这些预览。
 
@@ -166,7 +217,7 @@ Web 分别请求会话元信息、对话历史和原始日志：
 - `GET /sessions/:id/logs` 只读访问 Agent 本地 JSONL 会话记录，返回 `supported`、`events` 和 `hasMore`；`limit` 范围为 1–100，表示记录条数，`before` 为排他性文件行号游标。日志面板打开时读取最新记录，支持加载更早日志；不随实时事件更新。
 - `GET /sessions/:id/events` 的历史补发和实时推送均排除 `raw_stdout`、`raw_stderr`，对话内容和状态继续实时更新。
 
-Store 与 Manager 的历史接口仅返回业务事件；Agent 本地日志不参与会话恢复、事件编号和实时广播。
+`session` 和 `session_update` 不进入消息分页、单事件查询或 SSE。Store 与 Manager 的历史接口仅返回业务事件；Agent 本地日志不参与会话恢复、事件编号和实时广播。
 
 展示事件的合并与排序规则：
 
@@ -210,7 +261,7 @@ SSE 的 `data` 为单个 `SessionEvent`，`id` 为本连接已发送事件 ID �
 
 ## 10. 迁移与删除
 
-迁移在 Store 加载历史时执行，当前覆盖旧 SQLite、会话 JSON 文件、旧项目目录布局、旧 `{ session, event, pushedEventId }` 行格式及平台专属 IM 字段。
+迁移在 Store 加载历史时执行，当前覆盖旧 SQLite、会话 JSON 文件、旧项目目录布局、旧 `{ session, event, pushedEventId }` 行格式、平台专属 IM 字段及重复完整 `session` 快照格式。
 
 IM 字段转换规则：
 
@@ -221,7 +272,9 @@ IM 字段转换规则：
 | 事件 `dingtalkConversation`、`feishuConversation` | 事件 `im` 上下文 |
 | `dingtalk_message`、`feishu_message` | `im_message`，原平台写入 `im.platform` |
 
-JSONL 行格式迁移先写临时文件，保存原文件为带时间戳的 `.bak`，再重命名替换。新格式无需重复重写；不得通过读取失败后清空历史来处理格式异常。
+格式版本 2 将旧完整快照转换为单次文件头和元信息差量，将用量字符串转换为对象，并把旧顶层 `contextTokens` 合入 `usage`。保留旧格式最后一份元信息快照的恢复语义、业务事件 ID、流式关联、展示顺序和推送标记。旧 JSON、SQLite 导入也经过相同的格式转换。
+
+JSONL 行格式迁移先写临时文件，保存原文件为带时间戳的 `.bak`，再重命名替换。纯新格式无需重复重写；扫描不只检查文件头，也识别新格式文件中被旧执行追加的完整快照和字符串用量，并统一迁移。已有新格式差量、对象用量及后续旧记录均保留相应恢复顺序。不得通过读取失败后清空历史来处理格式异常。
 
 删除运行中的会话时先停止进程并等待关闭，再删除主文件、应用旧原始日志副本和 pending 快照；不会删除 Agent 自身保存的会话文件。迁移备份及图片文件不在当前会话删除范围内。
 
@@ -229,7 +282,7 @@ JSONL 行格式迁移先写临时文件，保存原文件为带时间戳的 `.ba
 
 当前实现没有多进程文件锁、跨文件事务、`fsync` 持久性承诺或损坏尾行自动修复。JSONL 行解析失败会抛错；存储不是严格的“恰好一次”消息队列。不要让多个服务实例同时写入同一数据目录。
 
-落盘格式尚无统一版本字段。新增格式版本、单文件存储、仅保存原始记录后重放、按平台记录送达状态，都属于独立格式变更，不能视为本文已实现的行为。
+落盘格式由文件头 `formatVersion: 2` 标识。元信息恢复需要顺序回放文件，目前没有独立元信息索引；降低重复写入并不等于所有读取都更快。仅保存原始记录后重放、按平台记录送达状态仍属于独立变更，不能视为本文已实现的行为。
 
 后续修改应满足：
 
@@ -245,5 +298,20 @@ JSONL 行格式迁移先写临时文件，保存原文件为带时间戳的 `.ba
 - [Agent provider](../src/agents/providers/index.ts)
 - [会话业务处理](../src/sessions/manager.ts)
 - [文件存储与迁移](../src/sessions/store.ts)
+- [持久记录类型与接口转换](../src/sessions/records.ts)
 - [事件合并与排序](../src/sessions/events.ts)
 - [HTTP 与 SSE 路由](../src/server/routes/sessions.ts)
+
+## 13. 本次修改与验收
+
+本次将“反复追加完整会话快照”改为“初始信息加元信息差量”，新增磁盘/接口记录转换层，并将当前上下文数量统一纳入 `SessionUsage`。文件头保留初始完整元信息，不要求前端从磁盘结构直接拼装会话。
+
+验收使用隔离临时目录和本机历史文件副本，未新增项目测试脚本：
+
+- 创建及多次更新只保留一条 `session`；模型、标题清空和 IM 绑定清空可恢复；状态、用量不重复写差量。
+- 历史分页、事件游标、单事件查询、IM 推送标记、排序字段与 `.pending` 去重恢复通过。
+- Codex 累计用量覆盖、上下文下降与零值、缺失时保留，以及仅上下文更新的持久化与广播通过。
+- 真实 HTTP 列表、详情、历史及 SSE 实时事件均可读取 `usage.contextTokens`；重启中的运行会话可恢复为 `stopped`。
+- Codex、Claude Code、Pi 旧记录副本迁移后保留消息事件编号，完整元信息头均缩减为一条；旧格式权威状态、迁移备份与重复加载通过。
+- 首行已为新格式、后续混入旧完整快照和字符串用量的真实 Pi 副本可加载并统一迁移。
+- `pnpm typecheck`、`pnpm build` 与 `git diff --check` 通过；构建仍有既有的大文件分包提示。

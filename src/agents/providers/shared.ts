@@ -41,6 +41,7 @@ export interface ParsedResult {
   tools?: ToolCall[];
   usage?: TokenUsage;
   usageIsTotal?: boolean;
+  contextTokens?: number;
   settled?: boolean;
   aborted?: boolean;
   failed?: boolean;
@@ -87,6 +88,7 @@ export type AgentEvent =
 
 export interface AdapterResult {
   events: AgentEvent[];
+  contextTokens?: number;
   externalSessionId?: string;
   settled?: boolean;
   aborted?: boolean;
@@ -111,7 +113,7 @@ function normalizeResult(result: ParsedResult): AdapterResult {
   for (const tool of result.tools || []) events.push({ type: 'tool', text: tool.name, detail: tool.detail });
   if (result.error) events.push({ type: 'error', text: result.error });
   return {
-    events, externalSessionId: result.externalSessionId, settled: result.settled, aborted: result.aborted,
+    events, contextTokens: result.contextTokens, externalSessionId: result.externalSessionId, settled: result.settled, aborted: result.aborted,
     failed: result.error ? result.failed ?? true : result.settled ? result.failed : undefined, clearStreamIds: result.clearStreamIds,
   };
 }

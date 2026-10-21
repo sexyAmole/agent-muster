@@ -163,12 +163,18 @@ export const codex: AgentProvider = {
       }
       if (message?.method === 'error') return { error: string(object(params.error)?.message), failed: params.willRetry !== true };
       if (message?.method === 'thread/tokenUsage/updated') {
-        const usage = object(object(params.tokenUsage)?.total);
-        return usage && hasTokens(usage, ['inputTokens', 'outputTokens']) ? { usage: {
-          inputTokens: tokens(usage.inputTokens), outputTokens: tokens(usage.outputTokens),
-          cacheReadTokens: typeof usage.cachedInputTokens === 'number' ? tokens(usage.cachedInputTokens) : undefined,
-          cacheWriteTokens: typeof usage.cacheWriteInputTokens === 'number' ? tokens(usage.cacheWriteInputTokens) : undefined,
-        }, usageIsTotal: true } : {};
+        const tokenUsage = object(params.tokenUsage);
+        const usage = object(tokenUsage?.total);
+        const contextTokens = object(tokenUsage?.last)?.totalTokens;
+        return {
+          contextTokens: typeof contextTokens === 'number' && Number.isFinite(contextTokens) && contextTokens >= 0 ? contextTokens : undefined,
+          usage: usage && hasTokens(usage, ['inputTokens', 'outputTokens']) ? {
+            inputTokens: tokens(usage.inputTokens), outputTokens: tokens(usage.outputTokens),
+            cacheReadTokens: typeof usage.cachedInputTokens === 'number' ? tokens(usage.cachedInputTokens) : undefined,
+            cacheWriteTokens: typeof usage.cacheWriteInputTokens === 'number' ? tokens(usage.cacheWriteInputTokens) : undefined,
+          } : undefined,
+          usageIsTotal: true,
+        };
       }
       if (message?.method === 'item/started' || message?.method === 'item/completed') {
         const item = object(params.item);

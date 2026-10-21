@@ -105,6 +105,10 @@ export const claude: AgentProvider = {
 
     function readAssistantMessage(event: Record<string, unknown>, externalSessionId: string | undefined): ParsedResult {
       const message = object(event.message);
+      const usage = object(message?.usage);
+      const contextTokens = !event.parent_tool_use_id && usage && ['input_tokens', 'output_tokens'].every(field => typeof usage[field] === 'number' && Number.isFinite(usage[field]) && usage[field] >= 0)
+        ? tokens(usage.input_tokens) + tokens(usage.cache_read_input_tokens) + tokens(usage.cache_creation_input_tokens) + tokens(usage.output_tokens)
+        : undefined;
       const content = Array.isArray(message?.content) ? message.content : [];
       const key = string(message?.id) || string(event.uuid) || `message:${++messageNumber}`;
       const events = content.flatMap((part, index) => {
@@ -116,7 +120,7 @@ export const claude: AgentProvider = {
         return parsed?.text ? [parsed] : [];
       });
       nextIndices.set(key, (nextIndices.get(key) || 0) + content.length);
-      return { externalSessionId, events };
+      return { externalSessionId, events, contextTokens };
     }
 
     function readToolResults(event: Record<string, unknown>, externalSessionId: string | undefined): ParsedResult {
