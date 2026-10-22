@@ -158,7 +158,7 @@ export class SessionStore {
   saveMetadata(session: AgentSession, event?: SessionEvent): void {
     const metadata = sessionMetadata(session);
     const file = this.files.get(session.id) || this.sessionFile(metadata);
-    const previous = this.metadataSnapshots.get(session.id);
+    const previous = this.metadataSnapshots.get(session.id) ?? (existsSync(file) ? this.metadata(file) : undefined);
     if (!previous) {
       mkdirSync(dirname(file), { recursive: true });
       this.appendRecord(file, { type: 'session', formatVersion: 2, ...metadata });
@@ -335,12 +335,14 @@ export class SessionStore {
   private migrateStorage(file: string): void {
     type MigrationRecord = HistoryRecord | SessionRecord;
     let required = false;
+    let hasSession = false;
     for (const record of records<MigrationRecord>(file)) {
-      if ((record.type === 'session' && (!('formatVersion' in record) || record.formatVersion !== 2))
+      if ((record.type === 'session' && (hasSession || !('formatVersion' in record) || record.formatVersion !== 2))
         || (record.type === 'usage' && 'text' in record)) {
         required = true;
         break;
       }
+      if (record.type === 'session') hasSession = true;
     }
     if (!required) return;
     const temporary = `${file}.${process.pid}.tmp`;
@@ -378,8 +380,9 @@ export class SessionStore {
           const { type, pid, contextTokens, formatVersion, ...metadata } = record as typeof record & { pid?: number; contextTokens?: number; formatVersion?: number };
           legacySnapshot = formatVersion !== 2;
           if (contextTokens !== undefined) metadata.usage = { inputTokens: 0, outputTokens: 0, ...metadata.usage, contextTokens };
-          pending = metadata;
-          latestSnapshot = structuredClone(metadata);
+          // 新格式只允许一条会话头，重复记录按字段更新，保留已记录的会话标识和用量。
+          pending = formatVersion === 2 && current ? { ...current, ...metadata, updatedAt: Math.max(current.updatedAt, metadata.updatedAt) } : metadata;
+          latestSnapshot = structuredClone(pending);
         } else if (record.type === 'session_update') {
           flush();
           if (legacySnapshot) restoreSnapshot();
