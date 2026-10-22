@@ -75,29 +75,34 @@ function ImRobotEntry({ app, platform, provider, agents, projects, projectLabel,
         <button className="im-delete-button" disabled={deleting} aria-label={`删除 ${app.name || app.clientId} 的 IM 接入`} onClick={() => onDelete(app)}>{deleting ? '删除中…' : '删除'}</button>
       </div>
     </div>
-    <div className="im-binding-row">
-      <label className="im-binding-cell">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2Z" /></svg>
-        <Select aria-label={`绑定 ${app.name || app.clientId} 的项目`} value={app.project || ''} onChange={value => onBind(app.id, { project: value || null })} variant="ghost" triggerLabel={app.project ? projectLabel(app.project) : '选择项目'}>
-          <option value="">选择项目</option>
-          {projects.map(path => <option key={path} value={path}>{projectLabel(path)}</option>)}
-        </Select>
-      </label>
-      <span className="im-binding-divider" />
-      <label className="im-binding-cell">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="14" rx="3" /><path d="M12 6V3M8 11h.01M16 11h.01M8 16h8M1 11v4M23 11v4" /></svg>
-        <Select aria-label={`选择 ${app.name || app.clientId} 的 Agent`} value={app.agent || ''} onChange={value => onBind(app.id, { agent: value || null })} variant="ghost" triggerLabel={app.agent ? (agents.find(agent => agent.id === app.agent)?.name || app.agent) : '选择 Agent'}>
-          <option value="">选择 Agent</option>
-          {agents.map(agent => <option key={agent.id} value={agent.id} disabled={!agent.installed}>{agent.name}{agent.installed ? '' : '（未安装）'}</option>)}
-        </Select>
-      </label>
-      <span className="im-binding-divider" />
-      <label className="im-binding-cell">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-        <Select aria-label={`设置 ${app.name || app.clientId} 的权限模式`} value={app.permissionMode || 'full-auto'} disabled={!agentInfo?.installed} title={selectedPermission?.description} onChange={value => onBind(app.id, { permissionMode: value })} variant="ghost" triggerLabel={selectedPermission?.name || '选择权限'}>
-          {agentInfo?.permissionModes.map(mode => <option key={mode.id} value={mode.id}>{mode.name}</option>)}
-        </Select>
-      </label>
+    <div className="im-conversations">
+      <div className="im-conversations-header">
+        <h2>关联配置</h2>
+      </div>
+      <div className="im-binding-row">
+        <label className="im-binding-cell">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2Z" /></svg>
+          <Select aria-label={`绑定 ${app.name || app.clientId} 的项目`} value={app.project || ''} onChange={value => onBind(app.id, { project: value || null })} variant="ghost" triggerLabel={app.project ? projectLabel(app.project) : '选择项目'}>
+            <option value="">选择项目</option>
+            {projects.map(path => <option key={path} value={path}>{projectLabel(path)}</option>)}
+          </Select>
+        </label>
+        <span className="im-binding-divider" />
+        <label className="im-binding-cell">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="14" rx="3" /><path d="M12 6V3M8 11h.01M16 11h.01M8 16h8M1 11v4M23 11v4" /></svg>
+          <Select aria-label={`选择 ${app.name || app.clientId} 的 Agent`} value={app.agent || ''} onChange={value => onBind(app.id, { agent: value || null })} variant="ghost" triggerLabel={app.agent ? (agents.find(agent => agent.id === app.agent)?.name || app.agent) : '选择 Agent'}>
+            <option value="">选择 Agent</option>
+            {agents.map(agent => <option key={agent.id} value={agent.id} disabled={!agent.installed}>{agent.name}{agent.installed ? '' : '（未安装）'}</option>)}
+          </Select>
+        </label>
+        <span className="im-binding-divider" />
+        <label className="im-binding-cell">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+          <Select aria-label={`设置 ${app.name || app.clientId} 的权限模式`} value={app.permissionMode || 'full-auto'} disabled={!agentInfo?.installed} title={selectedPermission?.description} onChange={value => onBind(app.id, { permissionMode: value })} variant="ghost" triggerLabel={selectedPermission?.name || '选择权限'}>
+            {agentInfo?.permissionModes.map(mode => <option key={mode.id} value={mode.id}>{mode.name}</option>)}
+          </Select>
+        </label>
+      </div>
     </div>
     <div className="im-conversations">
       <div className="im-conversations-header">

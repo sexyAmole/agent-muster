@@ -1,6 +1,5 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentInfo as Agent, AgentSession as Session } from '../../../../src/types';
-import { useErrorMessage } from '../../shared/components/message';
 import { Select } from '../../shared/components/select';
 import { AgentIcon } from '../agents/agent-icon';
 import { FileMentionTextarea } from './file-mention-textarea';
@@ -20,16 +19,15 @@ type ComposerSettingsProps = {
   busy: boolean;
   running: boolean;
   disabled: boolean;
+  modelDetails: Agent | undefined;
+  modelsLoading: boolean;
+  onLoadModels: () => void;
   onModelChange: (model: string) => void;
   onExecutionChange: (mode: string, sandboxEnabled: boolean) => void;
 };
 
-function ComposerSettings({ index, composerAgent, agentInfo, model, permissionMode, sandboxEnabled, busy, running, disabled, onModelChange, onExecutionChange }: ComposerSettingsProps) {
-  const [details, setDetails] = useState<Agent>();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+function ComposerSettings({ index, composerAgent, agentInfo, model, permissionMode, sandboxEnabled, busy, running, disabled, modelDetails: details, modelsLoading: loading, onLoadModels, onModelChange, onExecutionChange }: ComposerSettingsProps) {
   const permissionRef = useRef<HTMLDetailsElement>(null);
-  useErrorMessage(error, setError);
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
       if (event.target instanceof Element && !permissionRef.current?.contains(event.target) && !event.target.closest('.select-menu') && permissionRef.current) permissionRef.current.open = false;
@@ -42,14 +40,7 @@ function ComposerSettings({ index, composerAgent, agentInfo, model, permissionMo
   const sandboxRequired = composerAgent === 'codex' && ['read-only', 'workspace-write', 'auto-review'].includes(permissionMode);
   const settingsDisabled = busy || disabled || !agentInfo?.installed;
 
-  async function loadModels() {
-    if (loading || !agentInfo?.installed) return;
-    setLoading(true);
-    try { setDetails(await api<Agent>(`/api/agents/${composerAgent}/models`)); }
-    catch (reason) { setError((reason as Error).message); }
-    finally { setLoading(false); }
-  }
-  return <><label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} variant="ghost" roundedFull value={model} disabled={!composerAgent || busy || running} onOpen={() => void loadModels()} onChange={onModelChange}><option value="">{defaultModel ? `默认 · ${defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{loading && <option value="loading" disabled>加载模型中…</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>{agentInfo && <details ref={permissionRef} className="composer-permissions" onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && !document.querySelector('.select-menu')) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+  return <><label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} variant="ghost" roundedFull value={model} disabled={!composerAgent || busy || running || loading} onOpen={onLoadModels} onChange={onModelChange}><option value="">{defaultModel ? `默认 · ${defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{loading && <option value="loading" disabled>加载模型中…</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>{agentInfo && <details ref={permissionRef} className="composer-permissions" onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && !document.querySelector('.select-menu')) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
       <summary aria-label={`窗口 ${index + 1} 权限设置`}><span>{agentInfo.permissionModes.find(item => item.id === permissionMode)?.name}</span><svg className="permission-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
       <div className="composer-permission-popover">
         <label className="session-permission-mode">权限模式<Select aria-label={`窗口 ${index + 1} 权限模式`} variant="ghost" roundedFull value={permissionMode} disabled={settingsDisabled} onChange={mode => onExecutionChange(mode, composerAgent === 'codex' && ['read-only', 'workspace-write', 'auto-review'].includes(mode) ? true : sandboxEnabled)}>{agentInfo.permissionModes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
@@ -74,11 +65,12 @@ function TokenUsageStatus({ usage }: { usage: Session['usage'] }) {
   </div>;
 }
 
-type ChatComposerProps = Pick<PaneProps, 'index' | 'pane' | 'agents' | 'projects' | 'sessions' | 'onProjectChange' | 'onSessionCreated' | 'onSessionUpdate'> & {
+type ChatComposerProps = Pick<PaneProps, 'index' | 'pane' | 'agents' | 'projects' | 'sessions' | 'pickingProject' | 'onAddProject' | 'onProjectChange' | 'onSessionCreated' | 'onSessionUpdate'> & {
   focused: boolean;
   selected: Session | null;
   setSelected: React.Dispatch<React.SetStateAction<Session | null>>;
   setError: React.Dispatch<React.SetStateAction<string>>;
+  onModelsReady: (sessionId: string | null, ready: boolean) => void;
 };
 
 type ComposerStateProps = Pick<ChatComposerProps, 'selected' | 'agents' | 'projects' | 'pane'> & {
@@ -86,21 +78,22 @@ type ComposerStateProps = Pick<ChatComposerProps, 'selected' | 'agents' | 'proje
   message: string;
   images: ComposerImage[];
   busy: boolean;
+  modelsReady: boolean;
 };
 
-function getComposerState({ selected, agents, projects, pane, agent, message, images, busy }: ComposerStateProps) {
+function getComposerState({ selected, agents, projects, pane, agent, message, images, busy, modelsReady }: ComposerStateProps) {
   const running = selected?.status === 'running' || selected?.status === 'starting';
   const composerProject = selected?.cwd || (projects.includes(pane.cwd) ? pane.cwd : '');
   const composerAgent = selected?.agent || agent;
   const agentInfo = agents.find(item => item.id === composerAgent);
-  const composerDisabled = Boolean(running || (selected && !selected.externalSessionId));
+  const composerDisabled = Boolean(running || !modelsReady || (selected && !selected.externalSessionId));
   const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'cursor');
   const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
 
   return { running, composerProject, composerAgent, agentInfo, composerDisabled, supportsImages, canSend };
 }
 
-export function ChatComposer({ index, pane, agents, projects, sessions, onProjectChange, onSessionCreated, onSessionUpdate, focused, selected, setSelected, setError }: ChatComposerProps) {
+export function ChatComposer({ index, pane, agents, projects, sessions, pickingProject, onAddProject, onProjectChange, onSessionCreated, onSessionUpdate, focused, selected, setSelected, setError, onModelsReady }: ChatComposerProps) {
   const projectNames = useContext(ProjectNamesContext);
   const selectedId = pane.sessionId;
   const sortedAgents = useMemo(() => {
@@ -209,7 +202,32 @@ export function ChatComposer({ index, pane, agents, projects, sessions, onProjec
     finally { setBusy(false); }
   }
 
-  const { running, composerProject, composerAgent, agentInfo, composerDisabled, supportsImages, canSend } = getComposerState({ selected, agents, projects, pane, agent, message, images, busy });
+  const composerAgent = selected?.agent || agent;
+  const agentInfo = agents.find(item => item.id === composerAgent);
+  const modelKey = `${selectedId || 'new'}:${composerAgent}`;
+  const [modelState, setModelState] = useState<{ key: string; status: 'loading' | 'ready' | 'error'; details?: Agent }>();
+  const [modelRetry, setModelRetry] = useState(0);
+  const modelsReady = modelState?.key === modelKey && modelState.status === 'ready';
+  const modelsFailed = modelState?.key === modelKey && modelState.status === 'error';
+  const modelsLoading = Boolean(agentInfo?.installed && !modelsReady && !modelsFailed);
+
+  useEffect(() => {
+    if (!agentInfo?.installed) return;
+    const controller = new AbortController();
+    setModelState({ key: modelKey, status: 'loading' });
+    api<Agent>(`/api/agents/${composerAgent}/models`, { signal: controller.signal }).then(details => {
+      if (!controller.signal.aborted) setModelState({ key: modelKey, status: 'ready', details });
+    }).catch(reason => {
+      if (controller.signal.aborted) return;
+      setModelState({ key: modelKey, status: 'error' });
+      setError(`加载模型失败：${(reason as Error).message}`);
+    });
+    return () => controller.abort();
+  }, [modelKey, composerAgent, agentInfo?.installed, modelRetry, setError]);
+
+  useEffect(() => { onModelsReady(selectedId, modelsReady); }, [selectedId, modelsReady, onModelsReady]);
+
+  const { running, composerProject, composerDisabled, supportsImages, canSend } = getComposerState({ selected, agents, projects, pane, agent, message, images, busy, modelsReady });
 
   useEffect(() => {
     if (running) {
@@ -229,18 +247,22 @@ export function ChatComposer({ index, pane, agents, projects, sessions, onProjec
   return <div className="chat-compose-wrap">
     {!selected && <div className="composer-project-row">
       <span className="project-select">
-        <Select aria-label={`窗口 ${index + 1} 选择项目`} variant="ghost" roundedFull value={composerProject} renderIcon={() => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8V6a2 2 0 0 1 2-2h5l2 4h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z" /><path d="M3 8h9" /></svg>} disabled={busy} onChange={value => onProjectChange(index, value)}>
+        <Select aria-label={`窗口 ${index + 1} 选择项目`} menuMinWidth={280} fixedLastOption variant="ghost" roundedFull value={composerProject} renderIcon={() => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8V6a2 2 0 0 1 2-2h5l2 4h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z" /><path d="M3 8h9" /></svg>} disabled={busy || pickingProject} triggerLabel={pickingProject ? '选择项目中…' : undefined} onChange={value => {
+          if (value === 'add-project') void onAddProject(index);
+          else onProjectChange(index, value);
+        }}>
           {!composerProject && <option value="">选择项目</option>}
           {projects.map(path => <option key={path} value={path}>{projectLabel(path, projects, projectNames)}</option>)}
+          <option value="add-project">添加项目</option>
         </Select>
       </span>
       <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} variant="ghost" roundedFull value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{sortedAgents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
     </div>}
     <div className="chat-composer" ref={composerRef}>
       {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
-      <FileMentionTextarea project={composerProject} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={setMessage} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : selected ? '继续输入任务要求，@ 搜索文件' : '描述要完成的任务，@ 搜索文件'} disabled={busy || composerDisabled} rows={2} />
+      <FileMentionTextarea project={composerProject} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={setMessage} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : modelsLoading ? '正在加载 Agent 模型…' : modelsFailed ? '模型加载失败，请重试' : selected ? '继续输入任务要求，@ 搜索文件' : '描述要完成的任务，@ 搜索文件'} disabled={busy || composerDisabled} rows={2} />
       <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
-      <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}<ComposerSettings key={composerAgent} index={index} composerAgent={composerAgent} agentInfo={agentInfo} model={model} permissionMode={permissionMode} sandboxEnabled={sandboxEnabled} busy={busy} running={Boolean(running)} disabled={composerDisabled} onModelChange={setModel} onExecutionChange={(mode, enabled) => void changeExecutionSettings(mode, enabled)} /></div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
+      <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}{modelsLoading && <span className="composer-upload-status" role="status">加载模型中…</span>}{modelsFailed && <button type="button" className="reply-push" onClick={() => setModelRetry(value => value + 1)}>重试加载模型</button>}<ComposerSettings key={composerAgent} modelDetails={modelState?.key === modelKey ? modelState.details : undefined} modelsLoading={modelsLoading} onLoadModels={() => { if (modelsFailed) setModelRetry(value => value + 1); }} index={index} composerAgent={composerAgent} agentInfo={agentInfo} model={model} permissionMode={permissionMode} sandboxEnabled={sandboxEnabled} busy={busy} running={Boolean(running)} disabled={composerDisabled} onModelChange={setModel} onExecutionChange={(mode, enabled) => void changeExecutionSettings(mode, enabled)} /></div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
     </div>
     {selected && <TokenUsageStatus usage={selected.usage} />}
   </div>;

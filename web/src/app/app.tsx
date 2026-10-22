@@ -210,7 +210,7 @@ export function App() {
     setPane(activePane, session.id, session.cwd);
   }
 
-  async function pickProject(index = activePane) {
+  async function pickProject(index = activePane, createConversation = true) {
     if (picking) return;
     setError(''); setPicking(true);
     try {
@@ -218,7 +218,11 @@ export function App() {
       if (!result.path) return;
       const path = result.path;
       setProjects(current => current.includes(path) ? current : [...current, path]);
-      newConversation(path, index);
+      if (createConversation) newConversation(path, index);
+      else {
+        setPanes(current => current.map((pane, position) => position === index ? { ...pane, cwd: path } : pane));
+        expandProject(path);
+      }
     } catch (reason) { setError((reason as Error).message); }
     finally { setPicking(false); }
   }
@@ -255,6 +259,9 @@ export function App() {
     const count = next === 'single' ? 1 : next === 'double' ? 2 : 4;
     setActivePane(current => Math.min(current, count - 1));
     setLayout(next);
+    setImOpen(false);
+    setAgentsOpen(false);
+    setMobileMenuOpen(false);
   }
 
   const updateSession = useCallback((session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId' | 'permissionMode' | 'sandboxEnabled'>>) => {
@@ -280,7 +287,7 @@ export function App() {
       <DesktopWindowControls />
       <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><strong>Agent Muster</strong><DesktopUpdateButton /><button className="menu-close" aria-label="关闭菜单" onClick={() => setMobileMenuOpen(false)}>×</button></div>
       <nav className="sidebar-menu" aria-label="快捷菜单">
-        <button className="sidebar-create" disabled={picking} onClick={() => void pickProject()}><ActionIcon type="add" /><span>创建项目</span></button>
+        <div className="sidebar-create-row"><button className="sidebar-create" disabled={picking} onClick={() => newConversation(currentPane.cwd)}><ActionIcon type="add" /><span>创建会话</span></button><LayoutSwitch layout={layout} onChange={changeLayout} disabled={picking} /></div>
         <button className={`im-sidebar-link ${imOpen ? 'active' : ''}`} onClick={() => { setImOpen(true); setAgentsOpen(false); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" /></svg><span>IM 集成</span></button>
         <button className={`im-sidebar-link ${agentsOpen ? 'active' : ''}`} onClick={() => { setAgentsOpen(true); setImOpen(false); setMobileMenuOpen(false); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="14" rx="3" /><path d="M12 6V3M8 11h.01M16 11h.01M8 16h8M1 11v4M23 11v4" /></svg><span>Agent 管理</span></button>
       </nav>
@@ -368,11 +375,10 @@ export function App() {
     <main className="main-area">
       <header className="topbar">
         <div className="topbar-left"><button className="menu-toggle" aria-label={mobileMenuOpen ? '关闭菜单' : '打开菜单'} aria-expanded={mobileMenuOpen} aria-controls="project-menu" onClick={() => setMobileMenuOpen(open => !open)}><span /><span /><span /></button></div>
-        {!imOpen && !agentsOpen && <LayoutSwitch layout={layout} onChange={changeLayout} />}
       </header>
       <div className="content chat-content">
         <div className={`workspace-grid ${layout}`} style={{ display: imOpen || agentsOpen ? 'none' : undefined }}>
-          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={`${index}-${pane.cwd}`} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); expandProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} layoutControls={index === (paneCount === 1 ? 0 : 1) ? <LayoutSwitch layout={layout} onChange={changeLayout} /> : undefined} />)}
+          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={index} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} pickingProject={picking} onAddProject={index => pickProject(index, false)} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); expandProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} />)}
         </div>
         <div className="management-page" hidden={!agentsOpen}><AgentPanel agents={agents} active={agentsOpen} onChange={setAgents} /></div>
         <div className="management-page" hidden={!imOpen}><ImPanel active={imOpen} sessions={sessions} onOpenSession={openConversation} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects, projectNames)} /></div>

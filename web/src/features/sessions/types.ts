@@ -1,4 +1,3 @@
-import React from 'react';
 import type { AgentInfo as Agent, AgentSession as Session } from '../../../../src/types';
 import type { Application } from '../integrations/im-panel';
 
@@ -16,8 +15,10 @@ export type PaneProps = {
   sessions: SessionSummary[];
   feishuApps: FeishuApp[];
   onFocus: (index: number) => void;
+  pickingProject: boolean;
+  onAddProject: (index: number) => Promise<void>;
   onProjectChange: (index: number, path: string) => void;
   onSessionCreated: (index: number, session: SessionSummary) => void;
   onSessionUpdate: (session: Pick<Session, 'id' | 'status' | 'updatedAt'> & Partial<Pick<Session, 'externalSessionId' | 'permissionMode' | 'sandboxEnabled'>>) => void;
 };
-export type ChatPaneProps = PaneProps & { layoutControls?: React.ReactNode };
+export type ChatPaneProps = PaneProps;

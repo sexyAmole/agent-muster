@@ -14,7 +14,7 @@ import { conversationItems, conversationText, executionRounds } from './session-
 import type { ChatPaneProps, SessionSummary } from './types';
 type SessionPage = { events: Event[]; hasMore: boolean };
 
-export function ChatPaneContent({ index, pane, multi, active: focused, agents, projects, sessions, feishuApps, onProjectChange, onSessionCreated, onSessionUpdate, layoutControls, panelControls }: ChatPaneProps & {
+export function ChatPaneContent({ index, pane, multi, active: focused, agents, projects, sessions, feishuApps, pickingProject, onAddProject, onProjectChange, onSessionCreated, onSessionUpdate, panelControls }: ChatPaneProps & {
   panelControls: React.ReactNode;
 }) {
   const selectedId = pane.sessionId;
@@ -22,6 +22,9 @@ export function ChatPaneContent({ index, pane, multi, active: focused, agents, p
     const summary = sessions.find(session => session.id === selectedId);
     return summary ? { ...summary, events: [] } : null;
   });
+  const [modelReadiness, setModelReadiness] = useState<{ sessionId: string | null; ready: boolean }>({ sessionId: null, ready: false });
+  const onModelsReady = useCallback((sessionId: string | null, ready: boolean) => setModelReadiness({ sessionId, ready }), []);
+  const modelsReady = modelReadiness.sessionId === selectedId && modelReadiness.ready;
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const historyController = useRef<AbortController | null>(null);
@@ -153,11 +156,12 @@ export function ChatPaneContent({ index, pane, multi, active: focused, agents, p
   }
 
   const resendMessage = useCallback(async (event: Event, content: string) => {
+    if (!modelsReady) throw new Error('请等待模型加载完成后再发送');
     if (!selected || selected.status !== 'stopped' || [...selected.events].reverse().find(item => item.type === 'message')?.id !== event.id) throw new Error('只能编辑当前已停止任务的最后一条消息');
     const session = await api<SessionSummary>(`/api/sessions/${selected.id}/messages`, { method: 'POST', body: JSON.stringify({ content, model: selected.model, permissionMode: selected.permissionMode, imageIds: event.images?.map(image => shortPath(image.path)) }) });
     onSessionUpdate(session);
     setSelected(current => current?.id === session.id ? { ...current, ...session } : current);
-  }, [selected, onSessionUpdate]);
+  }, [selected, onSessionUpdate, modelsReady]);
 
   const imPlatform = selected?.im?.some(binding => binding.platform === 'feishu') ? '飞书' : selected?.im?.some(binding => binding.platform === 'wecom') ? '企业微信' : '钉钉';
 
@@ -167,7 +171,7 @@ export function ChatPaneContent({ index, pane, multi, active: focused, agents, p
 
   const conversation = useMemo(() => {
     if (!selected) return null;
-    const editableMessage = selected.status === 'stopped' && selected.externalSessionId && agents.some(agent => agent.id === selected.agent && agent.installed) ? [...selected.events].reverse().find(event => event.type === 'message') : undefined;
+    const editableMessage = modelsReady && selected.status === 'stopped' && selected.externalSessionId && agents.some(agent => agent.id === selected.agent && agent.installed) ? [...selected.events].reverse().find(event => event.type === 'message') : undefined;
     const renderItem = (item: Event | Event[], showActions = false) => {
       const event = Array.isArray(item) ? item[0] : item;
       return <ConversationItem key={event.streamId || event.id} item={item} index={index} session={selected} showActions={showActions} copiedTarget={copiedTarget} pushingId={pushingId} imPlatform={imPlatform} copyText={copyText} pushToIm={pushToIm} followStream={followStream} resendMessage={event.id === editableMessage?.id ? resendMessage : undefined} />;
@@ -203,7 +207,7 @@ export function ChatPaneContent({ index, pane, multi, active: focused, agents, p
   }, [selected, index, agents, copiedTarget, pushingId, onSessionUpdate, followStream, resendMessage]);
 
   return <section className="output-panel" aria-label={`对话窗口 ${index + 1}`}>
-    <ChatHeader index={index} multi={multi} projects={projects} feishuApps={feishuApps} selected={selected ? { ...selected, title: sessions.find(session => session.id === selected.id)?.title } : null} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} layoutControls={layoutControls} panelControls={panelControls} />
+    <ChatHeader index={index} multi={multi} projects={projects} feishuApps={feishuApps} selected={selected ? { ...selected, title: sessions.find(session => session.id === selected.id)?.title } : null} copiedTarget={copiedTarget} copyConversation={copyConversation} copyText={copyText} panelControls={panelControls} />
     <div className="conversation-scroll" key={selected?.id} ref={conversationRef} role="log" aria-label={`窗口 ${index + 1} 对话记录`} onScroll={event => {
       const element = event.currentTarget;
       followConversation.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -214,6 +218,6 @@ export function ChatPaneContent({ index, pane, multi, active: focused, agents, p
         {conversation}
       </div> : <div className="chat-empty"><strong>描述你想完成的任务</strong></div>}
     </div>
-    <ChatComposer index={index} pane={pane} agents={agents} projects={projects} sessions={sessions} onProjectChange={onProjectChange} onSessionCreated={onSessionCreated} onSessionUpdate={onSessionUpdate} focused={focused} selected={selected} setSelected={setSelected} setError={setError} />
+    <ChatComposer index={index} pane={pane} agents={agents} projects={projects} sessions={sessions} pickingProject={pickingProject} onAddProject={onAddProject} onProjectChange={onProjectChange} onSessionCreated={onSessionCreated} onSessionUpdate={onSessionUpdate} focused={focused} selected={selected} setSelected={setSelected} setError={setError} onModelsReady={onModelsReady} />
   </section>;
 }

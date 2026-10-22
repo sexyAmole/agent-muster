@@ -11,11 +11,10 @@ type ChatHeaderProps = Pick<PaneProps, 'index' | 'multi' | 'projects' | 'feishuA
   copiedTarget: 'conversation' | 'run-log' | number | null;
   copyConversation: () => Promise<void>;
   copyText: (text: string, target: 'conversation' | 'run-log' | number) => Promise<void>;
-  layoutControls?: React.ReactNode;
   panelControls?: React.ReactNode;
 };
 
-export function ChatHeader({ index, multi, projects, feishuApps, selected, copiedTarget, copyConversation, copyText, layoutControls, panelControls }: ChatHeaderProps) {
+export function ChatHeader({ index, multi, projects, feishuApps, selected, copiedTarget, copyConversation, copyText, panelControls }: ChatHeaderProps) {
   const projectNames = useContext(ProjectNamesContext);
   const dingtalkBinding = selected?.im?.find(binding => binding.platform === 'dingtalk');
   const feishuBinding = selected?.im?.find(binding => binding.platform === 'feishu');
@@ -30,7 +29,6 @@ export function ChatHeader({ index, multi, projects, feishuApps, selected, copie
     <div className="output-actions">
       {selected && <button className="copy-button" onClick={() => void copyConversation()} aria-label={copiedTarget === 'conversation' ? '已复制对话' : '复制对话'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedTarget === 'conversation' ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}
       {selected && <RunLog key={selected.id} sessionId={selected.id} copied={copiedTarget === 'run-log'} onCopy={copyText} />}
-      {layoutControls && <div className="pane-layout-switch">{layoutControls}</div>}
       {panelControls}
     </div>
   </div>;

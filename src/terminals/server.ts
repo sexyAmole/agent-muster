@@ -86,7 +86,7 @@ export function attachTerminalServer(server: Server, knownProject: (path: string
     const address = server.address();
     const host = address && typeof address !== 'string' ? `127.0.0.1:${address.port}` : '';
     const authorized = request.headers.host === host && (desktopToken
-      ? url.searchParams.get('desktopToken') === desktopToken && request.headers.origin === 'null'
+      ? url.searchParams.get('desktopToken') === desktopToken && request.headers.origin === 'file://'
       : request.headers.origin === `http://${host}`);
     const path = url.searchParams.get('path');
     if (!authorized || !path || !knownProject(path)) {
