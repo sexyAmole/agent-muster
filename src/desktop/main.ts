@@ -6,7 +6,6 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type { WebContents } from 'electron';
-import electronUpdater from 'electron-updater';
 import { loadRuntime, startRuntime } from '../runtime.js';
 import { fullScreenChannel, runtimeConfigChannel, windowControlChannel } from './window-controls.js';
 import { registerDesktopUpdates } from './updates.js';
@@ -15,7 +14,6 @@ const execute = promisify(execFile);
 let mainWindow: BrowserWindow | undefined;
 let runtime: Awaited<ReturnType<typeof startRuntime>> | undefined;
 let quitting = false;
-let installingUpdate = false;
 
 async function restoreShellPath(): Promise<void> {
   if (process.platform === 'win32') return;
@@ -97,10 +95,7 @@ if (!app.requestSingleInstanceLock()) {
         if (action === 'toggle-fullscreen') mainWindow.setFullScreen(!mainWindow.isFullScreen());
       });
     }
-    registerDesktopUpdates(mainWindow, () => {
-      installingUpdate = true;
-      app.quit();
-    });
+    registerDesktopUpdates(mainWindow);
     ipcMain.on(runtimeConfigChannel, event => {
       event.returnValue = mainWindow && runtime && event.sender === mainWindow.webContents && event.senderFrame === mainWindow.webContents.mainFrame && event.senderFrame.url === pageUrl
         ? { url: runtime.url, token }
@@ -133,8 +128,7 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true;
     void startup.then(async () => {
       await runtime?.shutdown();
-      if (installingUpdate) electronUpdater.autoUpdater.quitAndInstall();
-      else app.quit();
+      app.quit();
     }).catch(error => {
       dialog.showErrorBox('Agent Muster 退出失败', error.message);
       app.exit(1);

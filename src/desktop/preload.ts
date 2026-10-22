@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { fullScreenChannel, runtimeConfigChannel, windowControlChannel } from './window-controls.js';
 import type { DesktopRuntimeConfig, DesktopWindowApi } from './window-controls.js';
-import { checkUpdateChannel, downloadUpdateChannel, installUpdateChannel, updateProgressChannel } from './update-api.js';
+import { checkUpdateChannel, downloadUpdateChannel, updateProgressChannel } from './update-api.js';
 import type { DesktopUpdateApi } from './update-api.js';
 
 const pageArgument = process.argv.find(argument => argument.startsWith('--agent-muster-page='));
@@ -16,7 +16,6 @@ if (process.platform === 'darwin') {
   const updates: DesktopUpdateApi = {
     check: () => ipcRenderer.invoke(checkUpdateChannel),
     download: () => ipcRenderer.invoke(downloadUpdateChannel),
-    install: () => ipcRenderer.invoke(installUpdateChannel),
     onProgress: listener => {
       const handle = (_event: Electron.IpcRendererEvent, percent: number) => listener(percent);
       ipcRenderer.on(updateProgressChannel, handle);

@@ -11,7 +11,6 @@ export function DesktopUpdateButton() {
   const updates = window.desktopUpdates;
   const [version, setVersion] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [downloaded, setDownloaded] = useState(false);
   const [percent, setPercent] = useState<number | null>(null);
   useEffect(() => {
     if (!updates) return;
@@ -25,13 +24,12 @@ export function DesktopUpdateButton() {
 
   if (!updates || !version) return null;
 
-  const label = downloaded ? busy ? '正在准备安装更新' : `重启并安装 ${version}` : busy ? percent === null ? '准备下载更新' : percent === 100 ? '下载完成' : `正在下载更新 ${percent}%` : `下载新版 ${version}`;
+  const label = busy ? percent === null ? '准备下载更新' : percent === 100 ? '下载完成' : `正在下载更新 ${percent}%` : `下载新版 ${version}`;
   async function download() {
     if (busy) return;
     setBusy(true);
     try {
-      if (downloaded) await updates!.install();
-      else setDownloaded(await updates!.download());
+      await updates!.download();
     } finally {
       setBusy(false);
       setPercent(null);
