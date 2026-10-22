@@ -97,7 +97,7 @@ export function Website() {
         <ul className="desktop-downloads">
           {desktopDownloads.map(item => <li key={item.platform}><span>{item.platform}</span><a href={item.url} aria-label={`下载 ${item.platform} 安装包`}>{item.label}</a></li>)}
         </ul>
-        <p className="download-note">支持 macOS Apple 芯片与 Windows 64 位，安装包由 GitHub Releases 提供。</p>
+        <p className="download-note">支持 macOS Apple 芯片、Intel 芯片与 Windows 64 位，安装包由 GitHub Releases 提供。</p>
         <a className="text-link" href={`${repository}/releases`} target="_blank" rel="noreferrer">查看 GitHub Releases <span aria-hidden="true">↗</span></a>
       </section>
 
@@ -116,7 +116,7 @@ export function Website() {
         <div className="faq-list">
           <details><summary>需要单独配置模型 API 吗？<span aria-hidden="true">+</span></summary><p>Agent Muster 调用本机的 Agent CLI。先完成对应 CLI 的安装、登录与模型配置，工作台会读取可用模型。模型权限和费用由对应服务管理。</p></details>
           <details><summary>数据会保存在哪里？<span aria-hidden="true">+</span></summary><p>项目、对话记录和 IM 接入配置保存在用户主目录的 .agent-muster 中。本地 Web 服务仅监听 127.0.0.1；Agent 执行任务时仍会按其自身配置连接模型服务。</p></details>
-          <details><summary>使用钉钉或飞书时，要保持电脑运行吗？<span aria-hidden="true">+</span></summary><p>需要保持电脑与 Agent Muster 运行，并能够连接对应消息平台。服务通过 SDK 长连接接收消息，无需配置公网 Webhook 地址。</p></details>
+          <details><summary>使用钉钉、飞书或企业微信时，要保持电脑运行吗？<span aria-hidden="true">+</span></summary><p>需要保持电脑与 Agent Muster 运行，并能够连接对应消息平台。服务通过 SDK 长连接接收消息，无需配置公网 Webhook 地址。</p></details>
           <details><summary>可以同时使用不同的 Agent 吗？<span aria-hidden="true">+</span></summary><p>可以。单窗、双栏和四宫格布局中的窗口可以独立选择项目和会话，让不同 Agent 分别处理各自的任务。</p></details>
         </div>
       </section>

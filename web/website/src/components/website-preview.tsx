@@ -22,7 +22,7 @@ export function WebsitePreview({ agents }: { agents: { name: string; icon: strin
   const [paneAgents, setPaneAgents] = useState(() => [agents[0].name, agents[1].name, agents[4].name, agents[5].name]);
   const [agent, setAgent] = useState(agents[0].name);
   const [draft, setDraft] = useState('');
-  const [platform, setPlatform] = useState<'钉钉' | '飞书'>('钉钉');
+  const [platform, setPlatform] = useState<'钉钉' | '飞书' | '企业微信'>('钉钉');
   const playing = visible && pageVisible && !hovered && !focused && !paused && !reducedMotion;
 
   useEffect(() => {
@@ -93,7 +93,7 @@ export function WebsitePreview({ agents }: { agents: { name: string; icon: strin
             <div className="demo-composer"><textarea aria-label="演示任务内容" placeholder="写下你想完成的任务…" value={draft} onChange={event => setDraft(event.target.value)} maxLength={2000} /><div><span>agent-muster · {agent}</span><a href="#start">启动后执行任务 <span aria-hidden="true">↗</span></a></div></div>
             <p className="demo-note">这里可以试写任务，启动本地工作台后交给 Agent 执行。</p>
           </div> : <div className="demo-im-view">
-            <div className="demo-platforms" role="group" aria-label="选择演示消息平台">{(['钉钉', '飞书'] as const).map(item => <button type="button" key={item} aria-pressed={platform === item} onClick={() => setPlatform(item)}>{item}</button>)}</div>
+            <div className="demo-platforms" role="group" aria-label="选择演示消息平台">{(['钉钉', '飞书', '企业微信'] as const).map(item => <button type="button" key={item} aria-pressed={platform === item} onClick={() => setPlatform(item)}>{item}</button>)}</div>
             <div className="demo-im-intro"><strong>把 Agent 带到{platform}</strong><p>在聊天中发起任务，结果回到原对话。</p></div>
             <ol className="demo-im-steps"><li><strong>扫码创建应用</strong><p>使用{platform}扫描授权二维码，创建机器人应用。</p></li><li><strong>绑定项目与 Agent</strong><p>选择本地项目和已配置好的 Agent。</p></li><li><strong>在聊天中发送任务</strong><p>单聊机器人，或在群聊中提及它。</p></li></ol>
             <a className="demo-guide" href="#start">启动工作台，接入{platform} <span aria-hidden="true">↗</span></a>

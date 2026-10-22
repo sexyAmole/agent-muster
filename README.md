@@ -3,7 +3,9 @@
 
 English | [简体中文](./README.zh-CN.md)
 
-Manage local AI coding agents, projects, and conversations in your browser. Send tasks and receive replies through DingTalk or Feishu bots.
+Manage local AI coding agents, projects, and conversations in the desktop app or your browser. Send tasks and receive replies through DingTalk, Feishu, or WeCom bots.
+
+[Website](https://sexyamole.github.io/agent-muster/) · [Desktop downloads](https://github.com/sexyAmole/agent-muster/releases/latest)
 
 ## Features
 
@@ -11,13 +13,15 @@ Manage local AI coding agents, projects, and conversations in your browser. Send
 - Organize conversations by project and work across one, two, or four conversation panes.
 - Select agents and models, and view live replies, tool calls, execution status, and available token usage.
 - Save projects and conversation history, resume conversations, and stop running tasks.
-- Connect DingTalk and Feishu applications to local agents through the dedicated IM integration page.
+- Browse and search project files, inspect Git changes and diffs, and open a project terminal beside conversations. Use `@` to reference files.
+- Choose per-session permissions and supported built-in sandbox settings, and check agent versions and updates.
+- Connect DingTalk, Feishu, and WeCom applications to local agents through the dedicated IM integration page.
 
 ## Screenshots
 
 ### Create tasks and select agents
 
-Select a project, agent, and model in the composer, with support for image attachments. Agent icons appear in the selector.
+Select a project, agent, model, and permissions in the composer. Attach images, paste screenshots, or type `@` to search project files.
 
 ![Task composer and agent selector](./docs/screenshots/agent-selector.jpg)
 
@@ -35,9 +39,15 @@ View installed agents, CLI versions, and executable paths, with controls to inst
 
 ### IM integration
 
-Manage integrations through the DingTalk and Feishu tabs and start setup with the QR-code application creation button. The screenshot shows the page before any applications are connected.
+Manage integrations through the DingTalk, Feishu, and WeCom tabs and start setup with the QR-code application creation button. The screenshot shows the page before any applications are connected.
 
-![DingTalk and Feishu integration entry point](./docs/screenshots/im-integration.jpg)
+![DingTalk, Feishu, and WeCom integration entry point](./docs/screenshots/im-integration.jpg)
+
+### Files, Git, and terminal
+
+Open the project panel beside a conversation to search and preview files, inspect staged and unstaged Git diffs, or run commands in the project terminal.
+
+![Project file panel](./docs/screenshots/project-files.jpg)
 
 ## Requirements
 
@@ -55,6 +65,12 @@ Manage integrations through the DingTalk and Feishu tabs and start setup with th
 | Cursor | `cursor-agent` |
 
 ## Quick Start
+
+### Desktop app
+
+Download the installer for macOS Apple silicon, macOS Intel, or Windows 64-bit from [GitHub Releases](https://github.com/sexyAmole/agent-muster/releases/latest). Open the app after installing and signing in to at least one supported agent CLI.
+
+### Command line
 
 Run without a global installation:
 
@@ -111,33 +127,40 @@ The service listens only on `127.0.0.1`. With the custom port above, visit `http
 ## Create Your First Task
 
 1. Start Agent Muster and add a local project directory using **添加项目** (Add project).
-2. Create a conversation in that project using **创建对话** (Create conversation), then select an installed agent and a model.
+2. Click **新建对话** (New conversation) beside the project or **创建会话** (Create session) at the top, then select an installed agent, model, and permissions.
 3. Enter a task, such as: `Inspect this project's startup flow and explain how to run it.`
 4. Follow replies, tool calls, and execution status in the conversation pane. Send further messages to continue the task.
 
 The agent runs in the selected project directory. Model availability depends on the corresponding CLI configuration and access permissions. Continuing a conversation requires a resumable session created by the agent.
 
+## Files and Execution Settings
+
+- Open the project panel beside the conversation. **文件** (Files) offers a file tree, filename/content search, and code previews. **Git** shows changes and staged/unstaged diffs. **终端** (Terminal) runs commands in the project directory.
+- Type `@` in a message to search and reference project files. Attach images or paste screenshots into the composer.
+- Open the composer permission settings to select a mode supported by the agent and configure the current session’s built-in sandbox where available. Codex read-only, workspace-write, and auto-review modes require the sandbox.
+- Rename conversations, edit user messages, copy replies, and inspect run logs. Usage distinguishes cumulative tokens from the latest context usage reported by the agent.
+
 ## IM Integration
 
-Open **IM 集成** (IM integration) in the sidebar and choose **钉钉** (DingTalk) or **飞书** (Feishu). Each application has its own project and agent binding.
+Open **IM 集成** (IM integration) in the sidebar and choose **钉钉** (DingTalk), **飞书** (Feishu), or **企业微信** (WeCom). Each application has its own project, agent, and permission binding.
 
-| Capability | DingTalk | Feishu |
-| --- | --- | --- |
-| Application creation | Scan a QR code with DingTalk | Scan a QR code with Feishu |
-| Message listener | DingTalk Stream SDK | Feishu SDK WebSocket connection |
-| Incoming messages | Text, images, and rich text with images | Text, images, and rich text with images |
-| Conversations | Direct messages and group mentions of the bot | Direct messages and group mentions of the bot |
-| Replies | Automatic agent replies and messages sent from the web interface | Automatic agent replies and messages sent from the web interface |
-| Chat commands | New conversations, project/model switching, and current configuration | New conversations, project/model switching, and current configuration |
-| Application management | Project/agent binding, name/icon sync, and local removal | Project/agent binding, name/icon sync, connection status, and local removal |
+| Capability | DingTalk | Feishu | WeCom |
+| --- | --- | --- | --- |
+| Application creation | Mobile QR authorization | Mobile QR authorization | Mobile QR authorization |
+| Message connection | Stream SDK | SDK WebSocket | AI bot SDK persistent connection |
+| Incoming messages | Text, images, mixed messages | Text, images, rich text | Text, images, mixed messages, voice transcription |
+| Chat context | Private chat, group mentions | Private chat, group mentions | Private chat, group bot messages |
+| Replies | Automatic and direct web sending | Automatic and direct web sending | Automatic and direct web sending |
+| Commands | New session, switch project/model, status | Same | Same |
+| Management | Bind project, agent, permissions; sync name/icon | Same, with connection status | Bind project, agent, permissions; connection status |
 
 ### Create and Connect an Application
 
 1. Add a project in Agent Muster and confirm the target agent is installed and configured.
 2. Open **IM 集成**, choose a platform, and click **扫码创建应用** (Create application by scanning).
 3. Scan the QR code with the selected platform's mobile app. Follow the authorization page to create and authorize the application. If the QR code expires, request a new one.
-4. Select a project and an agent for the new application. Click **一键同步** (Sync) to refresh its name and icon from the platform.
-5. Send the bot a direct message, or add it to a group and mention it with a task. For Feishu, check that the application shows **消息监听已连接** (Message listener connected).
+4. Select a project, agent, and permission mode for the new application. DingTalk and Feishu support **一键同步** (Sync) to refresh the name and icon.
+5. Send the bot a direct message, or add it to a group and mention it with a task. For Feishu or WeCom, check that the application shows **消息监听已连接** (Message listener connected).
 
 Keep Agent Muster running and connected to the selected platform. Messages are received through SDK connections established by the local service, so a public webhook address is not required.
 
@@ -153,9 +176,11 @@ Image input is supported by the Codex, Claude Code, Pi, Gemini CLI, and OpenCode
 
 Feishu downloads user images through the message resource API. Newly created applications request the `im:message:readonly` permission. For existing applications, enable this permission in the Feishu developer console and publish a new application version. The bot returns an explanation if an image download fails.
 
+WeCom also accepts image and mixed-message tasks, subject to the same agent/model restrictions, and submits platform-provided voice transcriptions as task text. WeCom displays its connection status and supports project, agent, and permission bindings; name/icon synchronization is available for DingTalk and Feishu.
+
 ### IM Chat Commands
 
-DingTalk and Feishu support the same commands. Send a text command directly in a private chat, or mention the bot when sending a command in a group. Send each command as a separate message. Agent Muster handles commands directly without submitting them as agent tasks.
+DingTalk, Feishu, and WeCom support the same commands. Send a text command directly in a private chat, or mention the bot when sending a command in a group. Send each command as a separate message. Agent Muster handles commands directly without submitting them as agent tasks.
 
 | Command | Behavior |
 | --- | --- |
@@ -178,18 +203,18 @@ Command changes affect only the current private or group chat. Group members sha
 
 Open a conversation created through IM, then use the send-mode selector beside the message input:
 
-- **发送到钉钉** / **发送到飞书** (Send to DingTalk / Feishu): send the entered text directly to the linked IM conversation as the application, without running the agent. The sent message is recorded in the local conversation.
+- **发送到钉钉** / **发送到飞书** / **发送到企业微信** (Send to DingTalk / Feishu / WeCom): send the entered text directly to the linked IM conversation as the application, without running the agent. The sent message is recorded in the local conversation.
 - **交给 Agent** (Send to agent): continue the local agent task. This mode does not automatically send the resulting reply to IM.
 
 Direct sending requires an existing IM conversation mapping. The Feishu sender splits long replies into multiple text messages.
 
 ### Remove an Integration
 
-Click **删除** (Delete) on the application entry to remove its local integration and stop receiving its messages. Existing conversation history is retained. The application on DingTalk or Feishu is not deleted.
+Click **删除** (Delete) on the application entry to remove its local integration and stop receiving its messages. Existing conversation history is retained. The application on the messaging platform is not deleted.
 
 ## Local Data
 
-Projects, conversations, and IM configuration are stored in `.agent-muster` under your home directory and loaded again on startup. DingTalk and Feishu application credentials are stored in `im/dingtalk/apps.json` and `im/feishu/apps.json`, respectively. Keep these files private.
+Projects, conversations, and IM configuration are stored in `.agent-muster` under your home directory and loaded again on startup. Projects and sessions are organized under `projects/`. DingTalk, Feishu, and WeCom application credentials are stored in `im/dingtalk/apps.json`, `im/feishu/apps.json`, and `im/wecom/apps.json`, respectively. Keep these files private.
 
 ## FAQ
 
@@ -207,11 +232,11 @@ npx agent-muster web --port 18000
 
 ### An IM Bot Does Not Reply
 
-Confirm that Agent Muster is running, platform authorization is complete, and the application is bound to a project and an available agent. In groups, mention the bot. For Feishu, check its connection status; if image downloads fail, confirm that `im:message:readonly` is enabled and the application version has been published. Inspect the web conversation log and startup terminal for task status and errors.
+Confirm that Agent Muster is running, platform authorization is complete, and the application is bound to a project and an available agent. In groups, mention the bot. For Feishu or WeCom, check the connection status. If Feishu image downloads fail, confirm that `im:message:readonly` is enabled and the application version has been published. Inspect the web conversation log and startup terminal for task status and errors.
 
 ### A Message Cannot Be Sent from the Web Interface
 
-Send a message to the bot from IM first, then open the resulting local conversation. Confirm that the integration still exists and its project/agent binding has not changed. Select **发送到钉钉** or **发送到飞书** before sending.
+Send a message to the bot from IM first, then open the resulting local conversation. Confirm that the integration still exists and its project/agent binding has not changed. Select **发送到钉钉**, **发送到飞书**, or **发送到企业微信** before sending.
 
 ## Updates
 
