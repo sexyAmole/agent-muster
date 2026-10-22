@@ -23,7 +23,7 @@ async function checkForUpdate(window: BrowserWindow): Promise<void> {
   if (!response.ok) throw new Error(`无法获取新版本（HTTP ${response.status}），请稍后重试。`);
   const release = await response.json() as Release;
   const latest = valid(release.tag_name);
-  if (!latest) throw new Error('发布版本号无效，请使用 v0.1.16 这样的版本标签。');
+  if (!latest) throw new Error('发布版本号无效，请使用 v0.1.17 这样的版本标签。');
   const current = app.getVersion();
   if (!gt(latest, current)) {
     await dialog.showMessageBox(window, { type: 'info', message: '当前已是最新版本', detail: `当前版本：${current}`, buttons: ['关闭'] });
