@@ -23,6 +23,7 @@ export class AgentManagement {
     return this.registry.list().map(agent => {
       if (agent.installed) return agent;
       const installation = providers.get(agent.id)!.installation;
+      if (installation.kind === 'external') return { ...agent, managementError: installation.message };
       const supported = installation.kind === 'npm' || installation.supported;
       return { ...agent, management: supported ? installation.kind : undefined, managementError: installation.kind === 'cursor' && !installation.supported ? installation.unsupportedMessage : undefined };
     });
@@ -39,6 +40,7 @@ export class AgentManagement {
 
   private async installation(agent: AgentInfo): Promise<Pick<ManagedAgent, 'management' | 'managementError'>> {
     const installation = providers.get(agent.id)!.installation;
+    if (installation.kind === 'external') return { managementError: installation.message };
     if (!agent.path) {
       const supported = installation.kind === 'npm' || installation.supported;
       return { management: supported ? installation.kind : undefined, managementError: installation.kind === 'cursor' && !installation.supported ? installation.unsupportedMessage : undefined };
@@ -51,6 +53,7 @@ export class AgentManagement {
 
   private async latestVersion(id: string): Promise<string> {
     const installation = providers.get(id)!.installation;
+    if (installation.kind === 'external') throw new Error(installation.message);
     if (installation.kind === 'npm') {
       const { stdout } = await execute(npmCommand, ['view', `${installation.packageName}@latest`, 'version', '--json', '--fetch-timeout=5000', '--fetch-retries=0'], { shell: process.platform === 'win32', timeout: 10000 });
       const version: unknown = JSON.parse(stdout);
@@ -75,7 +78,7 @@ export class AgentManagement {
       const [, installation, latest] = await Promise.all([
         this.registry.loadVersion(id, refresh),
         this.installation(agent).catch(error => ({ managementError: (error as Error).message })),
-        this.latestVersion(id).then(latestVersion => ({ latestVersion })).catch(error => ({ latestVersionError: (error as Error).message })),
+        providers.get(id)!.installation.kind === 'external' ? Promise.resolve({}) : this.latestVersion(id).then(latestVersion => ({ latestVersion })).catch(error => ({ latestVersionError: (error as Error).message })),
       ]);
       const result: ManagedAgent = { ...agent, ...installation, ...latest };
       if (result.version && result.latestVersion) {
@@ -121,8 +124,10 @@ export class AgentManagement {
         const args = action === 'uninstall' ? ['uninstall', '--global', installation.packageName] : ['install', '--global', `${installation.packageName}@latest`];
         const result = await execute(npmCommand, args, { shell: process.platform === 'win32', timeout: 300000, maxBuffer: 5_000_000 });
         output = result.stdout + result.stderr;
-      } else {
+      } else if (installation.kind === 'cursor') {
         output = await installation.run(action, agent.path);
+      } else {
+        throw new Error(installation.message);
       }
       this.detailQueries.clear();
       this.rootQuery = undefined;

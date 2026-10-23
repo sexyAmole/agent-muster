@@ -237,6 +237,12 @@ button:disabled { cursor: not-allowed; }
 .message-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .message-image:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .message-image-error { color: #963c3c; font-size: 12px; }
+.generated-images .message-image { display: block; flex-basis: 360px; height: 260px; }
+.image-generation-status { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: #666; font-size: 13px; }
+.image-generation-spinner { width: 14px; height: 14px; border: 1.5px solid #ddd; border-top-color: #666; border-radius: 50%; animation: image-generation-spin 1s linear infinite; }
+@keyframes image-generation-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .image-generation-spinner { animation: none; } }
+
 .assistant-turn { padding-right: 28px; }
 .assistant-copy { color: #191919; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; text-align: left; }
 .assistant-copy p { margin: 0 0 12px; }

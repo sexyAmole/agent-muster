@@ -2,7 +2,7 @@ import { getSandboxEnabled, sessionSandboxEnabled, validatePermissionMode } from
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import { stat } from 'node:fs/promises';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { adapters, providers, type AdapterResult } from '../agents/providers/index.js';
 import { SessionStore } from './store.js';
@@ -11,7 +11,7 @@ import { readSessionLogs } from '../agents/session-logs.js';
 import { createLineReader } from './line-reader.js';
 import type { AgentImage, AgentSession, ImBinding, ImContext, SessionEvent, SessionStatus, TokenUsage } from '../types.js';
 
-type SessionEventInput = Omit<SessionEvent, 'id' | 'timestamp' | 'pushedToIm' | 'type' | 'kind' | 'comparison'> & { type: Exclude<SessionEvent['type'], 'raw_stdout' | 'raw_stderr' | 'system' | 'file_change'> };
+type SessionEventInput = Omit<SessionEvent, 'id' | 'timestamp' | 'pushedToIm' | 'type' | 'kind' | 'comparison' | 'images'> & { type: Exclude<SessionEvent['type'], 'raw_stdout' | 'raw_stderr' | 'system' | 'file_change'>; images?: Pick<AgentImage, 'path' | 'mimeType'>[] };
 
 interface RunState {
   id: string;
@@ -35,7 +35,7 @@ export class SessionManager extends EventEmitter {
     for (const session of await this.store.load()) {
       session.permissionMode ??= 'full-auto';
       if (session.sandboxEnabled === undefined) {
-        const required = session.agent === 'codex' && ['read-only', 'workspace-write', 'auto-review'].includes(session.permissionMode);
+        const required = ['codex', 'trae'].includes(session.agent) && ['read-only', 'workspace-write', 'auto-review'].includes(session.permissionMode);
         session.sandboxEnabled = required || Boolean(providers.get(session.agent)?.sandboxSupported && getSandboxEnabled(session.agent));
         this.store.saveMetadata(session);
       }
@@ -141,7 +141,7 @@ export class SessionManager extends EventEmitter {
       ...(detail === undefined ? {} : { detail: type === 'tool' ? detail : detail.slice(0, 50000) }),
       timestamp: Date.now(),
       ...(im ? { im } : {}),
-      ...(images?.length ? { images: images.map(({ path, mimeType }) => ({ path, mimeType })) } : {}),
+      ...(images?.length ? { images: images.map(({ path, mimeType }) => ({ id: basename(path), path, mimeType })) } : {}),
     };
     session.updatedAt = event.timestamp;
     if (!event.streaming) {
@@ -218,7 +218,7 @@ export class SessionManager extends EventEmitter {
     if (!session.externalSessionId) throw new Error('This agent did not create a resumable session');
     validatePermissionMode(session.agent, permissionMode);
     const nextMode = permissionMode === undefined ? session.permissionMode || 'full-auto' : permissionMode || 'full-auto';
-    const required = session.agent === 'codex' && ['read-only', 'workspace-write', 'auto-review'].includes(nextMode);
+    const required = ['codex', 'trae'].includes(session.agent) && ['read-only', 'workspace-write', 'auto-review'].includes(nextMode);
     session.sandboxEnabled = sessionSandboxEnabled(session.agent, nextMode, sandboxEnabled === undefined ? required ? true : session.sandboxEnabled : sandboxEnabled);
     if (permissionMode !== undefined) session.permissionMode = permissionMode || 'full-auto';
     if (model !== undefined) session.model = model || undefined;
@@ -304,10 +304,18 @@ export class SessionManager extends EventEmitter {
       }
       const id = event.streamId ? streamId(event.streamId) : undefined;
       const previous = id ? session.events.find(item => item.streamId === id) : undefined;
-      if (event.streaming && previous?.text === event.text && previous.detail === event.detail && previous.contentIndex === event.contentIndex) continue;
+      if (event.streaming && previous?.text === event.text && previous.detail === event.detail && previous.contentIndex === event.contentIndex && previous.imageGeneration?.status === event.imageGeneration?.status) continue;
+      if (event.generatedImage && previous?.images?.length) continue;
+      let images: SessionEvent['images'];
+      let imageGeneration = event.imageGeneration;
+      if (event.generatedImage) {
+        try { images = [this.store.saveGeneratedImage(event.generatedImage)]; }
+        catch (error) { imageGeneration = { status: 'failed', error: `保存生成图片失败：${(error as Error).message}` }; }
+      }
       if (event.orderKey && !run.orders.has(event.orderKey)) run.orders.set(event.orderKey, Math.max(0, ...session.events.map(item => item.id)) + 1);
       append({
         type: event.type, text: event.text, detail: event.detail,
+        images, imageGeneration,
         streamId: id, order: event.orderKey ? run.orders.get(event.orderKey) : undefined,
         contentIndex: event.contentIndex, streaming: event.streaming,
       });
@@ -370,7 +378,8 @@ export class SessionManager extends EventEmitter {
       stdout.end();
       for (const event of session.events.filter((event): event is SessionEvent & { type: SessionEventInput['type'] } => Boolean(event.streaming) && event.type !== 'raw_stdout' && event.type !== 'raw_stderr' && event.type !== 'system' && event.type !== 'file_change')) {
         this.append(session, {
-          type: event.type, text: event.text, detail: event.detail,
+          type: event.type, text: event.text, detail: event.detail, images: event.images,
+          imageGeneration: event.imageGeneration?.status === 'generating' ? { status: 'failed', error: '图片生成已中断，请重新发送生成要求' } : event.imageGeneration,
           rawRecordId: event.rawRecordId, streamId: event.streamId, order: event.order, contentIndex: event.contentIndex, streaming: false,
         });
       }

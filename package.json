@@ -106,6 +106,15 @@
       ],
       "icon": "resources/desktop/icon.icns"
     },
+    "dmg": {
+      "background": "resources/desktop/dmg-background.png",
+      "iconSize": 96,
+      "iconTextSize": 13,
+      "contents": [
+        { "x": 190, "y": 185, "type": "file" },
+        { "x": 530, "y": 185, "type": "link", "path": "/Applications" }
+      ]
+    },
     "win": {
       "artifactName": "${productName}-${version}-${arch}-Setup.${ext}",
       "target": [

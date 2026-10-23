@@ -62,6 +62,17 @@ export interface SessionUsage extends TokenUsage {
   contextTokens?: number;
 }
 
+export interface MessageImage {
+  id: string;
+  path: string;
+  mimeType: string;
+}
+
+export interface ImageGeneration {
+  status: 'generating' | 'completed' | 'failed';
+  error?: string;
+}
+
 export interface AgentImage {
   type: 'image';
   mimeType: string;
@@ -101,7 +112,8 @@ export interface SessionEvent {
   timestamp: number;
   pushedToIm?: boolean;
   im?: ImContext;
-  images?: Pick<AgentImage, 'path' | 'mimeType'>[];
+  images?: MessageImage[];
+  imageGeneration?: ImageGeneration;
 }
 
 export interface ProjectGitChange {

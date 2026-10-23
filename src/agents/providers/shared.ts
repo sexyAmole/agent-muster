@@ -1,7 +1,7 @@
 import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promisify } from 'node:util';
 import { debugEnabled } from '../../debug.js';
-import type { AgentAction, AgentImage, AgentSession, ModelInfo, PermissionMode, TokenUsage } from '../../types.js';
+import type { AgentAction, AgentImage, AgentSession, ModelInfo, PermissionMode, TokenUsage, ImageGeneration } from '../../types.js';
 
 export const execFileAsync = promisify(execFile);
 
@@ -23,8 +23,12 @@ export const readOnlyMode: PermissionMode = { id: 'read-only', name: '只读', d
 export const autoReviewMode: PermissionMode = { id: 'auto-review', name: '自动审核', description: '由 Agent 自动审核操作；无法批准的操作会被拒绝，当前不支持人工审批' };
 export const planMode: PermissionMode = { id: 'plan', name: '只读规划', description: '使用 Agent 原生规划模式分析任务' };
 
+export type GeneratedImage = { data: string } | { path: string };
+
 export interface AdapterEvent {
   type: 'output' | 'thinking' | 'tool';
+  imageGeneration?: ImageGeneration;
+  generatedImage?: GeneratedImage;
   text: string;
   detail?: string;
   streamId?: string;
@@ -62,6 +66,7 @@ export interface ProtocolAdapter {
 }
 
 export type AgentInstallation =
+  | { kind: 'external'; message: string }
   | { kind: 'npm'; packageName: string }
   | {
     kind: 'cursor';
@@ -72,6 +77,8 @@ export type AgentInstallation =
   };
 
 export interface AgentProvider extends ProtocolAdapter {
+  resolveExecutable?(): Promise<string | undefined>;
+  version?(): Promise<string>;
   sandboxSupported: boolean;
   permissionModes: PermissionMode[];
   name: string;

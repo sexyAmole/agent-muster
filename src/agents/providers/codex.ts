@@ -149,6 +149,18 @@ export const codex: AgentProvider = {
         summaries.set(id, summary);
         return { type: 'thinking', text: summary.join('\n'), ...position };
       }
+      if (item.type === 'imageGeneration') {
+        const result = string(item.result);
+        const path = string(item.savedPath);
+        const failed = Boolean(item.failure) || item.status === 'failed';
+        const generatedImage = !streaming && !failed ? result ? { data: result } : path ? { path } : undefined : undefined;
+        const error = object(item.failure)?.type === 'usageLimitExceeded' ? '图片生成额度已用完，请稍后重试' : '图片生成失败';
+        return {
+          type: 'output', text: '', ...position,
+          imageGeneration: { status: streaming ? 'generating' : generatedImage ? 'completed' : 'failed', ...(!streaming && !generatedImage ? { error } : {}) },
+          ...(generatedImage ? { generatedImage } : {}),
+        };
+      }
       if (item.type === 'commandExecution') return { type: 'tool', text: `$ ${string(item.command) || 'command'}`, detail: string(item.aggregatedOutput) ?? items.get(id)?.detail, ...position };
       if (item.type === 'mcpToolCall') return { type: 'tool', text: `${string(item.server) || 'MCP'} / ${string(item.tool) || 'tool'}`, detail: detail(item.error ?? item.result), ...position };
       return undefined;
@@ -180,8 +192,8 @@ export const codex: AgentProvider = {
         const item = object(params.item);
         const event = item && readItem(item, message.method === 'item/started');
         if (!event) return {};
-        items.set(event.streamId!, event);
-        return { events: event.text ? [event] : [] };
+        items.set(event.streamId!, { ...event, generatedImage: undefined });
+        return { events: event.text || event.imageGeneration ? [event] : [] };
       }
       const id = string(params.itemId);
       const previous = id && items.get(id);

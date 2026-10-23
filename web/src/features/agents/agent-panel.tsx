@@ -102,13 +102,13 @@ function AgentEntry({ agent, active, revision, disabled, operation, onRun }: Age
     {info.managementError && <p className="agent-entry-error">{info.managementError}</p>}
     <div className="agent-entry-actions">
       {!agent.installed && <button type="button" className="agent-update-button" disabled={disabled || loading || !canManage} onClick={() => void onRun(info, 'install')}>{action === 'install' ? '安装中…' : `安装 ${agent.name}`}</button>}
-      {agent.installed && (
+      {agent.installed && agent.id !== 'workbuddy' && (
         <>
           {showUpdate && <button type="button" className="agent-update-button" disabled={disabled || !canManage} aria-label={action === 'update' ? `正在更新 ${agent.name}` : `更新 ${agent.name}`} onClick={() => void onRun(info, 'update')}>{action === 'update' ? '更新中…' : '更新'}</button>}
           <button type="button" className="agent-heading-action danger" disabled={disabled || loading || !canManage} aria-label={`卸载 ${agent.name}`} onClick={() => void onRun(info, 'uninstall')}>{action === 'uninstall' ? '卸载中…' : '卸载'}</button>
         </>
       )}
-      {!loading && (failed || (info.updateAvailable === undefined && agent.installed)) && <button className="im-sync-button" disabled={disabled} onClick={() => setRetry(value => value + 1)}>重新检查</button>}
+      {agent.id !== 'workbuddy' && !loading && (failed || (info.updateAvailable === undefined && agent.installed)) && <button className="im-sync-button" disabled={disabled} onClick={() => setRetry(value => value + 1)}>重新检查</button>}
     </div>
   </article>;
 }

@@ -13,7 +13,7 @@ export class AgentRegistry {
 
   async scan(): Promise<AgentInfo[]> {
     const agents = await Promise.all([...providers.values()].map(async definition => {
-      const path = await executablePath(definition.command);
+      const path = definition.resolveExecutable ? await definition.resolveExecutable() : await executablePath(definition.command);
       const installed = Boolean(path);
       return { sandboxSupported: definition.sandboxSupported, permissionModes: definition.permissionModes, id: definition.id, name: definition.name, command: definition.command, installed, path, models: [] };
     }));
@@ -56,6 +56,11 @@ export class AgentRegistry {
     if (!query) {
       query = (async () => {
         try {
+          const definition = providers.get(id)!;
+          if (definition.version) {
+            agent.version = await definition.version();
+            return;
+          }
           const { stdout } = await execFileAsync(agent.command, ['--version'], { shell: process.platform === 'win32', timeout: 10000 });
           agent.version = stdout.replace(/\u001b\[[0-9;]*m/g, '').trim();
           if (!agent.version) agent.versionError = '命令未返回版本信息';

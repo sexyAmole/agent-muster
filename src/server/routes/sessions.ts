@@ -65,7 +65,7 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       response.status(400).json({ error: '图片参数无效' }); return;
     }
     const event = sessions.getEvent(request.params.id, eventId);
-    const image = event?.type === 'message' ? event.images?.[index] : undefined;
+    const image = event?.type === 'message' || event?.type === 'output' ? event.images?.[index] : undefined;
     if (!image) { response.status(404).json({ error: '消息图片不存在' }); return; }
     response.type(image.mimeType).sendFile(basename(image.path), { root: dirname(image.path) });
   });

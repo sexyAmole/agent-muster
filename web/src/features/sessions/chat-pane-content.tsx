@@ -193,9 +193,10 @@ export function ChatPaneContent({ index, pane, multi, active: focused, agents, p
     return executionRounds(selected).map(round => {
       const items = conversationItems({ ...selected, events: round.events, status: round.end ? round.end.text as Status : selected.status });
       const finalOutput = round.end ? [...round.events].reverse().find(event => event.type === 'output') : undefined;
-      const steps = items.filter(item => Array.isArray(item) || (item !== finalOutput && item.type !== 'im_message' && item.type !== 'error'));
+      const isResult = (item: Event) => item === finalOutput || item.type === 'im_message' || item.type === 'error' || Boolean(item.imageGeneration || item.images?.length);
+      const steps = items.filter(item => Array.isArray(item) || !isResult(item));
       const stepEvents = steps.flatMap(item => Array.isArray(item) ? item : [item]);
-      const results = items.filter(item => !Array.isArray(item) && (item === finalOutput || item.type === 'im_message' || item.type === 'error'));
+      const results = items.filter(item => !Array.isArray(item) && isResult(item));
       return <React.Fragment key={round.id}>
         {round.message && renderDatedItem(round.message)}
         <div className="execution-response">

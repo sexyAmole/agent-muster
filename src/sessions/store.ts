@@ -2,8 +2,9 @@ import { closeSync, copyFileSync, readFileSync, existsSync, fstatSync, mkdirSync
 import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
-import type { AgentImage, AgentSession, DingTalkConversation, FeishuConversation, ImBinding, SessionEvent } from '../types.js';
+import { dirname, join, isAbsolute } from 'node:path';
+import type { AgentImage, MessageImage, AgentSession, DingTalkConversation, FeishuConversation, ImBinding, SessionEvent } from '../types.js';
+import type { GeneratedImage } from '../agents/providers/shared.js';
 import { projectDirectory } from '../projects/storage.js';
 import { mergeSessionEvents } from './events.js';
 import { applyEventMetadata, applyMetadataChanges, metadataChanges, sessionEvent, sessionMetadata, storedEvent } from './records.js';
@@ -79,6 +80,19 @@ function* records<T = HistoryRecord>(file: string, reverse = false): Generator<T
   } finally { closeSync(descriptor); }
 }
 
+function imageExtension(data: Buffer, mimeType: string): string {
+  const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+  const extension = extensions[mimeType];
+  if (typeof extension !== 'string') throw new Error('仅支持 PNG、JPEG、GIF 和 WebP 图片');
+  if (!data.length) throw new Error('图片不能为空');
+  const valid = mimeType === 'image/png' ? data.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
+    : mimeType === 'image/jpeg' ? data.subarray(0, 3).toString('hex') === 'ffd8ff'
+    : mimeType === 'image/gif' ? ['GIF87a', 'GIF89a'].includes(data.subarray(0, 6).toString('ascii'))
+    : data.subarray(0, 4).toString('ascii') === 'RIFF' && data.subarray(8, 12).toString('ascii') === 'WEBP';
+  if (!valid) throw new Error('图片内容与格式不匹配');
+  return extension;
+}
+
 export class SessionStore {
   private files = new Map<string, string>();
   private metadataSnapshots = new Map<string, SessionMetadata>();
@@ -87,20 +101,28 @@ export class SessionStore {
   constructor(private directory = join(homedir(), '.agent-muster')) {}
 
   async saveImage(data: Buffer, mimeType: string): Promise<string> {
-    const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
-    const extension = extensions[mimeType];
-    if (typeof extension !== 'string') throw new Error('仅支持 PNG、JPEG、GIF 和 WebP 图片');
-    if (!data.length) throw new Error('图片不能为空');
-    const valid = mimeType === 'image/png' ? data.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
-      : mimeType === 'image/jpeg' ? data.subarray(0, 3).toString('hex') === 'ffd8ff'
-      : mimeType === 'image/gif' ? ['GIF87a', 'GIF89a'].includes(data.subarray(0, 6).toString('ascii'))
-      : data.subarray(0, 4).toString('ascii') === 'RIFF' && data.subarray(8, 12).toString('ascii') === 'WEBP';
-    if (!valid) throw new Error('图片内容与格式不匹配');
+    const extension = imageExtension(data, mimeType);
     const directory = join(this.directory, 'images');
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const id = `${randomUUID()}.${extension}`;
     await writeFile(join(directory, id), data, { mode: 0o600 });
     return id;
+  }
+
+  saveGeneratedImage(source: GeneratedImage): MessageImage {
+    if ('path' in source && !isAbsolute(source.path)) throw new Error('生成图片路径必须是绝对路径');
+    const data = 'data' in source ? Buffer.from(source.data, 'base64') : readFileSync(source.path);
+    const mimeType = data.subarray(0, 8).toString('hex') === '89504e470d0a1a0a' ? 'image/png'
+      : data.subarray(0, 3).toString('hex') === 'ffd8ff' ? 'image/jpeg'
+      : ['GIF87a', 'GIF89a'].includes(data.subarray(0, 6).toString('ascii')) ? 'image/gif'
+      : 'image/webp';
+    const extension = imageExtension(data, mimeType);
+    const directory = join(this.directory, 'images');
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const id = `${randomUUID()}.${extension}`;
+    const path = join(directory, id);
+    writeFileSync(path, data, { mode: 0o600 });
+    return { id, path, mimeType };
   }
 
   async readImages(ids: string[]): Promise<AgentImage[]> {
@@ -270,7 +292,10 @@ export class SessionStore {
       if (completed.has(event.streamId)) continue;
       metadata.updatedAt = Math.max(metadata.updatedAt, event.timestamp);
       this.saveMetadata({ ...metadata, events: [] });
-      this.appendEvent(metadata.id, { ...event, id: ++id, streaming: false });
+      this.appendEvent(metadata.id, {
+        ...event, id: ++id, streaming: false,
+        imageGeneration: event.imageGeneration?.status === 'generating' ? { status: 'failed', error: '图片生成已中断，请重新发送生成要求' } : event.imageGeneration,
+      });
     }
     this.savePending(metadata.id, []);
   }
