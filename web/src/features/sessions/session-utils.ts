@@ -41,6 +41,6 @@ export function executionRounds(session: Session): ExecutionRound[] {
 export function conversationText(session: Session): string {
   return conversationItems(session).flatMap(item => {
     if (Array.isArray(item) || (item.type !== 'message' && item.type !== 'output' && item.type !== 'im_message')) return [];
-    return [`${item.type === 'message' ? '用户' : item.type === 'im_message' ? `应用（已发送到${item.im?.platform === 'feishu' ? '飞书' : item.im?.platform === 'wecom' ? '企业微信' : '钉钉'}）` : '助手'}：\n${item.text.trim()}`];
+    return [`${item.type === 'message' ? '用户' : item.type === 'im_message' ? `应用（已发送到${item.im?.platform === 'feishu' ? '飞书' : item.im?.platform === 'wecom' ? '企业微信' : item.im?.platform === 'weixin' ? '微信' : '钉钉'}）` : '助手'}：\n${item.text.trim()}`];
   }).join('\n\n');
 }

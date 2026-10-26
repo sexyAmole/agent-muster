@@ -3,7 +3,7 @@ import { apiUrl } from '../lib/api-url';
 
 type Props = {
   src?: string | null;
-  platform: '钉钉' | '飞书' | '企业微信';
+  platform: '钉钉' | '飞书' | '企业微信' | '微信';
   className?: string;
   fallbackClassName?: string;
 };

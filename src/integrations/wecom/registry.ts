@@ -15,7 +15,7 @@ const dataFile = join(directory, 'apps.json');
 const imageDirectory = join(directory, 'images');
 type Application = {
   id: string; clientId: string; clientSecret: string; name: string | null; icon: string | null;
-  project: string | null; agent: string | null; permissionMode?: string; createdAt?: number; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
+  project: string | null; agent: string | null; model?: string; permissionMode?: string; createdAt?: number; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
 };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; appId?: string; reason?: string };
 type Registration = { scode: string; expiresAt: number; result: PollResult; pending?: Promise<PollResult> };
@@ -58,7 +58,7 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
 
   getBinding(id: string, conversation?: string) {
     const app = this.apps.find(item => item.id === id);
-    return app ? { project: app.project, agent: app.agent, permissionMode: app.permissionMode, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
+    return app ? { project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
   }
 
   getSession(id: string, chatId: string) {
@@ -204,7 +204,7 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
     await this.send(id, chatId, content);
   }
 
-  async bind(id: string, binding: { project?: string | null; agent?: string | null; permissionMode?: string }, projects: string[], agents: string[]) {
+  async bind(id: string, binding: { project?: string | null; agent?: string | null; model?: string; permissionMode?: string }, projects: string[], agents: string[]) {
     if (binding.project !== undefined && binding.project !== null && !projects.includes(binding.project)) throw new Error('项目不存在');
     if (binding.agent !== undefined && binding.agent !== null && !agents.includes(binding.agent)) throw new Error('Agent 不可用');
     const app = this.getApp(id);
@@ -216,9 +216,10 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
     if ((binding.project !== undefined && binding.project !== app.project) || (binding.agent !== undefined && binding.agent !== app.agent)) { app.conversations = {}; app.conversationSettings = {}; }
     if (binding.project !== undefined) app.project = binding.project;
     if (binding.agent !== undefined) {
-      if (binding.agent !== app.agent) delete app.permissionMode;
+      if (binding.agent !== app.agent) { delete app.permissionMode; delete app.model; }
       app.agent = binding.agent;
     }
+    if (binding.model !== undefined) app.model = binding.model;
     if (binding.permissionMode !== undefined) app.permissionMode = binding.permissionMode;
     await this.persist();
     return this.list().find(item => item.id === id)!;

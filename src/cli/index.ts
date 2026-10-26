@@ -22,7 +22,7 @@ export async function main(): Promise<void> {
     await updatePackage();
     return;
   }
-  const { registry, sessions, projects, dingtalk, feishu, wecom } = await loadRuntime();
+  const { registry, sessions, projects, dingtalk, feishu, wecom, weixin } = await loadRuntime();
 
   if (command === 'agents') {
     printAgents(registry);
@@ -32,5 +32,5 @@ export async function main(): Promise<void> {
     printSessions(sessions);
     return;
   }
-  await startWeb(options, registry, sessions, projects, dingtalk, feishu, wecom);
+  await startWeb(options, registry, sessions, projects, dingtalk, feishu, wecom, weixin);
 }

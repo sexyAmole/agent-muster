@@ -16,11 +16,19 @@ export function createWecomRouter(wecom: WecomRegistry, projects: ProjectRegistr
   });
   router.patch('/wecom/apps/:id', async (request, response) => {
     try {
-      const { project, agent, permissionMode } = request.body || {};
+      const { project, agent, model, permissionMode } = request.body || {};
       if (project !== undefined && project !== null && typeof project !== 'string') throw new Error('项目无效');
       if (agent !== undefined && agent !== null && typeof agent !== 'string') throw new Error('Agent 无效');
       if (permissionMode !== undefined && typeof permissionMode !== 'string') throw new Error('权限模式无效');
-      response.json(await wecom.bind(request.params.id, { project, agent, permissionMode }, projects.list(), registry.list().filter(item => item.installed).map(item => item.id)));
+      if (model !== undefined) {
+        if (typeof model !== 'string') throw new Error('模型无效');
+        const agentId = agent !== undefined ? agent : wecom.getBinding(request.params.id)?.agent;
+        if (!agentId) throw new Error('请先选择 Agent');
+        const details = await registry.loadModels(agentId);
+        if (!details.installed) throw new Error('Agent 不可用');
+        if (model && !details.models.some(item => item.id === model)) throw new Error('模型不存在');
+      }
+      response.json(await wecom.bind(request.params.id, { project, agent, model, permissionMode }, projects.list(), registry.list().filter(item => item.installed).map(item => item.id)));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.delete('/wecom/apps/:id', async (request, response) => {

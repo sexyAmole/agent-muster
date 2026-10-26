@@ -74,7 +74,13 @@ export class DingTalkBridge {
     let content: string;
     const images: AgentImage[] = [];
     if (message.msgtype === 'text') content = message.text.content.trim();
-    else {
+    else if (message.msgtype === 'audio') {
+      content = message.content.recognition?.trim() || '';
+      if (!content) {
+        await this.dingtalk.reply(appId, message.sessionWebhook, '未识别到语音内容，请重新发送语音或文字消息。');
+        return;
+      }
+    } else {
       const parts = message.msgtype === 'picture' ? [{ ...message.content, type: 'picture' as const }] : message.content.richText;
       const promptParts: string[] = [];
       for (const part of parts) {
@@ -112,7 +118,7 @@ export class DingTalkBridge {
   }
 
   private async process(appId: string, conversation: string, message: DingTalkMessage['message']): Promise<void> {
-    if (!['text', 'picture', 'richText'].includes(message.msgtype)) return;
+    if (!['text', 'audio', 'picture', 'richText'].includes(message.msgtype)) return;
     if (message.msgtype === 'text' && !message.text.content.trim()) return;
     if (message.msgtype === 'text' && await handleCommand(message.text.content.trim(), appId, conversation, this.dingtalk, this.projects, this.agents, this.sessions, text => this.dingtalk.reply(appId, message.sessionWebhook, text))) return;
     const binding = await this.resolveBinding(appId, conversation, message.sessionWebhook);

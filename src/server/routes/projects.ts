@@ -11,6 +11,7 @@ import type { SessionManager } from '../../sessions/manager.js';
 import type { DingTalkRegistry } from '../../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../../integrations/feishu/registry.js';
 import type { WecomRegistry } from '../../integrations/wecom/registry.js';
+import type { WeixinRegistry } from '../../integrations/weixin/registry.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,7 +32,7 @@ async function chooseProjectDirectory(): Promise<string | null> {
   }
 }
 
-export function createProjectRouter(projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, closeTerminal: (path: string) => void) {
+export function createProjectRouter(projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, weixin: WeixinRegistry, closeTerminal: (path: string) => void) {
   const router = Router();
   router.get('/projects', (_request, response) => response.json(projects.list()));
   router.get('/projects/names', (_request, response) => response.json(projects.names()));
@@ -135,10 +136,12 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
       await dingtalk.unbindProject(path);
       await feishu.unbindProject(path);
       await wecom.unbindProject(path);
+      await weixin.unbindProject(path);
       for (const session of projectSessions) {
         await dingtalk.unbindSession(session.id);
         await feishu.unbindSession(session.id);
         await wecom.unbindSession(session.id);
+        await weixin.unbindSession(session.id);
         await sessions.remove(session.id);
       }
       if (registered) await projects.remove(path);

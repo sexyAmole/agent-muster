@@ -3,6 +3,7 @@ import type { AgentRegistry } from '../agents/registry.js';
 import type { DingTalkRegistry } from '../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../integrations/feishu/registry.js';
 import type { WecomRegistry } from '../integrations/wecom/registry.js';
+import type { WeixinRegistry } from '../integrations/weixin/registry.js';
 import type { ProjectRegistry } from '../projects/registry.js';
 import type { SessionManager } from '../sessions/manager.js';
 import { startRuntime } from '../runtime.js';
@@ -15,8 +16,8 @@ function openBrowser(url: string): void {
   spawn(command, args, { detached: true, stdio: 'ignore' }).unref();
 }
 
-export async function startWeb(options: CliOptions, registry: AgentRegistry, sessions: SessionManager, projects: ProjectRegistry, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry): Promise<void> {
-  const { url, shutdown } = await startRuntime({ registry, sessions, projects, dingtalk, feishu, wecom }, options.port, options.dev);
+export async function startWeb(options: CliOptions, registry: AgentRegistry, sessions: SessionManager, projects: ProjectRegistry, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, weixin: WeixinRegistry): Promise<void> {
+  const { url, shutdown } = await startRuntime({ registry, sessions, projects, dingtalk, feishu, wecom, weixin }, options.port, options.dev);
   console.log(`Agent Muster started\n\nWeb: ${url}\n\nDetected Agents:`);
   for (const agent of registry.list()) console.log(`${agent.installed ? '✓' : '✗'} ${agent.name}`);
   console.log('\nPress Ctrl+C to stop');

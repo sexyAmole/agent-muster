@@ -1,9 +1,11 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buffer } from 'node:stream/consumers';
+import { promisify } from 'node:util';
 import { Client, Domain, EventDispatcher, LoggerLevel, WSClient, registerApp, type EventHandles } from '@larksuiteoapi/node-sdk';
 import QRCode from 'qrcode';
 import { moveLegacyPath } from '../storage.js';
@@ -15,9 +17,10 @@ const rootDirectory = join(homedir(), '.agent-muster');
 const directory = join(rootDirectory, 'im', 'feishu');
 const dataFile = join(directory, 'apps.json');
 const imageDirectory = join(directory, 'images');
+const execute = promisify(execFile);
 type Application = {
   id: string; clientId: string; clientSecret: string; name: string | null; icon: string | null;
-  project: string | null; agent: string | null; permissionMode?: string; createdAt?: number; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
+  project: string | null; agent: string | null; model?: string; permissionMode?: string; createdAt?: number; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
 };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; appId?: string; reason?: string };
 type Registration = { controller: AbortController; expiresAt?: number; result: PollResult };
@@ -51,7 +54,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
 
   getBinding(id: string, conversation?: string) {
     const app = this.apps.find(item => item.id === id);
-    return app ? { project: app.project, agent: app.agent, permissionMode: app.permissionMode, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
+    return app ? { project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
   }
 
   getSession(id: string, chatId: string) {
@@ -85,7 +88,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
         source: 'agent-muster', createOnly: true, signal: registration.controller.signal,
         appPreset: { name: 'Agent Muster', desc: '通过飞书与本地编码 Agent 对话' },
         addons: {
-          scopes: { tenant: ['im:message:send_as_bot', 'im:message.p2p_msg:readonly', 'im:message.group_at_msg:readonly', 'im:message:readonly'] },
+          scopes: { tenant: ['im:message:send_as_bot', 'im:message.p2p_msg:readonly', 'im:message.group_at_msg:readonly', 'im:message:readonly', 'speech_to_text:speech'] },
           events: { items: { tenant: ['im.message.receive_v1'] } },
         },
         onQRCodeReady: ({ url, expireIn }) => {
@@ -150,6 +153,60 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     void ws.start({ eventDispatcher }).catch(error => console.error(`飞书应用 ${app.clientId} 消息监听失败：`, error));
   }
 
+  async transcribeAudio(id: string, messageId: string, fileKey: string, duration?: number): Promise<string> {
+    if (!messageId || !fileKey) throw new Error('飞书语音消息缺少消息 ID 或文件标识');
+    if (duration !== undefined && duration > 60000) throw new Error('飞书语音识别支持 60 秒以内的消息，请分段发送。');
+    const client = this.clients.get(id);
+    if (!client) throw new Error('飞书应用消息监听未启动');
+    const packaged = process.versions.electron && (await import('electron')).app.isPackaged;
+    const ffmpeg = packaged ? join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : 'ffmpeg';
+    let data: Buffer;
+    try {
+      const result = await client.api.im.messageResource.get({
+        path: { message_id: messageId, file_key: fileKey }, params: { type: 'file' },
+      });
+      data = await buffer(result.getReadableStream());
+    } catch {
+      throw new Error('飞书语音下载失败，请确认应用已开通 im:message:readonly 权限并发布，且机器人在消息所在的会话中。');
+    }
+    if (!data.length) throw new Error('飞书返回了空语音文件');
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'agent-muster-audio-'));
+    let pcm: Buffer;
+    try {
+      const path = join(temporaryDirectory, 'audio');
+      await writeFile(path, data, { mode: 0o600 });
+      try {
+        const { stdout } = await execute(ffmpeg, [
+          '-nostdin', '-hide_banner', '-loglevel', 'error', '-i', path, '-t', '61',
+          '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1',
+        ], { encoding: 'buffer', maxBuffer: 2 * 1024 * 1024, timeout: 30000, windowsHide: true });
+        pcm = stdout;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(packaged
+          ? '安装包缺少内置 FFmpeg，请重新安装 Agent Muster。'
+          : '飞书语音识别需要 FFmpeg，请在开发环境中安装 FFmpeg 并加入 PATH，然后重启服务。');
+        throw new Error('飞书语音转码失败，请重新发送语音消息。');
+      }
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+    if (!pcm.length) throw new Error('飞书语音文件没有有效音频，请重新发送。');
+    if (pcm.length > 16000 * 2 * 60) throw new Error('飞书语音识别支持 60 秒以内的消息，请分段发送。');
+    let result;
+    try {
+      result = await client.api.speech_to_text.speech.fileRecognize({ data: {
+        speech: { speech: pcm.toString('base64') },
+        config: { file_id: randomBytes(8).toString('hex'), format: 'pcm', engine_type: '16k_auto' },
+      } });
+    } catch {
+      throw new Error('飞书语音识别请求失败，请确认应用已开通 speech_to_text:speech 权限并发布，且租户版本支持语音识别。');
+    }
+    if (result.code !== 0) throw new Error(`飞书语音识别失败：${result.msg} (${result.code})。请确认 speech_to_text:speech 权限和租户的语音识别服务已开通。`);
+    const content = result.data?.recognition_text?.trim();
+    if (!content) throw new Error('未识别到语音内容，请重新发送语音或文字消息。');
+    return content;
+  }
+
   async downloadImage(id: string, messageId: string, imageKey: string): Promise<AgentImage> {
     if (!messageId || !imageKey) throw new Error('飞书图片消息缺少消息 ID 或图片标识');
     const client = this.clients.get(id);
@@ -212,7 +269,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     await this.send(id, chatId, content, 'markdown');
   }
 
-  async bind(id: string, binding: { project?: string | null; agent?: string | null; permissionMode?: string }, projects: string[], agents: string[]) {
+  async bind(id: string, binding: { project?: string | null; agent?: string | null; model?: string; permissionMode?: string }, projects: string[], agents: string[]) {
     if (binding.project !== undefined && binding.project !== null && !projects.includes(binding.project)) throw new Error('项目不存在');
     if (binding.agent !== undefined && binding.agent !== null && !agents.includes(binding.agent)) throw new Error('Agent 不可用');
     const app = this.getApp(id);
@@ -224,9 +281,10 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     if ((binding.project !== undefined && binding.project !== app.project) || (binding.agent !== undefined && binding.agent !== app.agent)) { app.conversations = {}; app.conversationSettings = {}; }
     if (binding.project !== undefined) app.project = binding.project;
     if (binding.agent !== undefined) {
-      if (binding.agent !== app.agent) delete app.permissionMode;
+      if (binding.agent !== app.agent) { delete app.permissionMode; delete app.model; }
       app.agent = binding.agent;
     }
+    if (binding.model !== undefined) app.model = binding.model;
     if (binding.permissionMode !== undefined) app.permissionMode = binding.permissionMode;
     await this.persist();
     return this.list().find(item => item.id === id)!;

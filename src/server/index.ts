@@ -7,6 +7,7 @@ import { AgentManagement } from '../agents/management.js';
 import type { DingTalkRegistry } from '../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../integrations/feishu/registry.js';
 import type { WecomRegistry } from '../integrations/wecom/registry.js';
+import type { WeixinRegistry } from '../integrations/weixin/registry.js';
 import type { ProjectRegistry } from '../projects/registry.js';
 import type { SessionManager } from '../sessions/manager.js';
 import { createAgentRouter } from './routes/agents.js';
@@ -14,13 +15,14 @@ import { createProjectRouter } from './routes/projects.js';
 import { createSessionRouter } from './routes/sessions.js';
 import { createDingTalkRouter } from './routes/dingtalk.js';
 import { createFeishuRouter } from './routes/feishu.js';
+import { createWeixinRouter } from './routes/weixin.js';
 import { createWecomRouter } from './routes/wecom.js';
 import { createImageRouter } from './routes/images.js';
 import { attachTerminalServer } from '../terminals/server.js';
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 
-export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, dev = false, desktopToken?: string) {
+export async function startServer(port: number, registry: AgentRegistry, projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, weixin: WeixinRegistry, dev = false, desktopToken?: string) {
   let listeningPort = port;
   const app = express();
   app.disable('x-powered-by');
@@ -63,11 +65,12 @@ export async function startServer(port: number, registry: AgentRegistry, project
 
   const agentManagement = new AgentManagement(registry);
   app.use('/api', createAgentRouter(registry, agentManagement, sessions));
-  app.use('/api', createProjectRouter(projects, sessions, dingtalk, feishu, wecom, terminals.closeProject));
+  app.use('/api', createProjectRouter(projects, sessions, dingtalk, feishu, wecom, weixin, terminals.closeProject));
   app.use('/api', createDingTalkRouter(dingtalk, projects, registry));
   app.use('/api', createFeishuRouter(feishu, projects, registry));
   app.use('/api', createWecomRouter(wecom, projects, registry));
-  app.use('/api', createSessionRouter(sessions, registry, agentManagement, dingtalk, feishu, wecom));
+  app.use('/api', createWeixinRouter(weixin, projects, registry));
+  app.use('/api', createSessionRouter(sessions, registry, agentManagement, dingtalk, feishu, wecom, weixin));
 
   if (dev) {
     const { createServer: createViteServer } = await import('vite');

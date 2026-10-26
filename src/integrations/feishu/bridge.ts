@@ -70,7 +70,7 @@ export class FeishuBridge {
 
   private enqueue({ appId, message: event }: FeishuMessage): void {
     const { message, sender } = event;
-    if (sender.sender_type !== 'user' || !['text', 'image', 'post'].includes(message.message_type)) return;
+    if (sender.sender_type !== 'user' || !['text', 'image', 'post', 'audio'].includes(message.message_type)) return;
     const key = `${appId}:${message.chat_id}`;
     const messageKey = `${appId}:${message.message_id}`;
     if (this.seen.has(messageKey)) return;
@@ -127,6 +127,16 @@ export class FeishuBridge {
   }
 
   private async process(appId: string, { message, sender }: FeishuMessage['message']): Promise<void> {
+    if (message.message_type === 'audio') {
+      try {
+        const audio = JSON.parse(message.content) as { file_key: string; duration?: number };
+        const content = await this.feishu.transcribeAudio(appId, message.message_id, audio.file_key, audio.duration);
+        message = { ...message, message_type: 'text', content: JSON.stringify({ text: content }) };
+      } catch (error) {
+        await this.feishu.send(appId, message.chat_id, (error as Error).message);
+        return;
+      }
+    }
     const parsed = readMessage(message);
     if (!parsed) return;
     let { content } = parsed;

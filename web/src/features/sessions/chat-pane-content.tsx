@@ -148,7 +148,7 @@ export function ChatPaneContent({ index, pane, multi, active: focused, agents, p
     if (!selected || !selected.im?.length || event.type !== 'output' || !event.text.trim() || pushingId !== null || event.pushedToIm) return;
     setError(''); setPushingId(event.id);
     try {
-      const session = await api<SessionSummary>(`/api/sessions/${selected.id}/${selected.im.some(binding => binding.platform === 'feishu') ? 'feishu' : selected.im.some(binding => binding.platform === 'wecom') ? 'wecom' : 'dingtalk'}/messages`, { method: 'POST', body: JSON.stringify({ eventId: event.id }) });
+      const session = await api<SessionSummary>(`/api/sessions/${selected.id}/${selected.im.some(binding => binding.platform === 'feishu') ? 'feishu' : selected.im.some(binding => binding.platform === 'wecom') ? 'wecom' : selected.im.some(binding => binding.platform === 'weixin') ? 'weixin' : 'dingtalk'}/messages`, { method: 'POST', body: JSON.stringify({ eventId: event.id }) });
       onSessionUpdate(session);
       setSelected(current => current?.id === session.id ? { ...current, events: current.events.map(item => item.id === event.id ? { ...item, pushedToIm: true } : item) } : current);
     } catch (reason) { setError((reason as Error).message); }
@@ -163,7 +163,7 @@ export function ChatPaneContent({ index, pane, multi, active: focused, agents, p
     setSelected(current => current?.id === session.id ? { ...current, ...session } : current);
   }, [selected, onSessionUpdate, modelsReady]);
 
-  const imPlatform = selected?.im?.some(binding => binding.platform === 'feishu') ? '飞书' : selected?.im?.some(binding => binding.platform === 'wecom') ? '企业微信' : '钉钉';
+  const imPlatform = selected?.im?.some(binding => binding.platform === 'feishu') ? '飞书' : selected?.im?.some(binding => binding.platform === 'wecom') ? '企业微信' : selected?.im?.some(binding => binding.platform === 'weixin') ? '微信' : '钉钉';
 
   const followStream = useCallback(() => {
     if (followConversation.current && conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight;

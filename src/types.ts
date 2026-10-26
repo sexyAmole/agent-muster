@@ -92,6 +92,7 @@ export type FeishuConversation = { type: 'single' | 'group'; senderId: string };
 export type ImContext =
   | { platform: 'dingtalk'; conversation?: DingTalkConversation }
   | { platform: 'feishu'; conversation?: FeishuConversation }
+  | { platform: 'weixin'; conversation?: { type: 'single'; senderId: string } }
   | { platform: 'wecom'; conversation?: { type: 'single' | 'group'; senderId: string } };
 
 export type ImBinding = ImContext & { appId: string };
