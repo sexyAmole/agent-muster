@@ -1,6 +1,6 @@
 {
   "name": "agent-muster",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "A local web interface for managing coding agents, projects, sessions, and DingTalk/Feishu integrations.",
   "author": "sexyAmole",
   "license": "MIT",
@@ -112,8 +112,17 @@
       "iconSize": 96,
       "iconTextSize": 13,
       "contents": [
-        { "x": 190, "y": 185, "type": "file" },
-        { "x": 530, "y": 185, "type": "link", "path": "/Applications" }
+        {
+          "x": 190,
+          "y": 185,
+          "type": "file"
+        },
+        {
+          "x": 530,
+          "y": 185,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "win": {
