@@ -1,5 +1,6 @@
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { handleCommand } from '../commands.js';
+import { withContextUsage } from '../reply.js';
 import type { AgentRegistry } from '../../agents/registry.js';
 import { WeixinRegistry, type WeixinEvent } from './registry.js';
 import type { SessionManager } from '../../sessions/manager.js';
@@ -83,6 +84,7 @@ export class WeixinBridge {
     await waitForCompletion(this.sessions, session);
     let output: string | undefined;
     for (const event of this.sessions.eventsAfter(session.id, lastEventId)) if (event.type === 'output') output = event.text.trim();
-    await reply(session.status === 'completed' ? output || 'Agent 已执行完成。' : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。');
+    const result = session.status === 'completed' ? output || 'Agent 已执行完成。' : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
+    await reply(withContextUsage(result, session.usage));
   }
 }

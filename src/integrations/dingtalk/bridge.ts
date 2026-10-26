@@ -1,5 +1,6 @@
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { handleCommand } from '../commands.js';
+import { withContextUsage } from '../reply.js';
 import type { AgentRegistry } from '../../agents/registry.js';
 import { DingTalkRegistry, type DingTalkMessage } from './registry.js';
 import type { SessionManager } from '../../sessions/manager.js';
@@ -114,7 +115,7 @@ export class DingTalkBridge {
     const reply = session.status === 'completed'
       ? output || 'Agent 已执行完成。'
       : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
-    await this.dingtalk.reply(appId, message.sessionWebhook, reply, 'markdown');
+    await this.dingtalk.reply(appId, message.sessionWebhook, withContextUsage(reply, session.usage), 'markdown');
   }
 
   private async process(appId: string, conversation: string, message: DingTalkMessage['message']): Promise<void> {

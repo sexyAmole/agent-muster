@@ -37,13 +37,13 @@ function ComposerSettings({ index, composerAgent, agentInfo, model, permissionMo
   }, []);
   const models = details?.models || agentInfo?.models || [];
   const defaultModel = details?.defaultModel || agentInfo?.defaultModel;
-  const sandboxRequired = ['codex', 'trae'].includes(composerAgent) && ['read-only', 'workspace-write', 'auto-review'].includes(permissionMode);
-  const settingsDisabled = busy || disabled || !agentInfo?.installed;
+  const sandboxRequired = ['codex', 'trae', 'dsh'].includes(composerAgent) && ['read-only', 'workspace-write', 'auto-review'].includes(permissionMode);
+  const settingsDisabled = busy || running || disabled || !agentInfo?.installed;
 
   return <><label className="model-select"><Select aria-label={`窗口 ${index + 1} 选择模型`} variant="ghost" roundedFull value={model} disabled={!composerAgent || busy || running || loading} onOpen={onLoadModels} onChange={onModelChange}><option value="">{defaultModel ? `默认 · ${defaultModel}` : 'Agent 默认'}</option>{model && !models.some(item => item.id === model) && <option value={model} disabled={composerAgent === 'codex' && model === 'gpt-6.1-sol'}>{model}</option>}{loading && <option value="loading" disabled>加载模型中…</option>}{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>{agentInfo && <details ref={permissionRef} className="composer-permissions" onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && !document.querySelector('.select-menu')) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
       <summary aria-label={`窗口 ${index + 1} 权限设置`}><span>{agentInfo.permissionModes.find(item => item.id === permissionMode)?.name}</span><svg className="permission-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
       <div className="composer-permission-popover">
-        <label className="session-permission-mode">权限模式<Select aria-label={`窗口 ${index + 1} 权限模式`} variant="ghost" roundedFull value={permissionMode} disabled={settingsDisabled} onChange={mode => onExecutionChange(mode, ['codex', 'trae'].includes(composerAgent) && ['read-only', 'workspace-write', 'auto-review'].includes(mode) ? true : sandboxEnabled)}>{agentInfo.permissionModes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
+        <label className="session-permission-mode">权限模式<Select aria-label={`窗口 ${index + 1} 权限模式`} variant="ghost" roundedFull value={permissionMode} disabled={settingsDisabled} onChange={mode => onExecutionChange(mode, ['codex', 'trae', 'dsh'].includes(composerAgent) && ['read-only', 'workspace-write', 'auto-review'].includes(mode) ? true : sandboxEnabled)}>{agentInfo.permissionModes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
         <p className="agent-sandbox-note permission-mode-description">{agentInfo.permissionModes.find(item => item.id === permissionMode)?.description}</p>
         {agentInfo.sandboxSupported ? <><div className="agent-sandbox"><span>内置沙箱</span><button type="button" role="switch" className="agent-sandbox-switch" aria-label={`窗口 ${index + 1} 会话沙箱`} aria-checked={sandboxEnabled} disabled={settingsDisabled || sandboxRequired} onClick={() => onExecutionChange(permissionMode, !sandboxEnabled)}><span className="agent-sandbox-track" aria-hidden="true" /></button></div><p className="agent-sandbox-note">{sandboxRequired ? '当前权限模式必须开启沙箱。' : '仅作用于当前会话。'}</p></> : <p className="agent-sandbox-note">此 Agent 不支持内置沙箱。</p>}
       </div>
@@ -86,9 +86,9 @@ function getComposerState({ selected, agents, projects, pane, agent, message, im
   const composerProject = selected?.cwd || (projects.includes(pane.cwd) ? pane.cwd : '');
   const composerAgent = selected?.agent || agent;
   const agentInfo = agents.find(item => item.id === composerAgent);
-  const composerDisabled = Boolean(running || !modelsReady || (selected && !selected.externalSessionId));
-  const supportsImages = Boolean(agentInfo?.installed && composerAgent !== 'cursor');
-  const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId : composerProject && agent));
+  const composerDisabled = Boolean(!modelsReady || (selected && !selected.externalSessionId && !running));
+  const supportsImages = Boolean(agentInfo?.installed && !['cursor', 'dsh'].includes(composerAgent));
+  const canSend = Boolean((message.trim() || images.length) && (!images.length || supportsImages) && !busy && !composerDisabled && agentInfo?.installed && (selected ? selected.externalSessionId || running : composerProject && agent));
 
   return { running, composerProject, composerAgent, agentInfo, composerDisabled, supportsImages, canSend };
 }
@@ -130,7 +130,7 @@ export function ChatComposer({ index, pane, agents, projects, sessions, pickingP
   useEffect(() => { setSandboxEnabled(selected?.sandboxEnabled ?? defaultSandboxEnabled); }, [selected?.id, selected?.sandboxEnabled, agent, defaultSandboxEnabled]);
 
   async function changeExecutionSettings(mode: string, enabled: boolean) {
-    if (busy || composerDisabled) return;
+    if (busy || composerDisabled || running) return;
     if (!selected) { setPermissionMode(mode); setSandboxEnabled(enabled); return; }
     setBusy(true); setError('');
     try {
@@ -187,6 +187,17 @@ export function ChatComposer({ index, pane, agents, projects, sessions, pickingP
       setImages([]);
       for (const url of imageUrls.current) URL.revokeObjectURL(url);
       imageUrls.current.clear();
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function updateQueue(messageId?: string) {
+    if (!selected || busy) return;
+    setError(''); setBusy(true);
+    try {
+      const session = await api<SessionSummary>(`/api/sessions/${selected.id}/queue/${messageId || 'resume'}`, { method: messageId ? 'DELETE' : 'POST' });
+      onSessionUpdate(session);
+      setSelected(current => current?.id === session.id ? { ...current, ...session } : current);
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(false); }
   }
@@ -258,11 +269,15 @@ export function ChatComposer({ index, pane, agents, projects, sessions, pickingP
       </span>
       <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} variant="ghost" roundedFull value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{sortedAgents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
     </div>}
+    {selected && selected.queuedMessages && selected.queuedMessages.length > 0 && <div className="message-queue" aria-label="待执行消息">
+      <div className="message-queue-heading"><span>{selected.queuePaused ? '队列已暂停' : '等待执行'} · {selected.queuedMessages.length} 条</span>{!running && <button type="button" className="reply-push" disabled={busy || !modelsReady || !selected.externalSessionId} onClick={() => void updateQueue()}>继续队列</button>}</div>
+      <ol>{selected.queuedMessages.map(item => <li key={item.id}><span>{item.content}{item.images?.length ? `（${item.images.length} 张图片）` : ''}</span><button type="button" className="reply-push" disabled={busy} aria-label={`移除排队消息 ${item.content}`} onClick={() => void updateQueue(item.id)}>移除</button></li>)}</ol>
+    </div>}
     <div className="chat-composer" ref={composerRef}>
       {images.length > 0 && <div className="composer-images" aria-label="待发送图片" aria-busy={busy}>{images.map(image => <div key={image.url} className="composer-image"><a href={image.url} target="_blank" rel="noreferrer" aria-label={`预览图片 ${image.file.name}`}><img src={image.url} alt={image.file.name} /></a><button type="button" aria-label={`移除图片 ${image.file.name}`} disabled={busy} onClick={() => removeImage(image.url)}>×</button></div>)}</div>}
-      <FileMentionTextarea project={composerProject} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={setMessage} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={running ? '等待 Agent 完成当前任务…' : modelsLoading ? '正在加载 Agent 模型…' : modelsFailed ? '模型加载失败，请重试' : selected ? '继续输入任务要求，@ 搜索文件' : '描述要完成的任务，@ 搜索文件'} disabled={busy || composerDisabled} rows={2} />
+      <FileMentionTextarea project={composerProject} aria-label={`窗口 ${index + 1} 消息`} value={message} onChange={setMessage} onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addImages(files); } }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={modelsLoading ? '正在加载 Agent 模型…' : modelsFailed ? '模型加载失败，请重试' : running ? '输入下一条任务，发送后加入队列' : selected ? '继续输入任务要求，@ 搜索文件' : '描述要完成的任务，@ 搜索文件'} disabled={busy || composerDisabled} rows={2} />
       <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
-      <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}{modelsLoading && <span className="composer-upload-status" role="status">加载模型中…</span>}{modelsFailed && <button type="button" className="reply-push" onClick={() => setModelRetry(value => value + 1)}>重试加载模型</button>}<ComposerSettings key={composerAgent} modelDetails={modelState?.key === modelKey ? modelState.details : undefined} modelsLoading={modelsLoading} onLoadModels={() => { if (modelsFailed) setModelRetry(value => value + 1); }} index={index} composerAgent={composerAgent} agentInfo={agentInfo} model={model} permissionMode={permissionMode} sandboxEnabled={sandboxEnabled} busy={busy} running={Boolean(running)} disabled={composerDisabled} onModelChange={setModel} onExecutionChange={(mode, enabled) => void changeExecutionSettings(mode, enabled)} /></div><button className="composer-send" aria-label={running ? '停止生成' : selected ? '发送消息' : '创建对话并发送'} disabled={running ? busy : !canSend} onClick={running ? stop : send}>{running ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg> : '↑'}</button></div>
+      <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}{modelsLoading && <span className="composer-upload-status" role="status">加载模型中…</span>}{modelsFailed && <button type="button" className="reply-push" onClick={() => setModelRetry(value => value + 1)}>重试加载模型</button>}<ComposerSettings key={composerAgent} modelDetails={modelState?.key === modelKey ? modelState.details : undefined} modelsLoading={modelsLoading} onLoadModels={() => { if (modelsFailed) setModelRetry(value => value + 1); }} index={index} composerAgent={composerAgent} agentInfo={agentInfo} model={model} permissionMode={permissionMode} sandboxEnabled={sandboxEnabled} busy={busy} running={Boolean(running)} disabled={composerDisabled} onModelChange={setModel} onExecutionChange={(mode, enabled) => void changeExecutionSettings(mode, enabled)} /></div><div className="composer-submit-actions">{running && <button className="composer-send" aria-label="停止生成" data-tooltip="停止生成" disabled={busy} onClick={stop}><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="1" /></svg></button>}<button className="composer-send" aria-label={running || selected?.queuedMessages?.length ? '加入队列' : selected ? '发送消息' : '创建对话并发送'} data-tooltip={running || selected?.queuedMessages?.length ? '加入队列' : selected ? '发送消息' : '创建对话并发送'} disabled={!canSend} onClick={send}>↑</button></div></div>
     </div>
     {selected && <TokenUsageStatus usage={selected.usage} />}
   </div>;

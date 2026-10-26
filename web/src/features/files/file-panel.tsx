@@ -249,27 +249,55 @@ export function FilePanel({ project, onClose }: { project: string; onClose: () =
   const [treeWidth, setTreeWidth] = useState(200);
   const tabsId = useId();
   const tabsRef = useRef<HTMLDivElement>(null);
+  const [folder, setFolder] = useState(project);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [includeContent, setIncludeContent] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [copyResult, setCopyResult] = useState<{ path: string; error?: string } | null>(null);
-  const result = useFileResource<ProjectFileDetail>(selected === null ? '' : `/api/projects/file?${new URLSearchParams({ path: project, file: selected })}`, revision);
+  const [openingFolder, setOpeningFolder] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const [copyResult, setCopyResult] = useState<{ path: string; kind: 'path' | 'content'; error?: string } | null>(null);
+  const result = useFileResource<ProjectFileDetail>(selected === null ? '' : `/api/projects/file?${new URLSearchParams({ path: folder, file: selected })}`, revision);
   const query = search.trim();
-  const searchResult = useFileResource<string[]>(query ? `/api/projects/files?${new URLSearchParams({ path: project, query, content: String(includeContent) })}` : '', revision);
+  const searchResult = useFileResource<string[]>(query ? `/api/projects/files?${new URLSearchParams({ path: folder, query, content: String(includeContent) })}` : '', revision);
   const file = result?.data;
-  const copied = copyResult?.path === file?.path && !copyResult?.error;
+  const copied = copyResult && copyResult.path === file?.path && copyResult.kind === 'path' && !copyResult.error;
+  const contentCopied = copyResult && copyResult.path === file?.path && copyResult.kind === 'content' && !copyResult.error;
   useEffect(() => {
     if (!copyResult || copyResult.error) return;
     const timer = window.setTimeout(() => setCopyResult(null), 2000);
     return () => window.clearTimeout(timer);
   }, [copyResult]);
-  async function copyPath(path: string) {
+  async function copyFile(path: string, kind: 'path' | 'content', text: string) {
     try {
-      await navigator.clipboard.writeText(path);
-      setCopyResult({ path });
+      await navigator.clipboard.writeText(text);
+      setCopyResult({ path, kind });
     } catch (reason) {
-      setCopyResult({ path, error: `复制路径失败：${(reason as Error).message}` });
+      setCopyResult({ path, kind, error: `复制${kind === 'path' ? '路径' : '内容'}失败：${(reason as Error).message}` });
+    }
+  }
+  async function openFolder() {
+    if (openingFolder) return;
+    setOpeningFolder(true);
+    setFolderError(null);
+    try {
+      const response = await fetch(apiUrl('/api/projects/files/pick'), {
+        method: 'POST',
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      if (data.path) {
+        setSelected(null);
+        setSearch('');
+        setCopyResult(null);
+        setFolder(data.path);
+        setShowTree(true);
+        setRevision(value => value + 1);
+      }
+    } catch (reason) {
+      setFolderError(`打开文件夹失败：${(reason as Error).message}`);
+    } finally {
+      setOpeningFolder(false);
     }
   }
   return <aside className={`file-panel${showTree ? '' : ' tree-hidden'}`} aria-label="项目面板" style={{ '--file-tree-width': `${treeWidth}px` } as CSSProperties}>
@@ -292,9 +320,10 @@ export function FilePanel({ project, onClose }: { project: string; onClose: () =
       {showGit && <GitPanel project={project} revision={revision} showTree={showTree} treeId={`${tabsId}-tree-1`} resizer={showTree && <FileTreeResizer width={treeWidth} onResize={setTreeWidth} />} treeToggle={<FileTreeToggle showTree={showTree} treeId={`${tabsId}-tree-1`} onToggle={() => setShowTree(value => !value)} />} onBranchSwitched={() => setRevision(value => value + 1)} />}
     </div>
     <div className="file-panel-tabpanel" id={`${tabsId}-panel-0`} role="tabpanel" aria-labelledby={`${tabsId}-tab-0`} hidden={view !== 0}>
-      <div className="file-metadata"><div className="file-path-display"><span className="file-path-label">路径</span><strong className="file-path" title={file?.path ?? project}>{file?.path ?? project}</strong></div>{file && <button type="button" className="copy-button" aria-label={copied ? '已复制路径' : '复制文件路径'} onClick={() => void copyPath(file.path)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copied ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}<FileTreeToggle showTree={showTree} treeId={`${tabsId}-tree-0`} onToggle={() => setShowTree(value => !value)} /></div>
+      <div className="file-metadata"><div className="file-path-display"><span className="file-path-label">路径</span><strong className="file-path" title={file?.path ?? folder}>{file?.path ?? folder}</strong></div>{file && <button type="button" className="copy-button" aria-label={copied ? '已复制路径' : '复制文件路径'} onClick={() => void copyFile(file.path, 'path', file.path)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copied ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>}</svg></button>}{file?.preview === 'text' && file.content !== undefined && <button type="button" className="copy-button" aria-label={contentCopied ? '已复制内容' : '复制文件内容'} onClick={() => void copyFile(file.path, 'content', file.content!)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{contentCopied ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /><path d="M12 12h4M12 16h4" /></>}</svg></button>}<button type="button" className="copy-button" aria-label={openingFolder ? '正在打开文件夹' : '打开文件夹'} disabled={openingFolder} onClick={() => void openFolder()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 10V6a2 2 0 0 0-2-2h-6l-2-2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2" /><path d="M14 10h8v8M22 10l-9 9" /></svg></button><FileTreeToggle showTree={showTree} treeId={`${tabsId}-tree-0`} onToggle={() => setShowTree(value => !value)} /></div>
       <div className="file-panel-body">
         <section className="file-detail" aria-label="文件详情" aria-busy={selected !== null && !result}>
+          {folderError && <p className="file-panel-status file-panel-error" role="alert">{folderError}</p>}
           {selected === null ? <p className="file-panel-status">从右侧文件树选择文件</p> : !result ? <p className="file-panel-status" role="status">正在读取文件…</p> : result.error ? <p className="file-panel-status file-panel-error" role="alert">{result.error}</p> : file && <>
             {copyResult?.path === file.path && copyResult.error && <p className="file-panel-status file-panel-error" role="alert">{copyResult.error}</p>}
             {file.preview === 'text' ? file.content ? <Suspense fallback={<p className="file-panel-status" role="status">正在加载代码预览…</p>}><FileCodePreview path={file.path} content={file.content} /></Suspense> : <p className="file-panel-status">空文件</p> : <p className="file-panel-status">{previewMessages[file.preview]}</p>}
@@ -308,10 +337,10 @@ export function FilePanel({ project, onClose }: { project: string; onClose: () =
               <button type="button" className="file-tree-search-toggle" aria-label="搜索文件内容" aria-pressed={includeContent} onClick={() => setIncludeContent(value => !value)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7M14 2v6h6M14 2l6 6v3M8 12h4M8 16h3" /><circle cx="17" cy="16" r="3" /><path d="m19.2 18.2 2.8 2.8" /></svg></button>
             </div>
           </div>
-          <div className="file-tree-content" hidden={Boolean(query)}><DirectoryEntries project={project} directory="" revision={revision} selected={selected} onSelect={setSelected} /></div>
+          <div className="file-tree-content" hidden={Boolean(query)}><DirectoryEntries key={folder} project={folder} directory="" revision={revision} selected={selected} onSelect={setSelected} /></div>
           {query && <div className="file-tree-content" aria-label="文件搜索结果" aria-busy={!searchResult}>
             {!searchResult ? <p className="file-panel-status" role="status">搜索中…</p> : searchResult.error ? <p className="file-panel-status file-panel-error" role="alert">{searchResult.error}</p> : !searchResult.data?.length ? <p className="file-panel-status" role="status">没有匹配文件，请修改搜索词</p> : <>
-              <FilePathsTree key={JSON.stringify([query, includeContent])} paths={searchResult.data} selected={selected} onSelect={setSelected} />
+              <FilePathsTree key={JSON.stringify([folder, query, includeContent])} paths={searchResult.data} selected={selected} onSelect={setSelected} />
               {searchResult.data.length === 50 && <p className="file-panel-status">最多显示 50 个文件，可输入更完整的路径缩小范围</p>}
             </>}
           </div>}

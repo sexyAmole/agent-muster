@@ -8,6 +8,8 @@ const agentIcons: Record<string, string> = {
   workbuddy: new URL('../../shared/assets/agents/workbuddy.png', import.meta.url).href,
   trae: new URL('../../shared/assets/agents/trae.png', import.meta.url).href,
   qodercn: new URL('../../shared/assets/agents/qodercn.svg', import.meta.url).href,
+  kimi: new URL('../../shared/assets/agents/kimi.svg', import.meta.url).href,
+  dsh: new URL('../../shared/assets/agents/dsh.svg', import.meta.url).href,
 };
 
 export function AgentIcon({ agent, className }: { agent: string; className?: string }) {

@@ -10,7 +10,7 @@ export interface Launch {
   args: string[];
   prompt?: string;
   env?: NodeJS.ProcessEnv;
-  connect?: (child: ChildProcessWithoutNullStreams) => ProtocolReader;
+  connect?: (child: ChildProcessWithoutNullStreams, cwd: string) => ProtocolReader;
 }
 
 export interface ExecutionOptions {

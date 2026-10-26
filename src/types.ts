@@ -151,6 +151,15 @@ export interface SessionLogPage {
   hasMore: boolean;
 }
 
+export interface QueuedMessage {
+  id: string;
+  content: string;
+  model?: string;
+  permissionMode: string;
+  sandboxEnabled: boolean;
+  images?: Pick<AgentImage, 'path' | 'mimeType'>[];
+}
+
 export interface AgentSession {
   id: string;
   agent: string;
@@ -168,4 +177,6 @@ export interface AgentSession {
   createdAt: number;
   updatedAt: number;
   events: SessionEvent[];
+  queuedMessages?: QueuedMessage[];
+  queuePaused?: boolean;
 }

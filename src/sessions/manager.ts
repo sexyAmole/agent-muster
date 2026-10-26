@@ -2,6 +2,7 @@ import { getSandboxEnabled, sessionSandboxEnabled, validatePermissionMode } from
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import { stat } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { adapters, providers, type AdapterResult } from '../agents/providers/index.js';
@@ -35,7 +36,7 @@ export class SessionManager extends EventEmitter {
     for (const session of await this.store.load()) {
       session.permissionMode ??= 'full-auto';
       if (session.sandboxEnabled === undefined) {
-        const required = ['codex', 'trae'].includes(session.agent) && ['read-only', 'workspace-write', 'auto-review'].includes(session.permissionMode);
+        const required = ['codex', 'trae', 'dsh'].includes(session.agent) && ['read-only', 'workspace-write', 'auto-review'].includes(session.permissionMode);
         session.sandboxEnabled = required || Boolean(providers.get(session.agent)?.sandboxSupported && getSandboxEnabled(session.agent));
         this.store.saveMetadata(session);
       }
@@ -44,6 +45,7 @@ export class SessionManager extends EventEmitter {
         session.pid = undefined;
         this.status(session, 'stopped');
       }
+      if (session.queuedMessages?.length) { session.queuePaused = true; this.save(session); }
       this.sessions.set(session.id, session);
     }
   }
@@ -207,25 +209,74 @@ export class SessionManager extends EventEmitter {
     return session;
   }
 
-  async send(id: string, message: string, model?: string, im?: ImBinding, images?: AgentImage[], permissionMode?: string | null, sandboxEnabled?: boolean): Promise<AgentSession> {
+  async send(id: string, message: string, model?: string, im?: ImBinding, images?: AgentImage[], permissionMode?: string | null, sandboxEnabled?: boolean, allowQueue = false): Promise<AgentSession> {
     const session = this.sessions.get(id);
     if (!session) throw new Error('Session not found');
     if (!message.trim()) throw new Error('Message is required');
     const child = this.processes.get(id);
-    if (child && (session.status === 'completed' || session.status === 'stopped')) await once(child, 'close');
+    if (child && !allowQueue && (session.status === 'completed' || session.status === 'stopped')) await once(child, 'close');
     if (this.sessions.get(id) !== session) throw new Error('Session not found');
-    if (this.processes.has(id)) throw new Error('Wait for the current task to finish or stop it');
-    if (!session.externalSessionId) throw new Error('This agent did not create a resumable session');
+    if (this.processes.has(id) && !allowQueue) throw new Error('Wait for the current task to finish or stop it');
+    if (!session.externalSessionId && !(allowQueue && this.processes.has(id))) throw new Error('This agent did not create a resumable session');
     validatePermissionMode(session.agent, permissionMode);
     const nextMode = permissionMode === undefined ? session.permissionMode || 'full-auto' : permissionMode || 'full-auto';
-    const required = ['codex', 'trae'].includes(session.agent) && ['read-only', 'workspace-write', 'auto-review'].includes(nextMode);
-    session.sandboxEnabled = sessionSandboxEnabled(session.agent, nextMode, sandboxEnabled === undefined ? required ? true : session.sandboxEnabled : sandboxEnabled);
+    const required = ['codex', 'trae', 'dsh'].includes(session.agent) && ['read-only', 'workspace-write', 'auto-review'].includes(nextMode);
+    const enabled = sessionSandboxEnabled(session.agent, nextMode, sandboxEnabled === undefined ? required ? true : session.sandboxEnabled : sandboxEnabled);
+    if (allowQueue && (this.processes.has(id) || session.queuedMessages?.length)) {
+      session.queuedMessages = [...session.queuedMessages || [], {
+        id: randomUUID(), content: message.trim(), model: model === undefined ? session.model : model || undefined,
+        permissionMode: nextMode, sandboxEnabled: enabled,
+        images: images?.map(({ path, mimeType }) => ({ path, mimeType })),
+      }];
+      this.status(session, session.status);
+      return session;
+    }
+    session.queuePaused = false;
+    session.sandboxEnabled = enabled;
     if (permissionMode !== undefined) session.permissionMode = permissionMode || 'full-auto';
     if (model !== undefined) session.model = model || undefined;
     if (im) this.linkImSession(id, im);
     this.append(session, { type: 'message', text: message.trim(), im, images });
     this.start(session, message.trim(), images);
     return session;
+  }
+
+  removeQueuedMessage(id: string, messageId: string): AgentSession {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error('会话不存在');
+    if (!session.queuedMessages?.some(message => message.id === messageId)) throw new Error('排队消息不存在');
+    session.queuedMessages = session.queuedMessages.filter(message => message.id !== messageId);
+    this.status(session, session.status);
+    return session;
+  }
+
+  resumeQueue(id: string): AgentSession {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error('会话不存在');
+    if (this.processes.has(id)) throw new Error('请等待当前任务停止后再继续队列');
+    if (!session.externalSessionId) throw new Error('此会话无法继续');
+    session.queuePaused = false;
+    this.runNextQueued(session);
+    return session;
+  }
+
+  private runNextQueued(session: AgentSession): void {
+    const message = session.queuedMessages?.[0];
+    if (!message || session.queuePaused || this.processes.has(session.id)) return;
+    try {
+      if (!session.externalSessionId) throw new Error('此会话无法继续');
+      const images = message.images?.map(image => ({ ...image, type: 'image' as const, data: readFileSync(image.path).toString('base64') }));
+      session.model = message.model;
+      session.permissionMode = message.permissionMode;
+      session.sandboxEnabled = message.sandboxEnabled;
+      session.queuedMessages = session.queuedMessages!.slice(1);
+      this.append(session, { type: 'message', text: message.content, images });
+      this.start(session, message.content, images);
+    } catch (error) {
+      session.queuePaused = true;
+      this.append(session, { type: 'error', text: `队列已暂停：${(error as Error).message}` });
+      this.status(session, 'failed');
+    }
   }
 
   recordImMessage(id: string, content: string, im: ImContext): AgentSession {
@@ -254,6 +305,7 @@ export class SessionManager extends EventEmitter {
     if (!session) throw new Error('Session not found');
     const child = this.processes.get(id);
     if (!child) throw new Error('Session is not running');
+    session.queuePaused = true;
     this.status(session, 'stopped');
     if (process.platform === 'win32') child.kill('SIGTERM');
     else if (child.pid) process.kill(-child.pid, 'SIGTERM');
@@ -339,6 +391,8 @@ export class SessionManager extends EventEmitter {
       const status = run.aborted ? 'stopped' : code === 0 && !run.failed ? 'completed' : 'failed';
       if (session.status !== status) this.status(session, status);
     }
+    if (session.status === 'completed') this.runNextQueued(session);
+    else if (session.queuedMessages?.length) { session.queuePaused = true; this.status(session, session.status); }
     this.emit(`${session.id}:idle`);
   }
 
@@ -353,7 +407,7 @@ export class SessionManager extends EventEmitter {
       detached: process.platform !== 'win32',
       env: session.agent === 'opencode' ? { ...(launch.env || process.env), PWD: session.cwd } : launch.env || process.env,
     });
-    const read = adapter.createReader(launch.connect?.(child));
+    const read = adapter.createReader(launch.connect?.(child, session.cwd));
     this.processes.set(session.id, child);
     session.pid = child.pid;
     this.status(session, 'running');

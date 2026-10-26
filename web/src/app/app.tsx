@@ -30,6 +30,7 @@ export function App() {
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
   const [projectNames, setProjectNames] = useState<Record<string, string>>({});
+  const [sessionLimits, setSessionLimits] = useState<Record<string, number>>({});
   const [sessionDateRange, setSessionDateRange] = useState<DateRange | null>(null);
   const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
   const [sessionTitle, setSessionTitle] = useState('');
@@ -297,6 +298,7 @@ export function App() {
         {visibleProjects.map(path => {
           const projectSessions = visibleSessions.filter(session => session.cwd === path);
           const expanded = expandedProjects.includes(path);
+          const sessionLimit = sessionLimits[path] ?? 5;
           return <div className={`project-group ${dragPreview?.path === path ? 'project-dragging' : ''}`} key={path}>
             <div className={`project-row ${dragTarget === path ? 'project-drop-target' : ''}`} data-project-path={path}
               onPointerDown={event => {
@@ -350,7 +352,7 @@ export function App() {
               }}><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg></button>
             </div>
             {expanded && <div className="project-conversations">
-              {projectSessions.length ? projectSessions.map(session => {
+              {projectSessions.length ? projectSessions.slice(0, sessionLimit).map(session => {
                 const openIndex = panes.slice(0, paneCount).findIndex(pane => pane.sessionId === session.id);
                 const dingtalkBinding = session.im?.find(binding => binding.platform === 'dingtalk');
                 const feishuBinding = session.im?.find(binding => binding.platform === 'feishu');
@@ -365,6 +367,7 @@ export function App() {
                   setRenamingSession(session);
                 }}><ActionIcon type="edit" /></button><button className="sidebar-delete conversation-delete" onClick={() => void deleteSession(session)} aria-label={`删除对话 ${session.title ?? session.prompt}`} title="删除对话"><ActionIcon type="delete" /></button></div>;
               }) : <p className="project-empty">还没有对话</p>}
+              {projectSessions.length > sessionLimit && <button type="button" className="session-load-more" onClick={() => setSessionLimits(current => ({ ...current, [path]: sessionLimit + 8 }))}>查看更多</button>}
             </div>}
           </div>;
         })}

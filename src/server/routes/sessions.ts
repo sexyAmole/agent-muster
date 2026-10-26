@@ -91,7 +91,7 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       if (!registry.get(session.agent)?.installed) throw new Error('此 Agent 已卸载，请先重新安装');
       if (model !== undefined && (typeof model !== 'string' || (model && !(await registry.loadModels(session.agent)).models.some(item => item.id === model)))) throw new Error('Invalid model');
       const images = await sessions.readImages(imageIds, session.agent);
-      response.json(sessionMetadata(await sessions.send(request.params.id, content, model, undefined, images, permissionMode, sandboxEnabled)));
+      response.json(sessionMetadata(await sessions.send(request.params.id, content, model, undefined, images, permissionMode, sandboxEnabled, true)));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.post('/sessions/:id/dingtalk/messages', async (request, response) => {
@@ -165,6 +165,20 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       console.error(`微信会话 ${request.params.id} 消息发送失败：`, error);
       response.status(400).json({ error: (error as Error).message });
     }
+  });
+  router.delete('/sessions/:id/queue/:messageId', (request, response) => {
+    try { response.json(sessionMetadata(sessions.removeQueuedMessage(request.params.id, request.params.messageId))); }
+    catch (error) { response.status(400).json({ error: (error as Error).message }); }
+  });
+  router.post('/sessions/:id/queue/resume', (request, response) => {
+    try {
+      if (agentManagement.operating) throw new Error('正在执行 Agent 操作，请完成后再继续队列');
+      const session = sessions.get(request.params.id);
+      if (!session) throw new Error('会话不存在');
+      if (!registry.get(session.agent)?.installed) throw new Error('此 Agent 已卸载，请先重新安装');
+      response.json(sessionMetadata(sessions.resumeQueue(request.params.id)));
+    }
+    catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.post('/sessions/:id/stop', (request, response) => {
     try { response.json(sessionMetadata(sessions.stop(request.params.id))); }

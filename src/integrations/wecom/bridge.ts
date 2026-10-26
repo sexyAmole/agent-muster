@@ -1,6 +1,7 @@
 import { MessageType, type ImageContent } from '@wecom/aibot-node-sdk';
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { handleCommand } from '../commands.js';
+import { withContextUsage } from '../reply.js';
 import type { AgentRegistry } from '../../agents/registry.js';
 import { WecomRegistry, type WecomMessage } from './registry.js';
 import type { SessionManager } from '../../sessions/manager.js';
@@ -88,7 +89,7 @@ export class WecomBridge {
       if (event.type === 'output') output = event.text.trim();
     }
     const reply = session.status === 'completed' ? output || 'Agent 已执行完成。' : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
-    await this.wecom.send(appId, chatId, reply);
+    await this.wecom.send(appId, chatId, withContextUsage(reply, session.usage));
   }
 
   private async process(appId: string, chatId: string, message: NonNullable<WecomMessage['frame']['body']>): Promise<void> {

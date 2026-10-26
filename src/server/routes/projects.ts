@@ -15,14 +15,14 @@ import type { WeixinRegistry } from '../../integrations/weixin/registry.js';
 
 const execFileAsync = promisify(execFile);
 
-async function chooseProjectDirectory(): Promise<string | null> {
+async function chooseDirectory(prompt: string): Promise<string | null> {
   const platform = process.platform;
   const command = platform === 'darwin' ? 'osascript' : platform === 'win32' ? 'powershell.exe' : 'zenity';
   const args = platform === 'darwin'
-    ? ['-e', 'try\nPOSIX path of (choose folder with prompt "选择项目目录")\non error number -128\nreturn ""\nend try']
+    ? ['-e', `try\nPOSIX path of (choose folder with prompt ${JSON.stringify(prompt)})\non error number -128\nreturn ""\nend try`]
     : platform === 'win32'
       ? ['-NoProfile', '-STA', '-Command', 'Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.SelectedPath) }']
-      : ['--file-selection', '--directory', '--title=选择项目目录'];
+      : ['--file-selection', '--directory', `--title=${prompt}`];
   try {
     const { stdout } = await execFileAsync(command, args);
     return stdout.trim() || null;
@@ -34,6 +34,7 @@ async function chooseProjectDirectory(): Promise<string | null> {
 
 export function createProjectRouter(projects: ProjectRegistry, sessions: SessionManager, dingtalk: DingTalkRegistry, feishu: FeishuRegistry, wecom: WecomRegistry, weixin: WeixinRegistry, closeTerminal: (path: string) => void) {
   const router = Router();
+  const openedFolders = new Set<string>();
   router.get('/projects', (_request, response) => response.json(projects.list()));
   router.get('/projects/names', (_request, response) => response.json(projects.names()));
   router.put('/projects/order', async (request, response) => {
@@ -66,7 +67,7 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
         const path = request.query.path;
         const target = request.query[kind === 'tree' ? 'directory' : 'file'];
         if (typeof path !== 'string' || typeof target !== 'string') throw new Error('需要项目路径和相对路径');
-        if (!projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
+        if (!openedFolders.has(path) && !projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
           response.status(404).json({ error: '项目不存在' }); return;
         }
         response.json(kind === 'tree' ? await listProjectDirectory(path, target) : await readProjectFile(path, target));
@@ -83,10 +84,20 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
     try {
       const { path, query, content } = request.query;
       if (typeof path !== 'string' || typeof query !== 'string') throw new Error('需要项目路径和搜索词');
-      if (!projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
+      if (!openedFolders.has(path) && !projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
         response.status(404).json({ error: '项目不存在' }); return;
       }
       response.json(await searchProjectFiles(path, query, content === 'true'));
+    } catch (error) { response.status(400).json({ error: (error as Error).message }); }
+  });
+  router.post('/projects/files/pick', async (_request, response) => {
+    try {
+      const selected = await chooseDirectory('选择文件夹');
+      if (!selected) { response.json({ path: null }); return; }
+      const path = await realpath(selected);
+      if (!(await stat(path)).isDirectory()) throw new Error('目标不是目录');
+      openedFolders.add(path);
+      response.json({ path });
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   for (const kind of ['git', 'git-diff'] as const) {
@@ -121,7 +132,7 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
   });
   router.post('/projects/pick', async (_request, response) => {
     try {
-      const path = await chooseProjectDirectory();
+      const path = await chooseDirectory('选择项目目录');
       response.json({ path: path ? await projects.add(path) : null });
     } catch (error) { response.status(500).json({ error: (error as Error).message }); }
   });
