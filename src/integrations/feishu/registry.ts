@@ -12,6 +12,7 @@ import { moveLegacyPath } from '../storage.js';
 import type { ConversationSettings } from '../commands.js';
 import type { AgentImage } from '../../types.js';
 import { validatePermissionMode } from '../../agents/settings.js';
+import { StreamReply, splitStreamContent } from '../stream-reply.js';
 
 const rootDirectory = join(homedir(), '.agent-muster');
 const directory = join(rootDirectory, 'im', 'feishu');
@@ -88,7 +89,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
         source: 'agent-muster', createOnly: true, signal: registration.controller.signal,
         appPreset: { name: 'Agent Muster', desc: '通过飞书与本地编码 Agent 对话' },
         addons: {
-          scopes: { tenant: ['im:message:send_as_bot', 'im:message.p2p_msg:readonly', 'im:message.group_at_msg:readonly', 'im:message:readonly', 'speech_to_text:speech'] },
+          scopes: { tenant: ['im:message:send_as_bot', 'im:message.p2p_msg:readonly', 'im:message.group_at_msg:readonly', 'im:message:readonly', 'speech_to_text:speech', 'cardkit:card:write'] },
           events: { items: { tenant: ['im.message.receive_v1'] } },
         },
         onQRCodeReady: ({ url, expireIn }) => {
@@ -234,6 +235,40 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     const path = join(imageDirectory, `${randomUUID()}.${extension}`);
     await writeFile(path, data, { mode: 0o600 });
     return { type: 'image', mimeType, data: data.toString('base64'), path };
+  }
+
+  async startReply(id: string, chatId: string): Promise<StreamReply> {
+    const client = this.clients.get(id);
+    if (!client) throw new Error('飞书应用消息监听未启动');
+    const card = await client.api.cardkit.v1.card.create({ data: { type: 'card_json', data: JSON.stringify({
+      schema: '2.0', config: { streaming_mode: true, update_multi: true },
+      body: { elements: [{ tag: 'markdown', element_id: 'answer', content: '正在处理中…' }] },
+    }) } });
+    if (card.code !== 0 || !card.data?.card_id) throw new Error(`飞书流式卡片创建失败：${card.msg} (${card.code})`);
+    const cardId = card.data.card_id;
+    const message = await client.api.im.message.create({ params: { receive_id_type: 'chat_id' }, data: {
+      receive_id: chatId, msg_type: 'interactive', content: JSON.stringify({ type: 'card', data: { card_id: cardId } }),
+    } });
+    if (message.code !== 0) throw new Error(`飞书流式卡片发送失败：${message.msg} (${message.code})`);
+    let sequence = 0;
+    return new StreamReply(async (content, finish) => {
+      const [text, remaining] = splitStreamContent(content);
+      try {
+        const result = await client.api.cardkit.v1.cardElement.content({
+          path: { card_id: cardId, element_id: 'answer' },
+          data: { content: text, sequence: ++sequence, uuid: randomUUID() },
+        });
+        if (result.code !== 0) throw new Error(`飞书流式卡片更新失败：${result.msg} (${result.code})`);
+      } finally {
+        if (finish) {
+          const result = await client.api.cardkit.v1.card.settings({ path: { card_id: cardId }, data: {
+            settings: JSON.stringify({ config: { streaming_mode: false } }), sequence: ++sequence, uuid: randomUUID(),
+          } });
+          if (result.code !== 0) throw new Error(`飞书流式卡片结束失败：${result.msg} (${result.code})`);
+        }
+      }
+      if (finish && remaining) await this.send(id, chatId, remaining, 'markdown');
+    });
   }
 
   async send(id: string, chatId: string, content: string, format: 'text' | 'markdown' = 'text'): Promise<void> {

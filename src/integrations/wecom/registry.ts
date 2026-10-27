@@ -8,6 +8,7 @@ import QRCode from 'qrcode';
 import type { ConversationSettings } from '../commands.js';
 import type { AgentImage } from '../../types.js';
 import { validatePermissionMode } from '../../agents/settings.js';
+import { StreamReply, splitStreamContent } from '../stream-reply.js';
 
 const rootDirectory = join(homedir(), '.agent-muster');
 const directory = join(rootDirectory, 'im', 'wecom');
@@ -180,6 +181,19 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
     const path = join(imageDirectory, `${randomUUID()}.${extension}`);
     await writeFile(path, data, { mode: 0o600 });
     return { type: 'image', mimeType, data: data.toString('base64'), path };
+  }
+
+  async startReply(id: string, chatId: string, frame: WecomMessage['frame']): Promise<StreamReply> {
+    const client = this.clients.get(id);
+    if (!client) throw new Error('企业微信应用消息监听未启动');
+    const streamId = randomUUID();
+    const write = async (content: string, finish: boolean) => {
+      const [text, remaining] = splitStreamContent(content);
+      await client.ws.replyStream(frame, streamId, text, finish);
+      if (finish && remaining) await this.send(id, chatId, remaining);
+    };
+    await write('正在处理中…', false);
+    return new StreamReply(write);
   }
 
   async send(id: string, chatId: string, content: string): Promise<void> {

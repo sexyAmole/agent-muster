@@ -1,6 +1,7 @@
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { handleCommand } from '../commands.js';
 import { withContextUsage } from '../reply.js';
+import { type StreamReply, watchStreamOutput } from '../stream-reply.js';
 import type { AgentRegistry } from '../../agents/registry.js';
 import { DingTalkRegistry, type DingTalkMessage } from './registry.js';
 import type { SessionManager } from '../../sessions/manager.js';
@@ -40,47 +41,48 @@ export class DingTalkBridge {
     if (this.seen.size > 1000) this.seen.delete(this.seen.values().next().value!);
     const conversation = `${message.conversationType}:${message.conversationId}`;
     const key = `${appId}:${conversation}`;
-    const acknowledgement = this.dingtalk.reply(appId, message.sessionWebhook, '正在处理中…')
-      .catch(error => { console.error('钉钉处理提示发送失败：', error); });
-    const task = Promise.all([this.queues.get(key), acknowledgement])
-      .then(() => this.process(appId, conversation, message))
-      .catch(async error => {
-        console.error(`DingTalk message processing failed for ${appId} (message ${message.msgId}, conversation ${conversation}, type ${message.msgtype}):`, error);
+    const response = this.dingtalk.startReply(appId, message).then(reply => ({ reply }), error => ({ error }));
+    const task = Promise.all([this.queues.get(key), response])
+      .then(async ([, result]) => {
+        if ('error' in result) throw result.error;
+        const { reply } = result;
         try {
-          await this.dingtalk.reply(appId, message.sessionWebhook, 'Agent 执行失败，请在 Agent Muster 中查看会话日志。');
-        } catch (replyError) {
-          console.error(`DingTalk error reply failed for ${appId}:`, replyError);
+          await this.process(appId, conversation, message, reply);
+          await reply.finish('未识别到消息内容。');
+        } catch (error) {
+          console.error(`钉钉消息 ${message.msgId} 处理失败：`, error);
+          await reply.finish('Agent 执行失败，请在 Agent Muster 中查看会话日志。');
         }
-      });
+      }).catch(error => { console.error('钉钉回复失败：', error); });
     this.queues.set(key, task);
     void task.finally(() => { if (this.queues.get(key) === task) this.queues.delete(key); });
   }
 
-  private async resolveBinding(appId: string, conversation: string, sessionWebhook: string) {
+  private async resolveBinding(appId: string, conversation: string, reply: StreamReply) {
     const binding = this.dingtalk.getBinding(appId, conversation);
     if (!binding?.project || !binding.agent) {
-      await this.dingtalk.reply(appId, sessionWebhook, '请先在 Agent Muster 中为此应用绑定项目和 Agent。');
+      await reply.finish('请先在 Agent Muster 中为此应用绑定项目和 Agent。');
       return;
     }
     if (!this.projects.list().includes(binding.project)) {
-      await this.dingtalk.reply(appId, sessionWebhook, '当前项目不存在，请通过 /projects 查看列表并使用 /project 切换项目。');
+      await reply.finish('当前项目不存在，请通过 /projects 查看列表并使用 /project 切换项目。');
       return;
     }
     if (!this.agents.get(binding.agent)?.installed) {
-      await this.dingtalk.reply(appId, sessionWebhook, '绑定的 Agent 当前不可用。');
+      await reply.finish('绑定的 Agent 当前不可用。');
       return;
     }
     return { ...binding, project: binding.project, agent: binding.agent };
   }
 
-  private async readMessage(appId: string, message: DingTalkMessage['message'], agent: string): Promise<{ content: string; images: AgentImage[] } | undefined> {
+  private async readMessage(appId: string, message: DingTalkMessage['message'], agent: string, reply: StreamReply): Promise<{ content: string; images: AgentImage[] } | undefined> {
     let content: string;
     const images: AgentImage[] = [];
     if (message.msgtype === 'text') content = message.text.content.trim();
     else if (message.msgtype === 'audio') {
       content = message.content.recognition?.trim() || '';
       if (!content) {
-        await this.dingtalk.reply(appId, message.sessionWebhook, '未识别到语音内容，请重新发送语音或文字消息。');
+        await reply.finish('未识别到语音内容，请重新发送语音或文字消息。');
         return;
       }
     } else {
@@ -91,7 +93,7 @@ export class DingTalkBridge {
           const downloadCode = part.downloadCode ?? part.pictureDownloadCode;
           if (!downloadCode) throw new Error('钉钉图片消息缺少下载码');
           if (agent === 'cursor') {
-            await this.dingtalk.reply(appId, message.sessionWebhook, `当前 ${this.agents.get(agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
+            await reply.finish(`当前 ${this.agents.get(agent)!.name} 接入不支持图片附件，请在 Agent Muster 中绑定支持图片的 Agent。`);
             return;
           }
           images.push(await this.dingtalk.downloadImage(appId, message.robotCode, downloadCode));
@@ -104,7 +106,7 @@ export class DingTalkBridge {
     return { content, images };
   }
 
-  private async replyResult(appId: string, conversation: string, message: DingTalkMessage['message'], session: AgentSession, lastEventId: number): Promise<void> {
+  private async replyResult(appId: string, conversation: string, message: DingTalkMessage['message'], session: AgentSession, lastEventId: number, response: StreamReply): Promise<void> {
     let output: string | undefined;
     const errors: string[] = [];
     for (const event of this.sessions.eventsAfter(session.id, lastEventId)) {
@@ -117,17 +119,17 @@ export class DingTalkBridge {
     const reply = session.status === 'completed'
       ? output || 'Agent 已执行完成。'
       : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
-    await this.dingtalk.reply(appId, message.sessionWebhook, withContextUsage(reply, session.usage), 'markdown');
+    await response.finish(withContextUsage(reply, session.usage));
   }
 
-  private async process(appId: string, conversation: string, message: DingTalkMessage['message']): Promise<void> {
+  private async process(appId: string, conversation: string, message: DingTalkMessage['message'], reply: StreamReply): Promise<void> {
     if (!['text', 'audio', 'picture', 'richText'].includes(message.msgtype)) return;
     if (message.msgtype === 'text' && !message.text.content.trim()) return;
-    if (message.msgtype === 'text' && await handleCommand(message.text.content.trim(), appId, conversation, this.dingtalk, this.projects, this.agents, this.sessions, text => this.dingtalk.reply(appId, message.sessionWebhook, text))) return;
-    const binding = await this.resolveBinding(appId, conversation, message.sessionWebhook);
+    if (message.msgtype === 'text' && await handleCommand(message.text.content.trim(), appId, conversation, this.dingtalk, this.projects, this.agents, this.sessions, text => reply.finish(text))) return;
+    const binding = await this.resolveBinding(appId, conversation, reply);
     if (!binding) return;
     await this.dingtalk.setConversationTarget(appId, conversation, message);
-    const parsed = await this.readMessage(appId, message, binding.agent);
+    const parsed = await this.readMessage(appId, message, binding.agent, reply);
     if (!parsed) return;
     const { content, images } = parsed;
     const im: ImBinding = { platform: 'dingtalk', appId, conversation: {
@@ -148,7 +150,10 @@ export class DingTalkBridge {
       session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images, binding.permissionMode);
       await this.dingtalk.setSession(appId, conversation, session.id);
     }
-    await waitForCompletion(this.sessions, session);
-    await this.replyResult(appId, conversation, message, session, lastEventId);
+    const unwatch = watchStreamOutput(this.sessions, session, lastEventId, reply);
+    try {
+      await waitForCompletion(this.sessions, session);
+      await this.replyResult(appId, conversation, message, session, lastEventId, reply);
+    } finally { unwatch(); }
   }
 }
