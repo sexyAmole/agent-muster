@@ -1,6 +1,6 @@
 {
   "name": "agent-muster",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "A local web interface for managing coding agents, projects, sessions, and DingTalk/Feishu integrations.",
   "author": "sexyAmole",
   "license": "MIT",
@@ -37,7 +37,8 @@
     "desktop:dist": "pnpm build && electron-builder",
     "desktop:dist:win": "pnpm build && electron-builder --win --x64",
     "desktop:dist:all": "pnpm build && electron-builder --mac && electron-builder --win --x64",
-    "postinstall": "node scripts/prepare-terminal.mjs"
+    "postinstall": "node scripts/prepare-terminal.mjs",
+    "website:build": "vite build --config web/website/vite.config.ts"
   },
   "files": [
     "bin",

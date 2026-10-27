@@ -77,7 +77,9 @@ export class FeishuBridge {
     if (this.seen.has(messageKey)) return;
     this.seen.add(messageKey);
     if (this.seen.size > 1000) this.seen.delete(this.seen.values().next().value!);
-    const task = (this.queues.get(key) || Promise.resolve()).then(() => this.process(appId, event)).catch(async error => {
+    const acknowledgement = this.feishu.send(appId, message.chat_id, '正在处理中…')
+      .catch(error => { console.error('飞书处理提示发送失败：', error); });
+    const task = Promise.all([this.queues.get(key), acknowledgement]).then(() => this.process(appId, event)).catch(async error => {
       console.error(`飞书消息 ${message.message_id} 处理失败：`, error);
       try { await this.feishu.send(appId, message.chat_id, 'Agent 执行失败，请在 Agent Muster 中查看会话日志。'); }
       catch (replyError) { console.error('飞书错误消息发送失败：', replyError); }

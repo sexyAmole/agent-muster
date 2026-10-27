@@ -64,6 +64,12 @@
 | OpenCode | `opencode` |
 | Cursor | `cursor-agent` |
 
+## 入门教程
+
+- [5 分钟完成第一个任务](./docs/tutorials/first-task.md)
+- [10 分钟接入 IM](./docs/tutorials/connect-im.md)
+- [功能操作实录（无声字幕）](https://sexyamole.github.io/agent-muster/#demo)
+
 ## 快速开始
 
 ### 桌面端

@@ -39,7 +39,9 @@ export class WeixinBridge {
     if (this.seen.has(messageKey)) return;
     this.seen.add(messageKey);
     if (this.seen.size > 1000) this.seen.delete(this.seen.values().next().value!);
-    const task = (this.queues.get(key) || Promise.resolve()).then(() => this.process(event)).catch(async () => {
+    const acknowledgement = this.weixin.send(appId, message.from_user_id, '正在处理中…', message.context_token)
+      .catch(() => { console.error('微信处理提示发送失败'); });
+    const task = Promise.all([this.queues.get(key), acknowledgement]).then(() => this.process(event)).catch(async () => {
       console.error('微信消息处理失败，请检查会话日志');
       try { await this.weixin.send(appId, message.from_user_id!, 'Agent 执行失败，请在 Agent Muster 中查看会话日志。', message.context_token); }
       catch { console.error('微信错误消息发送失败'); }

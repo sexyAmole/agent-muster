@@ -12,10 +12,15 @@ import pi from '../../src/shared/assets/agents/pi.svg';
 
 export const repository = 'https://github.com/sexyAmole/agent-muster';
 export const documentation = `${repository}/blob/main/README.zh-CN.md`;
+export const latestRelease = `${repository}/releases/latest`;
 export const desktopDownloads = [
-  { platform: 'macOS · Apple 芯片', label: '下载 macOS 版', url: `${repository}/releases/download/v0.1.17/Agent.Muster-0.1.17-arm64.dmg` },
-  { platform: 'macOS · Intel 芯片', label: '下载 macOS Intel 版', url: `${repository}/releases/download/v0.1.17/Agent.Muster-0.1.17-x64.dmg` },
-  { platform: 'Windows · 64 位', label: '下载 Windows 版', url: `${repository}/releases/download/v0.1.17/Agent.Muster-0.1.17-x64-Setup.exe` },
+  { platform: 'macOS · Apple 芯片', label: '选择 macOS 安装包', url: latestRelease },
+  { platform: 'macOS · Intel 芯片', label: '选择 macOS Intel 安装包', url: latestRelease },
+  { platform: 'Windows · 64 位', label: '选择 Windows 安装包', url: latestRelease },
+];
+export const tutorials = [
+  { title: '5 分钟完成第一个任务', description: '添加项目、选择 Agent、发送任务，再检查代码差异。', url: `${repository}/blob/main/docs/tutorials/first-task.md` },
+  { title: '10 分钟接入 IM', description: '扫码创建应用、绑定项目，让第一条消息回到聊天中。', url: `${repository}/blob/main/docs/tutorials/connect-im.md` },
 ];
 export const agents = [
   { name: 'Codex', icon: codex },

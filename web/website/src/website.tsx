@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import favicon from '../../public/favicon.svg';
 import { AmbientBackground } from './components/ambient-background';
 import { WebsitePreview } from './components/website-preview';
-import { agents, desktopDownloads, documentation, features, installMethods, repository } from './data';
+import { agents, desktopDownloads, documentation, features, installMethods, repository, tutorials } from './data';
+import demoVideo from './media/quick-tour.mp4';
+import demoPoster from './media/quick-tour.jpg';
 import './website.css';
 
 function Arrow() {
@@ -58,7 +60,6 @@ export function Website() {
           <a href={documentation} target="_blank" rel="noreferrer">使用文档</a>
           <a href={repository} target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
         </nav>
-        <a className="header-action" href="#download">下载桌面端 <Arrow /></a>
       </div>
     </header>
 
@@ -68,9 +69,15 @@ export function Website() {
         <p className="hero-description">在一个本地工作台中，管理你的 AI 编码 Agent、项目与会话。</p>
         <div className="hero-actions">
           <a className="button" href="#download">下载桌面端 <Arrow /></a>
-          <a className="text-link" href="#start">通过命令行启动</a>
+          <a className="text-link" href="#demo">查看功能演示</a>
         </div>
         <WebsitePreview agents={agents} />
+      </section>
+
+      <section className="demo-section page-width" id="demo" aria-labelledby="demo-title">
+        <div className="section-heading"><h2 id="demo-title">从本地任务到 IM 协作</h2><p>添加项目、选择 Agent、创建任务、多窗并行、检查 Git 差异，再通过钉钉接收任务与回复。无声字幕实录，包含鼠标引导和重点放大。</p></div>
+        <video controls muted playsInline preload="none" poster={demoPoster} aria-label="Agent Muster 功能操作实录" src={demoVideo} />
+        <div className="tutorial-links">{tutorials.map(tutorial => <a key={tutorial.title} href={tutorial.url} target="_blank" rel="noreferrer"><h3>{tutorial.title} <span aria-hidden="true">↗</span></h3><p>{tutorial.description}</p></a>)}</div>
       </section>
 
       <section className="feature-section page-width" id="features" aria-labelledby="features-title">
@@ -97,7 +104,7 @@ export function Website() {
         <ul className="desktop-downloads">
           {desktopDownloads.map(item => <li key={item.platform}><span>{item.platform}</span><a href={item.url} aria-label={`下载 ${item.platform} 安装包`}>{item.label}</a></li>)}
         </ul>
-        <p className="download-note">支持 macOS Apple 芯片、Intel 芯片与 Windows 64 位，安装包由 GitHub Releases 提供。</p>
+        <p className="download-note">始终前往最新正式 Release。请在 Assets 中选择对应系统和芯片的安装包。</p>
         <a className="text-link" href={`${repository}/releases`} target="_blank" rel="noreferrer">查看 GitHub Releases <span aria-hidden="true">↗</span></a>
       </section>
 

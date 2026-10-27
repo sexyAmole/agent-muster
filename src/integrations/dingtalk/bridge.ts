@@ -40,7 +40,9 @@ export class DingTalkBridge {
     if (this.seen.size > 1000) this.seen.delete(this.seen.values().next().value!);
     const conversation = `${message.conversationType}:${message.conversationId}`;
     const key = `${appId}:${conversation}`;
-    const task = (this.queues.get(key) || Promise.resolve())
+    const acknowledgement = this.dingtalk.reply(appId, message.sessionWebhook, '正在处理中…')
+      .catch(error => { console.error('钉钉处理提示发送失败：', error); });
+    const task = Promise.all([this.queues.get(key), acknowledgement])
       .then(() => this.process(appId, conversation, message))
       .catch(async error => {
         console.error(`DingTalk message processing failed for ${appId} (message ${message.msgId}, conversation ${conversation}, type ${message.msgtype}):`, error);
