@@ -7,6 +7,11 @@ import { AgentIcon } from './agent-icon';
 type Props = { active: boolean; agents: AgentInfo[]; onChange: (agents: AgentInfo[]) => void };
 type AgentOperation = { id: string; action: AgentAction };
 const actionLabels: Record<AgentAction, string> = { install: '安装', update: '更新', uninstall: '卸载' };
+const installationUrls: Partial<Record<string, string>> = {
+  qodercn: 'https://docs.qoder.cn/cli/installation',
+  workbuddy: 'https://www.workbuddy.cn/',
+  trae: 'https://docs.trae.cn/cli_get-started-with-trae-cli-2?lang=zh',
+};
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(apiUrl(path), { ...options, headers: { 'Content-Type': 'application/json' } });
@@ -73,13 +78,24 @@ function AgentEntry({ agent, active, revision, disabled, operation, onRun }: Age
   const currentVersion = agent.installed ? (loading ? '' : info.version || '读取失败') : '未安装';
   const showUpdate = !loading && info.updateAvailable === true;
   const canManage = Boolean(info.management);
+  const installationUrl = installationUrls[agent.id];
 
-  return <article className="agent-entry" aria-label={agent.name}>
+  return <article className={`agent-entry${agent.installed ? '' : ' uninstalled'}`} aria-label={agent.name}>
     <div className="agent-entry-heading">
       <span className="agent-entry-name"><AgentIcon agent={agent.id} /><strong>{agent.name}</strong></span>
       <div className="agent-entry-heading-actions">
         <span className={`agent-status-tag ${agent.installed ? 'installed' : ''}`}>{agent.installed ? '已安装' : '未安装'}</span>
         {showUpdate && <span className="agent-status-tag update">可更新</span>}
+        {!installationUrl && !info.managementError && <div className="agent-entry-actions">
+          {!agent.installed && <button type="button" className="agent-action-button" disabled={disabled || loading || !canManage} aria-label={action === 'install' ? `正在安装 ${agent.name}` : `安装 ${agent.name}`} data-tooltip={action === 'install' ? `正在安装 ${agent.name}` : `安装 ${agent.name}`} aria-busy={action === 'install'} onClick={() => void onRun(info, 'install')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4" /></svg></button>}
+          {agent.installed && agent.id !== 'workbuddy' && canManage && (
+            <>
+              {showUpdate && <button type="button" className="agent-action-button" disabled={disabled || !canManage} aria-label={action === 'update' ? `正在更新 ${agent.name}` : `更新 ${agent.name}`} data-tooltip={action === 'update' ? `正在更新 ${agent.name}` : `更新 ${agent.name}`} aria-busy={action === 'update'} onClick={() => void onRun(info, 'update')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 16V4m-5 5 5-5 5 5M5 16v4h14v-4" /></svg></button>}
+              <button type="button" className="agent-action-button danger" disabled={disabled || loading || !canManage} aria-label={action === 'uninstall' ? `正在卸载 ${agent.name}` : `卸载 ${agent.name}`} data-tooltip={action === 'uninstall' ? `正在卸载 ${agent.name}` : `卸载 ${agent.name}`} aria-busy={action === 'uninstall'} onClick={() => void onRun(info, 'uninstall')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7" /></svg></button>
+            </>
+          )}
+          {agent.id !== 'workbuddy' && !loading && (failed || (info.updateAvailable === undefined && agent.installed)) && <button type="button" className="agent-action-button" aria-label={`重新检查 ${agent.name}`} data-tooltip={`重新检查 ${agent.name}`} disabled={disabled} onClick={() => setRetry(value => value + 1)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6 6a8 8 0 0 1 13 3l1 3M4 12l1 3a8 8 0 0 0 13 3" /></svg></button>}
+        </div>}
       </div>
     </div>
     <dl className="agent-details">
@@ -109,19 +125,14 @@ function AgentEntry({ agent, active, revision, disabled, operation, onRun }: Age
           </button>
         </dd>
       </div>}
+      {installationUrl && <div className="agent-detail-row">
+        <dt>安装地址</dt>
+        <dd><a className="agent-install-link" href={installationUrl} target="_blank" rel="noopener noreferrer" aria-label={`${agent.name} 官方安装页面`}>官方安装页面</a></dd>
+      </div>}
     </dl>
     {error && <p className="agent-entry-error">{error}</p>}
-    {info.managementError && <p className="agent-entry-warning"><strong>注意：</strong>{info.managementError}</p>}
-    <div className="agent-entry-actions">
-      {!agent.installed && <button type="button" className="agent-update-button" disabled={disabled || loading || !canManage} onClick={() => void onRun(info, 'install')}>{action === 'install' ? '安装中…' : `安装 ${agent.name}`}</button>}
-      {agent.installed && agent.id !== 'workbuddy' && canManage && (
-        <>
-          {showUpdate && <button type="button" className="agent-update-button" disabled={disabled || !canManage} aria-label={action === 'update' ? `正在更新 ${agent.name}` : `更新 ${agent.name}`} onClick={() => void onRun(info, 'update')}>{action === 'update' ? '更新中…' : '更新'}</button>}
-          <button type="button" className="agent-heading-action danger" disabled={disabled || loading || !canManage} aria-label={`卸载 ${agent.name}`} onClick={() => void onRun(info, 'uninstall')}>{action === 'uninstall' ? '卸载中…' : '卸载'}</button>
-        </>
-      )}
-      {agent.id !== 'workbuddy' && !loading && (failed || (info.updateAvailable === undefined && agent.installed)) && <button className="im-sync-button" disabled={disabled} onClick={() => setRetry(value => value + 1)}>重新检查</button>}
-    </div>
+    {!installationUrl && info.managementError && <p className="agent-entry-warning"><strong>注意：</strong>{info.managementError}</p>}
+
   </article>;
 }
 
@@ -166,7 +177,7 @@ export function AgentPanel({ active, agents: availableAgents, onChange }: Props)
   return <section className="agent-panel" aria-label="Agent 管理">
     <div className="im-intro"><div><h1>Agent 管理</h1><p className="agent-intro">管理本机 CLI 的安装、版本和更新。</p></div></div>
     <div className="agent-feedback" role="status" aria-live="polite">{operation ? `正在${actionLabels[operation.action]} ${agents.find(agent => agent.id === operation.id)?.name}，请等待完成…` : message}</div>
-    <div className="agent-list">{agents.map(agent => <AgentEntry key={agent.id} agent={agent} active={active} revision={revision} disabled={loading || Boolean(operation)} operation={operation} onRun={run} />)}</div>
+    <div className="agent-list">{[...agents].sort((a, b) => Number(b.installed) - Number(a.installed)).map(agent => <AgentEntry key={agent.id} agent={agent} active={active} revision={revision} disabled={loading || Boolean(operation)} operation={operation} onRun={run} />)}</div>
     {output && <details className="agent-operation-output"><summary>操作输出</summary><pre>{output}</pre></details>}
   </section>;
 }

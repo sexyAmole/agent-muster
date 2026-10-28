@@ -473,13 +473,14 @@ button:disabled { cursor: not-allowed; }
 .agent-intro { margin: 9px 0 0; color: #777; font-size: 12px; line-height: 1.6; }
 .agent-feedback { margin-bottom: 16px; color: #526f5a; font-size: 12px; }
 .agent-feedback:empty { display: none; }
-.agent-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+.agent-list { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 16px; }
 .agent-entry { min-width: 0; padding: 16px; border: 1px solid #e8e8e8; border-radius: 10px; background: #fff; }
-.agent-entry-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; }
+.agent-entry.uninstalled { background: #f6f6f6; }
+.agent-entry-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; min-height: 36px; }
 .agent-entry-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .agent-entry-name > .agent-icon { width: 34px; height: 34px; padding: 5px; border-radius: 8px; background: #f6f6f6; }
 .agent-entry-heading strong { font-size: 15px; font-weight: 600; }
-.agent-entry-heading-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.agent-entry-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .agent-status-tag { padding: 4px 9px; border-radius: 5px; background: #f2f2f2; color: #888; font-size: 11px; line-height: 14px; }
 .agent-status-tag.installed { background: #eaf6ec; color: #3a8a4a; }
 .agent-status-tag.update { background: #fff4e6; color: #c97b18; }
@@ -494,6 +495,8 @@ button:disabled { cursor: not-allowed; }
 .agent-detail-row { min-width: 0; display: flex; align-items: center; gap: 16px; }
 .agent-detail-row dt { flex: none; width: 60px; color: #888; }
 .agent-detail-row dd { min-width: 0; flex: 1; margin: 0; overflow-wrap: anywhere; display: flex; align-items: center; gap: 8px; }
+.agent-install-link { color: #444; text-decoration: underline; text-underline-offset: 3px; }
+.agent-install-link:hover { color: #111; }
 .agent-command-cell { justify-content: space-between; }
 .agent-command { display: inline-flex; align-items: center; gap: 7px; padding: 3px 9px; border-radius: 5px; background: #f6f6f6; color: #444; }
 .agent-command svg { width: 14px; height: 14px; color: #777; }
@@ -517,15 +520,18 @@ button:disabled { cursor: not-allowed; }
 .agent-version-error-popover { box-sizing: border-box; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 18px; border: 1px solid #e8e8e8; border-radius: 8px; background: #fff; color: #333; font-size: 12px; }
 .agent-version-error-popover::backdrop { background: rgb(0 0 0 / 12%); }
 .agent-version-error-popover pre { margin: 12px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.agent-entry-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.agent-entry-actions { display: flex; align-items: center; gap: 4px; }
 .agent-entry-actions:empty { display: none; }
-.agent-entry-actions > .agent-update-button,
-.agent-entry-actions > .agent-heading-action { flex: 1 1 0; height: 38px; }
-.agent-update-button { height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 14px; border: 0; border-radius: 7px; background: #4f6ef7; color: #fff; font-size: 13px; font-weight: 500; cursor: pointer; }
-.agent-update-button:hover:not(:disabled) { background: #3d5be0; }
-.agent-update-button:focus-visible { outline: 2px solid #a8b5f7; outline-offset: 2px; }
-.agent-update-button:disabled { opacity: .6; cursor: not-allowed; }
-.agent-update-button svg { width: 14px; height: 14px; }
+.agent-action-button { position: relative; display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #555; cursor: pointer; }
+.agent-action-button:hover:not(:disabled) { background: #eee; color: #222; }
+.agent-action-button.danger { color: #963c3c; }
+.agent-action-button.danger:hover:not(:disabled) { background: #f8eded; }
+.agent-action-button:focus-visible { outline: 2px solid #c6d1c8; outline-offset: 2px; }
+.agent-action-button:disabled { opacity: .5; cursor: not-allowed; }
+.agent-action-button svg { width: 16px; height: 16px; }
+.agent-action-button[aria-busy="true"] svg { opacity: .5; }
+.agent-action-button::after { content: attr(data-tooltip); position: absolute; z-index: 3; top: calc(100% + 4px); right: 0; padding: 5px 7px; border-radius: 4px; background: #292929; color: #fff; font-size: 11px; white-space: nowrap; pointer-events: none; display: none; }
+.agent-action-button:hover::after, .agent-action-button:focus-visible::after { display: block; }
 .agent-version-loading { display: inline-flex; align-items: center; gap: 6px; color: #999; }
 .permission-chevron { flex: none; color: #777; transition: transform .15s; }
 .composer-permissions[open] > summary .permission-chevron { transform: rotate(180deg); }
@@ -762,11 +768,12 @@ button:disabled { cursor: not-allowed; }
 .management-page[hidden] { display: none !important; }
 .management-page .agent-panel, .management-page .im-prototype { width: 100%; margin: 0; padding: 32px; border-radius: 12px; background: #fff; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-/* Agent 管理：头部固定，内容区域居中且可滚动 */
+/* Agent 管理：内容居中，整个面板可滚动 */
+.management-page .agent-panel { overflow-y: auto; }
 .agent-panel .im-intro { flex: none; width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; text-align: left; }
 .agent-panel .im-intro h1 { font-size: 20px; }
 .agent-panel .agent-feedback { flex: none; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto; }
-.agent-panel .agent-list { width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; overflow-y: auto; }
+.agent-panel .agent-list { flex: none; width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; }
 .agent-panel .agent-operation-output { flex: none; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto; }
 
 /* IM 集成：Tabs 占满剩余空间，头部固定，内容区域居中且可滚动 */

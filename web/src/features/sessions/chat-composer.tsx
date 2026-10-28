@@ -102,7 +102,7 @@ export function ChatComposer({ index, pane, agents, projects, sessions, pickingP
     for (const session of sessions) {
       if (counts.has(session.agent)) counts.set(session.agent, counts.get(session.agent)! + 1);
     }
-    return [...agents].sort((a, b) => counts.get(b.id)! - counts.get(a.id)!);
+    return agents.filter(item => item.installed).sort((a, b) => counts.get(b.id)! - counts.get(a.id)!);
   }, [agents, sessions]);
   const [agent, setAgent] = useState(sortedAgents.find(item => item.installed)?.id || '');
   const [permissionMode, setPermissionMode] = useState(sessions.find(session => session.id === selectedId)?.permissionMode || 'full-auto');
@@ -271,7 +271,7 @@ export function ChatComposer({ index, pane, agents, projects, sessions, pickingP
           <option value="add-project">添加项目</option>
         </Select>
       </span>
-      <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} variant="ghost" roundedFull value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">选择 Agent</option>}{sortedAgents.map(item => <option key={item.id} value={item.id} disabled={!item.installed}>{item.name}{item.installed ? '' : '（未安装）'}</option>)}</Select></span>
+      <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} variant="ghost" roundedFull value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy || !sortedAgents.length} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">{sortedAgents.length ? '选择 Agent' : '暂无已安装的 Agent'}</option>}{sortedAgents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></span>
     </div>}
     {selected && selected.queuedMessages && selected.queuedMessages.length > 0 && <div className="message-queue" aria-label="待执行消息">
       <div className="message-queue-heading"><span>{selected.queuePaused ? '队列已暂停' : '等待执行'}<span className="message-queue-count">{selected.queuedMessages.length} 条</span></span>{!running && <button type="button" className="message-queue-resume" disabled={busy || !modelsReady || !selected.externalSessionId} onClick={() => void updateQueue()}>继续队列</button>}</div>
