@@ -85,7 +85,6 @@
   "main": "dist/desktop/main.js",
   "build": {
     "appId": "com.agent-muster.desktop",
-    "beforePack": "scripts/prepare-ffmpeg.mjs",
     "productName": "Agent Muster",
     "directories": {
       "output": "release",
@@ -141,10 +140,6 @@
       "icon": "resources/desktop/icon.png"
     },
     "extraResources": [
-      {
-        "from": "node_modules/.cache/agent-muster/ffmpeg/b6.1.1/${os}-${arch}",
-        "to": "ffmpeg"
-      },
       {
         "from": "resources/desktop/icon.png",
         "to": "icon.png"

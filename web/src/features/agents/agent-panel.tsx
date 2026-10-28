@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { AgentAction, AgentInfo, ManagedAgent } from '../../../../src/types';
 import { useErrorMessage } from '../../shared/components/message';
 import { apiUrl } from '../../shared/lib/api-url';
@@ -17,6 +17,20 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 async function copyToClipboard(text: string) {
   await navigator.clipboard.writeText(text);
+}
+
+function VersionError({ label, error }: { label: string; error: string }) {
+  const id = useId();
+  return <span className="agent-version-error">
+    <button type="button" className="agent-version-error-button" aria-label={label} data-tooltip={label} popoverTarget={id}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v6m0 4h.01" /></svg>
+    </button>
+    <div id={id} popover="auto" className="agent-version-error-popover">
+      <strong>{label}</strong>
+      <pre>{error}</pre>
+      <button type="button" className="agent-heading-action" popoverTarget={id} popoverTargetAction="hide">关闭</button>
+    </div>
+  </span>;
 }
 
 type AgentEntryProps = {
@@ -71,11 +85,11 @@ function AgentEntry({ agent, active, revision, disabled, operation, onRun }: Age
     <dl className="agent-details">
       <div className="agent-detail-row">
         <dt>当前版本</dt>
-        <dd>{loading && agent.installed ? <span className="agent-version-loading" role="status"><span className="agent-loading-dot" aria-hidden="true" />读取中…</span> : currentVersion}</dd>
+        <dd>{loading && agent.installed ? <span className="agent-version-loading" role="status"><span className="agent-loading-dot" aria-hidden="true" />读取中…</span> : currentVersion}{!loading && info.versionError && <VersionError label="版本读取失败" error={info.versionError} />}</dd>
       </div>
       <div className="agent-detail-row">
         <dt>最新版本</dt>
-        <dd>{info.latestVersion || (loading ? '—' : (info.latestVersionError ? '检查失败' : '—'))}</dd>
+        <dd>{info.latestVersion || (loading ? '—' : (info.latestVersionError ? '检查失败' : '—'))}{!loading && info.latestVersionError && <VersionError label="最新版本检查失败" error={info.latestVersionError} />}</dd>
       </div>
       <div className="agent-detail-row">
         <dt>命令</dt>
@@ -97,12 +111,10 @@ function AgentEntry({ agent, active, revision, disabled, operation, onRun }: Age
       </div>}
     </dl>
     {error && <p className="agent-entry-error">{error}</p>}
-    {info.versionError && <p className="agent-entry-error">版本读取失败：{info.versionError}</p>}
-    {info.latestVersionError && <p className="agent-entry-error">最新版本检查失败：{info.latestVersionError}</p>}
-    {info.managementError && <p className="agent-entry-error">{info.managementError}</p>}
+    {info.managementError && <p className="agent-entry-warning"><strong>注意：</strong>{info.managementError}</p>}
     <div className="agent-entry-actions">
       {!agent.installed && <button type="button" className="agent-update-button" disabled={disabled || loading || !canManage} onClick={() => void onRun(info, 'install')}>{action === 'install' ? '安装中…' : `安装 ${agent.name}`}</button>}
-      {agent.installed && agent.id !== 'workbuddy' && (
+      {agent.installed && agent.id !== 'workbuddy' && canManage && (
         <>
           {showUpdate && <button type="button" className="agent-update-button" disabled={disabled || !canManage} aria-label={action === 'update' ? `正在更新 ${agent.name}` : `更新 ${agent.name}`} onClick={() => void onRun(info, 'update')}>{action === 'update' ? '更新中…' : '更新'}</button>}
           <button type="button" className="agent-heading-action danger" disabled={disabled || loading || !canManage} aria-label={`卸载 ${agent.name}`} onClick={() => void onRun(info, 'uninstall')}>{action === 'uninstall' ? '卸载中…' : '卸载'}</button>

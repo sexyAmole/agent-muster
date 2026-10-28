@@ -505,6 +505,18 @@ button:disabled { cursor: not-allowed; }
 .agent-copy-button:focus-visible { outline: 2px solid #c6d1c8; outline-offset: 2px; }
 .agent-copy-button:disabled { opacity: .5; cursor: default; }
 .agent-entry-error { margin: 10px 0 0; color: #963c3c; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; }
+.agent-entry-warning { margin: 10px 0 0; color: #8a651c; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; }
+.agent-entry-warning strong { font-weight: 500; }
+.agent-version-error { display: inline-flex; flex: none; }
+.agent-version-error-button { position: relative; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #963c3c; cursor: pointer; }
+.agent-version-error-button svg { width: 16px; height: 16px; }
+.agent-version-error-button:hover { background: #f8eded; }
+.agent-version-error-button:focus-visible { outline: 2px solid #e8d4d4; outline-offset: 2px; }
+.agent-version-error-button::after { content: attr(data-tooltip); position: absolute; z-index: 3; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); padding: 5px 7px; border-radius: 4px; background: #292929; color: #fff; font-size: 11px; white-space: nowrap; pointer-events: none; display: none; }
+.agent-version-error-button:hover::after, .agent-version-error-button:focus-visible::after { display: block; }
+.agent-version-error-popover { box-sizing: border-box; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 18px; border: 1px solid #e8e8e8; border-radius: 8px; background: #fff; color: #333; font-size: 12px; }
+.agent-version-error-popover::backdrop { background: rgb(0 0 0 / 12%); }
+.agent-version-error-popover pre { margin: 12px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .agent-entry-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .agent-entry-actions:empty { display: none; }
 .agent-entry-actions > .agent-update-button,

@@ -78,7 +78,8 @@ export class FeishuBridge {
     if (this.seen.has(messageKey)) return;
     this.seen.add(messageKey);
     if (this.seen.size > 1000) this.seen.delete(this.seen.values().next().value!);
-    const response = this.feishu.startReply(appId, message.chat_id).then(reply => ({ reply }), error => ({ error }));
+    const response = this.feishu.startReply(appId, message.chat_id, message.chat_type === 'group' ? sender.sender_id?.open_id : undefined)
+      .then(reply => ({ reply }), error => ({ error }));
     const task = Promise.all([this.queues.get(key), response]).then(async ([, result]) => {
       if ('error' in result) throw result.error;
       const { reply } = result;
@@ -137,14 +138,8 @@ export class FeishuBridge {
 
   private async process(appId: string, { message, sender }: FeishuMessage['message'], reply: StreamReply): Promise<void> {
     if (message.message_type === 'audio') {
-      try {
-        const audio = JSON.parse(message.content) as { file_key: string; duration?: number };
-        const content = await this.feishu.transcribeAudio(appId, message.message_id, audio.file_key, audio.duration);
-        message = { ...message, message_type: 'text', content: JSON.stringify({ text: content }) };
-      } catch (error) {
-        await reply.finish((error as Error).message);
-        return;
-      }
+      await reply.finish('暂不支持语音消息，请改用文字发送。');
+      return;
     }
     const parsed = readMessage(message);
     if (!parsed) return;

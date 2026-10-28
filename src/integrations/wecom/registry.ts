@@ -187,10 +187,11 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
     const client = this.clients.get(id);
     if (!client) throw new Error('企业微信应用消息监听未启动');
     const streamId = randomUUID();
+    const mention = frame.body?.chattype === 'group' ? `<@${frame.body.from.userid}>\n\n` : '';
     const write = async (content: string, finish: boolean) => {
-      const [text, remaining] = splitStreamContent(content);
+      const [text, remaining] = splitStreamContent(mention + content);
       await client.ws.replyStream(frame, streamId, text, finish);
-      if (finish && remaining) await this.send(id, chatId, remaining);
+      if (finish && remaining) await this.send(id, chatId, mention + remaining);
     };
     await write('正在处理中…', false);
     return new StreamReply(write);

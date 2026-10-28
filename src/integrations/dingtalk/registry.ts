@@ -222,6 +222,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
   }
 
   async startReply(id: string, message: IncomingRobotMessage): Promise<StreamReply> {
+    const atUserId = message.conversationType === '2' ? message.senderStaffId : undefined;
     const outTrackId = randomUUID();
     let useCard = false;
     const cardData = (content: string, flowStatus: string) => ({ cardParamMap: {
@@ -234,7 +235,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     const update = (content: string, flowStatus: string) => this.requestCard(id, 'PUT', '/v1.0/card/instances', {
       outTrackId, cardData: cardData(content, flowStatus), cardUpdateOptions: { updateCardDataByKey: true },
     });
-    const acknowledge = () => this.reply(id, message.sessionWebhook, '正在处理中…')
+    const acknowledge = () => this.reply(id, message.sessionWebhook, '正在处理中…', 'text', atUserId)
       .catch(error => { console.error('钉钉处理提示发送失败：', error); });
     try {
       await this.requestCard(id, 'POST', '/v1.0/card/instances', {
@@ -245,7 +246,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
       await stream('正在处理中…', false);
       const target = message.conversationType === '2' ? {
         openSpaceId: `dtv1.card//IM_GROUP.${message.conversationId}`,
-        imGroupOpenDeliverModel: { robotCode: message.robotCode },
+        imGroupOpenDeliverModel: { robotCode: message.robotCode, atUserIds: { [message.senderStaffId]: message.senderNick } },
       } : {
         openSpaceId: `dtv1.card//IM_ROBOT.${message.senderStaffId}`,
         imRobotOpenDeliverModel: { spaceType: 'IM_ROBOT', robotCode: message.robotCode },
@@ -270,15 +271,15 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
           if (!finish) await acknowledge();
         }
         if (useCard) {
-          if (finish && remaining) await this.reply(id, message.sessionWebhook, remaining, 'markdown');
+          if (finish && remaining) await this.reply(id, message.sessionWebhook, remaining, 'markdown', atUserId);
           return;
         }
       }
-      if (finish) await this.reply(id, message.sessionWebhook, content, 'markdown');
+      if (finish) await this.reply(id, message.sessionWebhook, content, 'markdown', atUserId);
     });
   }
 
-  async reply(id: string, webhook: string, content: string, format: 'text' | 'markdown' = 'text'): Promise<void> {
+  async reply(id: string, webhook: string, content: string, format: 'text' | 'markdown' = 'text', atUserId?: string): Promise<void> {
     const url = new URL(webhook);
     if (url.protocol !== 'https:' || url.hostname !== 'oapi.dingtalk.com' || url.pathname !== '/robot/sendBySession') {
       throw new Error('钉钉返回了无效的回复地址');
@@ -286,12 +287,13 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     const client = this.clients.get(id);
     if (!client) throw new Error('钉钉订阅未启动');
     const accessToken = await client.getAccessToken() as string;
+    const body = format === 'markdown'
+      ? { msgtype: 'markdown', markdown: { title: 'Agent 执行结果', text: content } }
+      : { msgtype: 'text', text: { content } };
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': accessToken },
-      body: JSON.stringify(format === 'markdown'
-        ? { msgtype: 'markdown', markdown: { title: 'Agent 执行结果', text: content } }
-        : { msgtype: 'text', text: { content } }),
+      body: JSON.stringify({ ...body, ...(atUserId ? { at: { atUserIds: [atUserId] } } : {}) }),
       redirect: 'error', signal: AbortSignal.timeout(10000), dispatcher,
     });
     if (!response.ok) throw new Error(`钉钉回复失败 (${response.status})`);

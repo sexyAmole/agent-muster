@@ -151,7 +151,7 @@ interface SessionUsage extends TokenUsage {
 - Provider 的 `TokenUsage` 可以是累计值或增量值，Manager 按 `usageIsTotal` 更新累计消耗。磁盘 `usage` 始终保存合并后的完整会话用量，恢复时替换，不再次累加。
 - 输入包含缓存 Token，缓存明细不额外计入输入与输出的累计总数。
 - `contextTokens` 是最近一次 Agent 报告的上下文数量，每次覆盖，允许下降和零值；未提供时保留已有值。它不加入累计消耗，也不是模型窗口容量。
-- Codex 从 `thread/tokenUsage/updated.params.tokenUsage.last.totalTokens` 获取上下文，`total` 继续用于累计消耗。Pi 从助手 `message_end.message.usage.totalTokens` 获取上下文，单条消息的消耗仍按增量累计。Claude Code 从主会话最近一条助手消息的 `message.usage` 获取单次输入与输出之和；输入包含缓存读取与写入，子 Agent 消息不替换主会话上下文。累计消耗仍从 `result.modelUsage` 获取。OpenCode 从 `step_finish.part.tokens` 取得单次调用用量，输入包含缓存读取与写入，输出包含 reasoning Token，两者之和覆盖上下文。Cursor 和 Gemini 当前输出未提供可确认的单次调用上下文，不使用执行累计值推算，界面保持 `—`。
+- Codex 从 `thread/tokenUsage/updated.params.tokenUsage.last.totalTokens` 获取上下文，`total` 继续用于累计消耗。Pi 从助手 `message_end.message.usage.totalTokens` 获取上下文，单条消息的消耗仍按增量累计。Claude Code 从主会话最近一条助手消息的 `message.usage` 获取单次输入与输出之和；输入包含缓存读取与写入，子 Agent 消息不替换主会话上下文。累计消耗仍从 `result.modelUsage` 获取。OpenCode 从 `step_finish.part.tokens` 取得单次调用用量，输入包含缓存读取与写入，输出包含 reasoning Token，两者之和覆盖上下文。Cursor 按用户选择，以本次 `result.usage.inputTokens + result.usage.outputTokens` 覆盖 `contextTokens`，不额外加上缓存字段；可能包含多次内部调用，仅作为近似值，Web 用 `≈` 和提示区分，不代表精确上下文占用。输入、输出字段必须完整且有效，缺失时不更新上下文；缓存字段不影响上下文计算，累计消耗仍保留原有缓存归一化逻辑。Gemini 当前输出未提供可确认的单次调用上下文，不使用执行累计值推算，界面保持 `—`。
 - 只有上下文更新、没有累计用量更新时，也生成完整 `usage` 事件，更新持久记录和 SSE。此前没有累计值时输入、输出从零开始。
 - 顶层 `session.contextTokens` 已移除，接口统一读取 `session.usage.contextTokens`。前端沿用现有 `usage` 消费逻辑，在对话输入区底部以同一行、垂直居中的“累计、输入、缓存、输出、当前”展示统计，保留累计用量与当前上下文的分组和提示，窄栏允许自然换行；未提供显示 `—`，零值显示 `0`，数值沿用 Token 缩写格式。
 

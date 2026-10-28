@@ -50,8 +50,9 @@ function ComposerSettings({ index, composerAgent, agentInfo, model, permissionMo
     </details>}</>;
 }
 
-function TokenUsageStatus({ usage }: { usage: Session['usage'] }) {
+function TokenUsageStatus({ usage, agent }: { usage: Session['usage']; agent: Session['agent'] }) {
   const usedTokens = usage ? usage.inputTokens + usage.outputTokens : undefined;
+  const approximateContext = agent === 'cursor' && usage?.contextTokens !== undefined;
   return <div className="token-usage-status">
     <div className="token-usage-group" role="group" aria-label="累计用量">
       <span title={usage ? `累计输入 ${usage.inputTokens.toLocaleString()} Token，累计输出 ${usage.outputTokens.toLocaleString()} Token` : 'Agent 尚未返回 Token 用量'}>累计 {usedTokens === undefined ? '—' : `${tokenCount(usedTokens)} Token`}</span>
@@ -60,7 +61,7 @@ function TokenUsageStatus({ usage }: { usage: Session['usage'] }) {
       <span>输出 {usage ? tokenCount(usage.outputTokens) : '—'}</span>
     </div>
     <div className="token-usage-group" role="group" aria-label="当前上下文">
-      <span title="Agent 最近一次报告的当前上下文 Token 数">当前 {usage?.contextTokens === undefined ? '—' : `${tokenCount(usage.contextTokens)} Token`}</span>
+      <span title={approximateContext ? '近似值：Cursor 本次执行返回的 inputTokens 与 outputTokens 之和，可能包含多次内部调用，不代表精确上下文占用' : 'Agent 最近一次报告的当前上下文 Token 数'}>当前 {usage?.contextTokens === undefined ? '—' : `${approximateContext ? '≈ ' : ''}${tokenCount(usage.contextTokens)} Token`}</span>
     </div>
   </div>;
 }
@@ -286,6 +287,6 @@ export function ChatComposer({ index, pane, agents, projects, sessions, pickingP
       <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label={`窗口 ${index + 1} 选择图片`} onChange={event => { addImages(Array.from(event.target.files || [])); event.target.value = ''; }} />
       <div className="composer-footer"><div className="composer-actions"><button type="button" className="composer-attach" aria-label={`窗口 ${index + 1} 添加图片`} title={supportsImages ? '添加图片，也可粘贴截图' : '当前 Agent 接入不支持图片附件'} disabled={busy || composerDisabled || !supportsImages} onClick={() => imageInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m21 16-5-5L5 21" /></svg></button>{busy && images.length > 0 && <span className="composer-upload-status" role="status">发送图片中…</span>}{modelsLoading && <span className="composer-upload-status" role="status">加载模型中…</span>}{modelsFailed && <button type="button" className="reply-push" onClick={() => setModelRetry(value => value + 1)}>重试加载模型</button>}<ComposerSettings key={composerAgent} modelDetails={modelState?.key === modelKey ? modelState.details : undefined} modelsLoading={modelsLoading} onLoadModels={() => { if (modelsFailed) setModelRetry(value => value + 1); }} index={index} composerAgent={composerAgent} agentInfo={agentInfo} model={model} permissionMode={permissionMode} sandboxEnabled={sandboxEnabled} busy={busy} running={Boolean(running)} disabled={composerDisabled} onModelChange={setModel} onExecutionChange={(mode, enabled) => void changeExecutionSettings(mode, enabled)} /></div><div className="composer-submit-actions"><button className={`composer-send${waiting ? ' waiting' : ''}`} aria-label={submitLabel} data-tooltip={submitLabel} disabled={waiting ? busy : !canSend} onClick={waiting ? stop : send}>{waiting ? <span className="conversation-loading" aria-hidden="true" /> : '↑'}</button></div></div>
     </div>
-    {selected && <TokenUsageStatus usage={selected.usage} />}
+    {selected && <TokenUsageStatus usage={selected.usage} agent={selected.agent} />}
   </div>;
 }

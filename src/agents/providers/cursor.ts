@@ -103,7 +103,10 @@ export const cursor: AgentProvider = {
       }
       if (event.type === 'result') {
         const usage = object(event.usage);
-        return { externalSessionId, events: finishText(), usage: usage && hasTokens(usage, ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']) ? {
+        const contextTokens = usage && ['inputTokens', 'outputTokens'].every(field => typeof usage[field] === 'number' && Number.isFinite(usage[field]) && usage[field] >= 0)
+          ? tokens(usage.inputTokens) + tokens(usage.outputTokens)
+          : undefined;
+        return { externalSessionId, events: finishText(), contextTokens, usage: usage && hasTokens(usage, ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']) ? {
           inputTokens: tokens(usage.inputTokens) + tokens(usage.cacheReadTokens) + tokens(usage.cacheWriteTokens),
           outputTokens: tokens(usage.outputTokens),
           cacheReadTokens: typeof usage.cacheReadTokens === 'number' ? tokens(usage.cacheReadTokens) : undefined,
