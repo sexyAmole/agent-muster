@@ -8,6 +8,7 @@ import QRCode from 'qrcode';
 import type { ConversationSettings } from '../commands.js';
 import type { AgentImage } from '../../types.js';
 import { validatePermissionMode } from '../../agents/settings.js';
+import { debugEnabled } from '../../debug.js';
 import { apiBase, validateApiBase, weixinRequest, WeixinAuthError, type QrStatus, type WeixinMessage, type WeixinImage } from './api.js';
 
 const directory = join(homedir(), '.agent-muster', 'im', 'weixin');
@@ -167,7 +168,10 @@ export class WeixinRegistry extends EventEmitter<{ message: [WeixinEvent] }> {
         if (data.get_updates_buf) app.updatesCursor = data.get_updates_buf;
         if (messages.length || data.get_updates_buf) await this.persist();
         if (client.controller.signal.aborted) return;
-        for (const message of messages) this.emit('message', { appId: app.id, message });
+        for (const message of messages) {
+          if (debugEnabled) console.log('[调试][IM][微信][接收消息]', { appId: app.id, messageId: message.message_id, chatId: message.from_user_id, types: message.item_list?.map(item => item.type) }, JSON.stringify(message));
+          this.emit('message', { appId: app.id, message });
+        }
       } catch (error) {
         if (client.controller.signal.aborted) return;
         if ((error as Error).name === 'TimeoutError') continue;
@@ -217,6 +221,7 @@ export class WeixinRegistry extends EventEmitter<{ message: [WeixinEvent] }> {
         from_user_id: '', to_user_id: chatId, client_id: randomUUID(), message_type: 2, message_state: 2,
         context_token: token, item_list: [{ type: 1, text_item: { text: chunk } }],
       } } });
+      if (debugEnabled) console.log('[调试][IM][微信][发送成功]', { appId: id, chatId, type: 'text', length: chunk.length });
     }
   }
 

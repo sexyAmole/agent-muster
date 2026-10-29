@@ -776,14 +776,14 @@ button:disabled { cursor: not-allowed; }
 .agent-panel .agent-list { flex: none; width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; }
 .agent-panel .agent-operation-output { flex: none; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto; }
 
-/* IM 集成：Tabs 占满剩余空间，头部固定，内容区域居中且可滚动 */
+/* IM 集成：平台标签固定，当前平台内容整体滚动 */
 .im-prototype .tabs { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .im-prototype .tabs [role="tabpanel"] { flex: 1; overflow: hidden; }
-.im-prototype .tabs [role="tabpanel"] > div { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.im-prototype .tabs [role="tabpanel"] > div { height: 100%; display: flex; flex-direction: column; overflow-y: auto; }
 .im-prototype .tabs-list { width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; }
 .im-prototype .im-intro { flex: none; width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; }
 .im-prototype .im-intro h1 { font-size: 20px; }
-.im-prototype .im-robot-list { flex: 1; width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; overflow-y: auto; }
+.im-prototype .im-robot-list { flex: none; width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; }
 
 @media (max-width: 650px) {
   .management-page { padding: 12px; }

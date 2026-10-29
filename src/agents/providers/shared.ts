@@ -139,7 +139,7 @@ export function createAdapter(protocol: ProtocolAdapter): Adapter {
     createReader(reader) {
       const read = reader ?? protocol.createReader();
       return (line, channel) => {
-        if (debugEnabled) console.log(`[调试][${protocol.id}][${channel}]`, line);
+        // if (debugEnabled) console.log(`[调试][${protocol.id}][${channel}]`, line);
         if (channel === 'stdout') return normalizeResult(read(line.trim()));
         if (!line.trim()) return { events: [] };
         if (protocol.readStderr) return { events: protocol.readStderr(line) };

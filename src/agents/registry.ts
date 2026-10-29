@@ -75,6 +75,10 @@ export class AgentRegistry {
     return [...this.agents.values()].map(agent => ({ ...agent }));
   }
 
+  available(): AgentInfo[] {
+    return this.list().filter(agent => agent.installed);
+  }
+
   get(id: string): AgentInfo | undefined {
     return this.agents.get(id);
   }

@@ -32,7 +32,7 @@ export function createFeishuRouter(feishu: FeishuRegistry, projects: ProjectRegi
         if (!details.installed) throw new Error('Agent 不可用');
         if (model && !details.models.some(item => item.id === model)) throw new Error('模型不存在');
       }
-      response.json(await feishu.bind(request.params.id, { project, agent, model, permissionMode }, projects.list(), registry.list().filter(item => item.installed).map(item => item.id)));
+      response.json(await feishu.bind(request.params.id, { project, agent, model, permissionMode }, projects.list(), registry.available().map(item => item.id)));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.delete('/feishu/apps/:id', async (request, response) => {

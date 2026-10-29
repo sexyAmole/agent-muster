@@ -11,6 +11,7 @@ import type { ConversationSettings } from '../commands.js';
 import type { AgentImage } from '../../types.js';
 import { validatePermissionMode } from '../../agents/settings.js';
 import { StreamReply, splitStreamContent } from '../stream-reply.js';
+import { debugEnabled } from '../../debug.js';
 
 const rootDirectory = join(homedir(), '.agent-muster');
 const directory = join(rootDirectory, 'im', 'feishu');
@@ -145,7 +146,10 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
     const api = new Client(config);
     const ws = new WSClient(config);
     const eventDispatcher = new EventDispatcher({}).register({
-      'im.message.receive_v1': data => { this.emit('message', { appId: app.id, message: data }); },
+      'im.message.receive_v1': data => {
+        if (debugEnabled) console.log('[调试][IM][飞书][接收消息]', { appId: app.id, messageId: data.message.message_id, chatId: data.message.chat_id, type: data.message.message_type }, JSON.stringify(data));
+        this.emit('message', { appId: app.id, message: data });
+      },
     });
     this.clients.set(app.id, { api, ws });
     void ws.start({ eventDispatcher }).catch(error => console.error(`飞书应用 ${app.clientId} 消息监听失败：`, error));
@@ -194,6 +198,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
       receive_id: chatId, msg_type: 'interactive', content: JSON.stringify({ type: 'card', data: { card_id: cardId } }),
     } });
     if (message.code !== 0) throw new Error(`飞书流式卡片发送失败：${message.msg} (${message.code})`);
+    if (debugEnabled) console.log('[调试][IM][飞书][发送成功]', { appId: id, chatId, cardId, type: 'card' });
     let sequence = 0;
     return new StreamReply(async (content, finish) => {
       const [text, remaining] = splitStreamContent(mention + content);
@@ -211,6 +216,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
           if (result.code !== 0) throw new Error(`飞书流式卡片结束失败：${result.msg} (${result.code})`);
         }
       }
+      if (debugEnabled) console.log('[调试][IM][飞书][流式发送成功]', { appId: id, chatId, cardId, length: text.length, finish });
       if (finish && remaining) await this.send(id, chatId, mention + remaining, 'markdown');
     });
   }
@@ -239,6 +245,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
         },
       });
       if (result.code !== 0) throw new Error(`飞书消息发送失败：${result.msg} (${result.code})`);
+      if (debugEnabled) console.log('[调试][IM][飞书][发送成功]', { appId: id, chatId, messageId: result.data?.message_id, type: format, length: text.length });
     }
   }
 

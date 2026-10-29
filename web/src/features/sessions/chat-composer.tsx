@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import type { AgentInfo as Agent, AgentSession as Session } from '../../../../src/types';
 import { Select } from '../../shared/components/select';
 import { AgentIcon } from '../agents/agent-icon';
@@ -97,17 +97,10 @@ function getComposerState({ selected, agents, projects, pane, agent, message, im
 export function ChatComposer({ index, pane, agents, projects, sessions, pickingProject, onAddProject, onProjectChange, onSessionCreated, onSessionUpdate, focused, selected, setSelected, setError, onModelsReady }: ChatComposerProps) {
   const projectNames = useContext(ProjectNamesContext);
   const selectedId = pane.sessionId;
-  const sortedAgents = useMemo(() => {
-    const counts = new Map(agents.map(item => [item.id, 0]));
-    for (const session of sessions) {
-      if (counts.has(session.agent)) counts.set(session.agent, counts.get(session.agent)! + 1);
-    }
-    return agents.filter(item => item.installed).sort((a, b) => counts.get(b.id)! - counts.get(a.id)!);
-  }, [agents, sessions]);
-  const [agent, setAgent] = useState(sortedAgents.find(item => item.installed)?.id || '');
+  const [agent, setAgent] = useState(agents[0]?.id || '');
   const [permissionMode, setPermissionMode] = useState(sessions.find(session => session.id === selectedId)?.permissionMode || 'full-auto');
   const [model, setModel] = useState(sessions.find(session => session.id === selectedId)?.model || '');
-  const [sandboxEnabled, setSandboxEnabled] = useState(sessions.find(session => session.id === selectedId)?.sandboxEnabled ?? Boolean(sortedAgents.find(item => item.id === agent)?.sandboxSupported));
+  const [sandboxEnabled, setSandboxEnabled] = useState(sessions.find(session => session.id === selectedId)?.sandboxEnabled ?? Boolean(agents.find(item => item.id === agent)?.sandboxSupported));
   const [message, setMessage] = useState('');
   const [images, setImages] = useState<ComposerImage[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -122,8 +115,8 @@ export function ChatComposer({ index, pane, agents, projects, sessions, pickingP
   }, []);
 
   useEffect(() => {
-    if (!sortedAgents.some(item => item.id === agent && item.installed)) setAgent(sortedAgents.find(item => item.installed)?.id || '');
-  }, [sortedAgents, agent]);
+    if (!agents.some(item => item.id === agent)) setAgent(agents[0]?.id || '');
+  }, [agents, agent]);
 
   useEffect(() => { setModel(selected?.model || ''); }, [selected?.id, selected?.model]);
   useEffect(() => { setPermissionMode(selected?.permissionMode || 'full-auto'); }, [selected?.id, selected?.agent, selected?.permissionMode, agent]);
@@ -271,7 +264,7 @@ export function ChatComposer({ index, pane, agents, projects, sessions, pickingP
           <option value="add-project">添加项目</option>
         </Select>
       </span>
-      <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} variant="ghost" roundedFull value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy || !sortedAgents.length} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">{sortedAgents.length ? '选择 Agent' : '暂无已安装的 Agent'}</option>}{sortedAgents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></span>
+      <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} variant="ghost" roundedFull value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy || !agents.length} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">{agents.length ? '选择 Agent' : '暂无已安装的 Agent'}</option>}{agents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></span>
     </div>}
     {selected && selected.queuedMessages && selected.queuedMessages.length > 0 && <div className="message-queue" aria-label="待执行消息">
       <div className="message-queue-heading"><span>{selected.queuePaused ? '队列已暂停' : '等待执行'}<span className="message-queue-count">{selected.queuedMessages.length} 条</span></span>{!running && <button type="button" className="message-queue-resume" disabled={busy || !modelsReady || !selected.externalSessionId} onClick={() => void updateQueue()}>继续队列</button>}</div>

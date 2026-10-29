@@ -9,6 +9,7 @@ import type { ConversationSettings } from '../commands.js';
 import type { AgentImage } from '../../types.js';
 import { validatePermissionMode } from '../../agents/settings.js';
 import { StreamReply, splitStreamContent } from '../stream-reply.js';
+import { debugEnabled } from '../../debug.js';
 
 const rootDirectory = join(homedir(), '.agent-muster');
 const directory = join(rootDirectory, 'im', 'wecom');
@@ -158,7 +159,10 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
     ws.on('error', () => { client.status = 'failed'; });
     ws.on('event.disconnected_event', () => { client.status = 'failed'; });
     for (const event of ['message.text', 'message.image', 'message.mixed', 'message.voice'] as const) {
-      ws.on(event, frame => { this.emit('message', { appId: app.id, frame }); });
+      ws.on(event, frame => {
+        if (debugEnabled) console.log('[调试][IM][企业微信][接收消息]', { appId: app.id, messageId: frame.body?.msgid, chatId: frame.body?.chatid, type: frame.body?.msgtype }, JSON.stringify(frame));
+        this.emit('message', { appId: app.id, frame });
+      });
     }
     ws.connect();
   }
@@ -191,6 +195,7 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
     const write = async (content: string, finish: boolean) => {
       const [text, remaining] = splitStreamContent(mention + content);
       await client.ws.replyStream(frame, streamId, text, finish);
+      if (debugEnabled) console.log('[调试][IM][企业微信][流式发送成功]', { appId: id, chatId, streamId, length: text.length, finish });
       if (finish && remaining) await this.send(id, chatId, mention + remaining);
     };
     await write('正在处理中…', false);
@@ -206,11 +211,15 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
       const bytes = Buffer.byteLength(character);
       if (size + bytes > 4000) {
         await client.ws.sendMessage(chatId, { msgtype: 'markdown', markdown: { content: chunk } });
+        if (debugEnabled) console.log('[调试][IM][企业微信][发送成功]', { appId: id, chatId, type: 'markdown', length: chunk.length });
         chunk = ''; size = 0;
       }
       chunk += character; size += bytes;
     }
-    if (chunk) await client.ws.sendMessage(chatId, { msgtype: 'markdown', markdown: { content: chunk } });
+    if (chunk) {
+      await client.ws.sendMessage(chatId, { msgtype: 'markdown', markdown: { content: chunk } });
+      if (debugEnabled) console.log('[调试][IM][企业微信][发送成功]', { appId: id, chatId, type: 'markdown', length: chunk.length });
+    }
   }
 
   async sendToSession(id: string, sessionId: string, content: string): Promise<void> {

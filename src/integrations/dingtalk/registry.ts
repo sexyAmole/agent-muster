@@ -10,7 +10,8 @@ import { DWClient, TOPIC_ROBOT, type RobotMessage } from 'dingtalk-stream';
 import { EnvHttpProxyAgent, fetch } from 'undici';
 import type { AgentImage } from '../../types.js';
 import { validatePermissionMode } from '../../agents/settings.js';
-import { StreamReply, splitStreamContent } from '../stream-reply.js';
+import { StreamReply } from '../stream-reply.js';
+import { debugEnabled } from '../../debug.js';
 
 const rootDirectory = join(homedir(), '.agent-muster');
 const directory = join(rootDirectory, 'im', 'dingtalk');
@@ -20,7 +21,6 @@ const imageDirectory = join(directory, 'images');
 const apiBase = 'https://oapi.dingtalk.com';
 const openApiBase = 'https://api.dingtalk.com';
 const dispatcher = new EnvHttpProxyAgent();
-// 使用钉钉官方连接器的 AI 模板及正文变量。
 const aiCardTemplateId = '02fcf2f4-5e02-4a85-b672-46d1f715543e.schema';
 
 type DingTalkResponse = { errcode: number; errmsg: string };
@@ -35,7 +35,8 @@ type AccessTokenResponse = { accessToken?: string; expireIn?: number };
 type InnerAppsResponse = { appList?: { name?: string; icon?: string; robotInfo?: { robotCode?: string } }[]; code?: string };
 type ConversationTarget = { robotCode: string } & ({ type: '1'; userId: string } | { type: '2'; openConversationId: string });
 type SendMessageResponse = { processQueryKey?: string; message?: string; invalidStaffIdList?: string[]; flowControlledStaffIdList?: string[] };
-type CardResponse = { success?: boolean; code?: string; result?: { success?: boolean; deliverResults?: { success?: boolean }[] } };
+type CardResponse = { success?: boolean; code?: string; result?: boolean | { success?: boolean; deliverResults?: { success?: boolean }[] } };
+class CardPermissionError extends Error {}
 type Application = { id: string; clientId: string; clientSecret: string; name: string | null; iconMime: string | null; project: string | null; agent: string | null; model?: string; permissionMode?: string; createdAt?: number; conversations: Record<string, string>; conversationTargets?: Record<string, ConversationTarget>; conversationSettings?: Record<string, ConversationSettings> };
 type RobotMessageBase = Omit<RobotMessage, 'msgtype' | 'text'> & { conversationTitle?: string };
 type RobotImage = { downloadCode?: string; pictureDownloadCode?: string };
@@ -176,15 +177,22 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     const conversation = Object.keys(app.conversations).find(key => app.conversations[key] === sessionId);
     const target = conversation ? app.conversationTargets?.[conversation] : undefined;
     if (!target) throw new Error('此对话尚无发送目标，请先在钉钉中向应用发送一条消息');
+    await this.sendMessage(app, target, content);
+    if (debugEnabled) console.log('[调试][IM][钉钉][发送成功]', { appId, sessionId, conversation, type: 'markdown', length: content.length });
+  }
+
+  private async sendMessage(app: Application, target: ConversationTarget, content: string): Promise<void> {
     if (!target.robotCode || (target.type === '1' ? !target.userId : !target.openConversationId)) throw new Error('钉钉对话的发送目标不完整');
     const token = await this.getAccessToken(app);
     const path = target.type === '1' ? '/v1.0/robot/oToMessages/batchSend' : '/v1.0/robot/groupMessages/send';
+    const body = JSON.stringify({
+      robotCode: target.robotCode, msgKey: 'sampleMarkdown', msgParam: JSON.stringify({ title: 'Agent 执行结果', text: content }),
+      ...(target.type === '1' ? { userIds: [target.userId] } : { openConversationId: target.openConversationId }),
+    });
+    if (debugEnabled) console.log('[调试][IM][钉钉][发送请求]', { appId: app.id, method: 'POST', path }, body);
     const response = await fetch(`${openApiBase}${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': token },
-      body: JSON.stringify({
-        robotCode: target.robotCode, msgKey: 'sampleMarkdown', msgParam: JSON.stringify({ title: 'Agent 执行结果', text: content }),
-        ...(target.type === '1' ? { userIds: [target.userId] } : { openConversationId: target.openConversationId }),
-      }),
+      body,
       redirect: 'error', signal: AbortSignal.timeout(10000), dispatcher,
     });
     const result = await response.json() as SendMessageResponse;
@@ -211,94 +219,91 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     const app = this.apps.find(item => item.id === id);
     if (!app) throw new Error('钉钉应用不存在');
     const token = await this.getAccessToken(app);
+    const payload = JSON.stringify(body);
+    if (debugEnabled) console.log('[调试][IM][钉钉][发送请求]', { appId: id, method, path }, payload);
     const response = await fetch(`${openApiBase}${path}`, {
       method, headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': token },
-      body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(10000), dispatcher,
+      body: payload, redirect: 'error', signal: AbortSignal.timeout(10000), dispatcher,
     });
     const result = await response.json() as CardResponse;
-    if (!response.ok || result.success === false || result.result?.success === false || result.result?.deliverResults?.some(item => item.success === false)) {
+    if (response.status === 403 || result.code === 'access.denied' || result.code?.startsWith('Forbidden.AccessDenied')) {
+      throw new CardPermissionError(`钉钉 AI 卡片无权限（${response.status}${result.code ? `，${result.code}` : ''}）`);
+    }
+    const detail = typeof result.result === 'object' ? result.result : undefined;
+    if (!response.ok || result.success === false || result.result === false || detail?.success === false || detail?.deliverResults?.some(item => item.success === false)) {
       throw new Error(`钉钉 AI 卡片请求失败（${response.status}${result.code ? `，${result.code}` : ''}）`);
     }
   }
 
   async startReply(id: string, message: IncomingRobotMessage): Promise<StreamReply> {
-    const atUserId = message.conversationType === '2' ? message.senderStaffId : undefined;
     const outTrackId = randomUUID();
-    let useCard = false;
-    const cardData = (content: string, flowStatus: string) => ({ cardParamMap: {
-      flowStatus, msgContent: content, staticMsgContent: '',
+    const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
+    const mention = message.conversationType === '2' ? `<a atId="${escapeHtml(message.senderStaffId)}">${escapeHtml(message.senderNick)}</a>\n\n` : '';
+    const cardData = (content: string) => ({ cardParamMap: {
+      flowStatus: '2', msgContent: `${mention}${content}`, staticMsgContent: '',
       sys_full_json_obj: JSON.stringify({ order: ['msgContent'] }), config: JSON.stringify({ autoLayout: true }),
     } });
-    const stream = (content: string, finish: boolean) => this.requestCard(id, 'PUT', '/v1.0/card/streaming', {
-      outTrackId, guid: randomUUID(), key: 'msgContent', content, isFull: true, isFinalize: finish, isError: false,
+    const update = (content: string, finish: boolean) => this.requestCard(id, 'PUT', '/v1.0/card/streaming', {
+      outTrackId, guid: randomUUID(), key: 'msgContent', content: `${mention}${content}`,
+      isFull: true, isFinalize: finish, isError: false,
     });
-    const update = (content: string, flowStatus: string) => this.requestCard(id, 'PUT', '/v1.0/card/instances', {
-      outTrackId, cardData: cardData(content, flowStatus), cardUpdateOptions: { updateCardDataByKey: true },
-    });
-    const acknowledge = () => this.reply(id, message.sessionWebhook, '正在处理中…', 'text', atUserId)
-      .catch(error => { console.error('钉钉处理提示发送失败：', error); });
+    const target = message.conversationType === '2' ? {
+      openSpaceId: `dtv1.card//IM_GROUP.${message.conversationId}`,
+      imGroupOpenSpaceModel: { supportForward: false },
+      imGroupOpenDeliverModel: { robotCode: message.robotCode, atUserIds: { [message.senderStaffId]: message.senderNick } },
+      cardAtUserIds: [message.senderStaffId],
+    } : {
+      openSpaceId: `dtv1.card//IM_ROBOT.${message.senderStaffId}`,
+      imRobotOpenSpaceModel: { supportForward: false },
+      imRobotOpenDeliverModel: { spaceType: 'IM_ROBOT', robotCode: message.robotCode },
+    };
     try {
-      await this.requestCard(id, 'POST', '/v1.0/card/instances', {
-        cardTemplateId: aiCardTemplateId, outTrackId, cardData: cardData('正在处理中…', '2'), callbackType: 'STREAM',
-        imGroupOpenSpaceModel: { supportForward: true }, imRobotOpenSpaceModel: { supportForward: true },
+      await this.requestCard(id, 'POST', '/v1.0/card/instances/createAndDeliver', {
+        cardTemplateId: aiCardTemplateId, outTrackId, userIdType: 1, callbackType: 'STREAM',
+        cardData: cardData('正在处理中…'), ...target,
       });
-      // 先验证流式权限，再投放，避免缺少流式权限时留下等待中的卡片。
-      await stream('正在处理中…', false);
-      const target = message.conversationType === '2' ? {
-        openSpaceId: `dtv1.card//IM_GROUP.${message.conversationId}`,
-        imGroupOpenDeliverModel: { robotCode: message.robotCode, atUserIds: { [message.senderStaffId]: message.senderNick } },
-      } : {
-        openSpaceId: `dtv1.card//IM_ROBOT.${message.senderStaffId}`,
-        imRobotOpenDeliverModel: { spaceType: 'IM_ROBOT', robotCode: message.robotCode },
-      };
-      await this.requestCard(id, 'POST', '/v1.0/card/instances/deliver', { outTrackId, userIdType: 1, ...target });
-      useCard = true;
     } catch (error) {
-      console.warn('钉钉 AI 卡片不可用，本条消息使用普通回复：', error);
-      await acknowledge();
+      if (!(error instanceof CardPermissionError)) throw error;
+      if (debugEnabled) console.log('[调试][IM][钉钉][AI 卡片无权限，使用普通回复]', { appId: id });
+      return new StreamReply(async (content, finish) => {
+        if (finish) await this.reply(id, message, content, 'markdown');
+      });
     }
+    if (debugEnabled) console.log('[调试][IM][钉钉][发送成功]', { appId: id, conversation: message.conversationId, cardId: outTrackId, type: 'card' });
     return new StreamReply(async (content, finish) => {
-      if (useCard) {
-        const [text, remaining] = splitStreamContent(content);
-        try {
-          await stream(text, finish);
-          if (finish) await update(text, '3');
-        } catch (error) {
-          console.warn('钉钉 AI 卡片更新失败，本条消息切换为普通回复：', error);
-          useCard = false;
-          await update('已切换为普通消息回复。', '5')
-            .catch(closeError => { console.error('钉钉 AI 卡片结束失败：', closeError); });
-          if (!finish) await acknowledge();
-        }
-        if (useCard) {
-          if (finish && remaining) await this.reply(id, message.sessionWebhook, remaining, 'markdown', atUserId);
-          return;
-        }
-      }
-      if (finish) await this.reply(id, message.sessionWebhook, content, 'markdown', atUserId);
+      await update(content, finish);
+      if (debugEnabled) console.log('[调试][IM][钉钉][流式发送成功]', { appId: id, cardId: outTrackId, length: content.length, finish });
     });
   }
 
-  async reply(id: string, webhook: string, content: string, format: 'text' | 'markdown' = 'text', atUserId?: string): Promise<void> {
-    const url = new URL(webhook);
+  async reply(id: string, message: IncomingRobotMessage, content: string, format: 'text' | 'markdown' = 'text'): Promise<void> {
+    const url = new URL(message.sessionWebhook);
     if (url.protocol !== 'https:' || url.hostname !== 'oapi.dingtalk.com' || url.pathname !== '/robot/sendBySession') {
       throw new Error('钉钉返回了无效的回复地址');
     }
     const client = this.clients.get(id);
     if (!client) throw new Error('钉钉订阅未启动');
     const accessToken = await client.getAccessToken() as string;
+    const isGroup = message.conversationType === '2';
+    const text = isGroup ? `@${message.senderStaffId}\n\n${content}` : content;
     const body = format === 'markdown'
-      ? { msgtype: 'markdown', markdown: { title: 'Agent 执行结果', text: content } }
-      : { msgtype: 'text', text: { content } };
+      ? { msgtype: 'markdown', markdown: { title: 'Agent 执行结果', text } }
+      : { msgtype: 'text', text: { content: text } };
+    const payload = JSON.stringify({
+      ...body,
+      ...(isGroup ? { at: { atUserIds: [message.senderStaffId], isAtAll: false } } : {}),
+    });
+    if (debugEnabled) console.log('[调试][IM][钉钉][发送请求]', { appId: id, method: 'POST', path: url.pathname }, payload);
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': accessToken },
-      body: JSON.stringify({ ...body, ...(atUserId ? { at: { atUserIds: [atUserId] } } : {}) }),
+      body: payload,
       redirect: 'error', signal: AbortSignal.timeout(10000), dispatcher,
     });
     if (!response.ok) throw new Error(`钉钉回复失败 (${response.status})`);
     const result = await response.json() as DingTalkResponse;
     if (result.errcode !== 0) throw new Error(result.errmsg || `钉钉回复失败 (${result.errcode})`);
+    if (debugEnabled) console.log('[调试][IM][钉钉][发送成功]', { appId: id, type: format, length: content.length });
   }
 
   startSubscriptions(): void {
@@ -319,6 +324,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     client.registerCallbackListener(TOPIC_ROBOT, event => {
       try {
         const message = JSON.parse(event.data) as IncomingRobotMessage;
+        if (debugEnabled) console.log('[调试][IM][钉钉][接收消息]', { appId: app.id, messageId: message.msgId, conversation: message.conversationId, type: message.msgtype }, JSON.stringify(message));
         this.emit('message', { appId: app.id, message });
         client.socketCallBackResponse(event.headers.messageId, null);
       } catch (error) {

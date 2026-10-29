@@ -24,6 +24,7 @@ type Directory = { path: string };
 
 export function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [availableAgents, setAvailableAgents] = useState<Agent[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [feishuApps, setFeishuApps] = useState<Application[]>([]);
   const [projects, setProjects] = useState<string[]>([]);
@@ -107,6 +108,17 @@ export function App() {
       document.removeEventListener('visibilitychange', visibilityChanged);
     };
   }, []);
+
+  useEffect(() => {
+    if (!agents.length) return;
+    const controller = new AbortController();
+    api<Agent[]>('/api/agents/available', { signal: controller.signal })
+      .then(result => {
+        if (!controller.signal.aborted) setAvailableAgents(current => JSON.stringify(current) === JSON.stringify(result) ? current : result);
+      })
+      .catch(reason => { if (!controller.signal.aborted) setError((reason as Error).message); });
+    return () => controller.abort();
+  }, [agents, sessions]);
 
   useEffect(() => {
     if (currentPane.sessionId) localStorage.setItem(lastSessionKey, currentPane.sessionId);
@@ -382,10 +394,10 @@ export function App() {
       </header>
       <div className="content chat-content">
         <div className={`workspace-grid ${layout}`} style={{ display: imOpen || agentsOpen ? 'none' : undefined }}>
-          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={index} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={agents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} pickingProject={picking} onAddProject={index => pickProject(index, false)} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); expandProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} />)}
+          {panes.slice(0, paneCount).map((pane, index) => <ChatPane key={index} index={index} pane={pane} panelProject={imOpen || agentsOpen ? null : expandedProject} multi={paneCount > 1} active={activePane === index} agents={availableAgents} projects={projects} sessions={sessions} feishuApps={feishuApps} onFocus={setActivePane} pickingProject={picking} onAddProject={index => pickProject(index, false)} onProjectChange={(position, path) => { setPanes(current => current.map((item, i) => i === position ? { ...item, cwd: path } : item)); expandProject(path); }} onSessionCreated={sessionCreated} onSessionUpdate={updateSession} />)}
         </div>
         <div className="management-page" hidden={!agentsOpen}><AgentPanel agents={agents} active={agentsOpen} onChange={setAgents} /></div>
-        <div className="management-page" hidden={!imOpen}><ImPanel active={imOpen} sessions={sessions} onOpenSession={openConversation} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={agents} projectLabel={path => projectLabel(path, projects, projectNames)} /></div>
+        <div className="management-page" hidden={!imOpen}><ImPanel active={imOpen} sessions={sessions} onOpenSession={openConversation} feishuApps={feishuApps} onFeishuAppsChange={setFeishuApps} projects={projects} agents={availableAgents} projectLabel={path => projectLabel(path, projects, projectNames)} /></div>
       </div>
     </main>
     {dragPreview && createPortal(<div className="project-item project-drag-preview" aria-hidden="true" style={{ left: dragPreview.left, top: dragPreview.top, width: dragPreview.width }}>
