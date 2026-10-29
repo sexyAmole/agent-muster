@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { execFile } from 'node:child_process';
+import { watch, type FSWatcher } from 'node:fs';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute } from 'node:path';
+import { dirname, isAbsolute, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { listProjectDirectory, readProjectFile, searchProjectFiles } from '../../projects/files.js';
-import { readProjectGitDiff, readProjectGitStatus, switchProjectGitBranch } from '../../projects/git.js';
+import { readProjectGitDiff, readProjectGitDirectories, readProjectGitStatus, switchProjectGitBranch } from '../../projects/git.js';
 import type { SessionManager } from '../../sessions/manager.js';
 import type { DingTalkRegistry } from '../../integrations/dingtalk/registry.js';
 import type { FeishuRegistry } from '../../integrations/feishu/registry.js';
@@ -37,6 +38,59 @@ export function createProjectRouter(projects: ProjectRegistry, sessions: Session
   const openedFolders = new Set<string>();
   router.get('/projects', (_request, response) => response.json(projects.list()));
   router.get('/projects/names', (_request, response) => response.json(projects.names()));
+  router.get('/projects/watch', async (request, response) => {
+    const watchers: FSWatcher[] = [];
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    const close = () => {
+      for (const watcher of watchers) watcher.close();
+      clearTimeout(pending);
+      clearInterval(heartbeat);
+    };
+    response.on('close', close);
+    try {
+      const path = request.query.path;
+      if (typeof path !== 'string') throw new Error('需要项目路径');
+      if (!openedFolders.has(path) && !projects.list().includes(path) && !sessions.list().some(session => session.cwd === path)) {
+        response.status(404).json({ error: '项目不存在' }); return;
+      }
+      const root = await realpath(path);
+      const gitDirectories = request.query.git === 'true' ? await readProjectGitDirectories(root) : [];
+      if (response.destroyed) return;
+      const roots = [root];
+      for (const directory of gitDirectories) {
+        if (!roots.some(parent => {
+          const child = relative(parent, directory);
+          return child === '' || (child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child));
+        })) roots.push(directory);
+      }
+      const changed = () => {
+        if (pending) return;
+        pending = setTimeout(() => {
+          pending = undefined;
+          response.write('data: {}\n\n');
+        }, 250);
+      };
+      for (const directory of roots) {
+        const watcher = watch(directory, { recursive: true }, (_event, filename) => {
+          const parts = filename?.split(/[\\/]/);
+          if (parts?.some(part => part === 'objects' || part.endsWith('.lock')) && (directory !== root || parts.includes('.git'))) return;
+          changed();
+        });
+        watchers.push(watcher);
+        watcher.on('error', () => { close(); response.end(); });
+      }
+      response.setHeader('Content-Type', 'text/event-stream');
+      response.setHeader('Cache-Control', 'no-cache');
+      response.setHeader('Connection', 'keep-alive');
+      response.flushHeaders();
+      response.write('data: {}\n\n');
+      heartbeat = setInterval(() => response.write(': keepalive\n\n'), 15000);
+    } catch (error) {
+      close();
+      response.status(400).json({ error: (error as Error).message });
+    }
+  });
   router.put('/projects/order', async (request, response) => {
     try {
       const paths: unknown = request.body?.paths;

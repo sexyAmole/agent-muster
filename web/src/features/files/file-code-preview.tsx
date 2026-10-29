@@ -56,12 +56,13 @@ export function FileCodePreview({ path, content }: { path: string; content: stri
   const container = useRef<HTMLDivElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const worker = useRef<Worker | null>(null);
+  const openedPath = useRef<string | null>(null);
   const [query, setQuery] = useState('');
   const [activeMatch, setActiveMatch] = useState(0);
   const [result, setResult] = useState<Preview | null>(null);
   const [matches, setMatches] = useState<{ path: string; content: string; query: string; offsets: Uint32Array } | null>(null);
   const [viewport, setViewport] = useState({ top: 0, height: 0 });
-  const current = result?.path === path && result.content === content ? result : null;
+  const current = result?.path === path ? result : null;
   const searchReady = matches?.path === path && matches.content === content && matches.query === query;
   const found = query && searchReady ? matches.offsets : emptyOffsets;
   const searching = Boolean(query && !searchReady);
@@ -128,7 +129,8 @@ export function FileCodePreview({ path, content }: { path: string; content: stri
     };
     instance.onerror = event => { event.preventDefault(); fail(event.message); };
     instance.postMessage({ type: 'open', path, content } satisfies PreviewRequest);
-    container.current?.scrollTo(0, 0);
+    if (openedPath.current !== path) container.current?.scrollTo(0, 0);
+    openedPath.current = path;
     return () => { worker.current = null; instance.terminate(); };
   }, [path, content]);
 
@@ -176,7 +178,7 @@ export function FileCodePreview({ path, content }: { path: string; content: stri
       <button type="button" aria-label="上一个匹配" disabled={!found.length || searching} onClick={() => moveMatch(-1)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg></button>
       <button type="button" aria-label="下一个匹配" disabled={!found.length || searching} onClick={() => moveMatch(1)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></button>
     </div>
-    <div ref={container} className="file-preview" style={style} aria-busy={!current || (!current.error && loaded < end)} onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
+    <div ref={container} className="file-preview" style={style} aria-busy={!current || current.content !== content || (!current.error && loaded < end)} onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
       {!current ? <p className="file-panel-status" role="status">正在加载语法高亮…</p>
         : current.error ? <p className="file-panel-status file-panel-error" role="alert">{current.error}</p>
           : <pre className="shiki" tabIndex={0} aria-label="文件内容" style={{ height: scrollHeight }}><code style={{ top: padding + start * lineHeight - viewport.top * (scale - 1) }} dangerouslySetInnerHTML={{ __html: html }} /></pre>}

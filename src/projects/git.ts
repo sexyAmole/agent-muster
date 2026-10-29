@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { ProjectGitDiff, ProjectGitStatus } from '../types.js';
 import { readProjectFile } from './files.js';
@@ -17,6 +17,16 @@ async function git(project: string, args: string[]): Promise<string> {
     if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new Error('Git 输出超过 8 MiB，无法展示');
     if (error.killed) throw new Error('读取 Git 信息超时，请刷新重试');
     throw error;
+  }
+}
+
+export async function readProjectGitDirectories(project: string): Promise<string[]> {
+  try {
+    const output = await git(project, ['rev-parse', '--absolute-git-dir', '--git-common-dir']);
+    return [...new Set(output.trimEnd().split('\n').map(path => resolve(project, path)))];
+  } catch (reason) {
+    if ((reason as { stderr?: string }).stderr?.includes('not a git repository')) return [];
+    throw reason;
   }
 }
 
