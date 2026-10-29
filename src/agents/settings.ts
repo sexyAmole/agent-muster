@@ -15,7 +15,7 @@ export function sessionSandboxEnabled(agent: string, permissionMode: string, val
   const supported = Boolean(providers.get(agent)?.sandboxSupported);
   if (value !== undefined && typeof value !== 'boolean') throw new Error('沙箱设置无效');
   if (value === true && !supported) throw new Error('此 Agent 不支持内置沙箱');
-  if (['codex', 'trae', 'dsh'].includes(agent) && ['read-only', 'workspace-write', 'auto-review'].includes(permissionMode)) {
+  if (['codex', 'trae'].includes(agent) && ['read-only', 'workspace-write', 'auto-review'].includes(permissionMode)) {
     if (value === false) throw new Error('所选权限模式必须开启沙箱');
     return true;
   }

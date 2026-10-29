@@ -8,22 +8,17 @@ export const dsh: AgentProvider = {
   id: 'dsh',
   name: 'DeepSeek Harness',
   command: 'dsh',
-  sandboxSupported: true,
-  permissionModes: [fullAutoMode,
-    { id: 'read-only', name: '只读', description: '使用只读沙箱，需要人工审批的操作直接拒绝' },
-    { id: 'workspace-write', name: '项目内自动执行', description: '允许修改当前项目，需要人工审批的操作直接拒绝' },
-  ],
+  sandboxSupported: false,
+  permissionModes: [{ ...fullAutoMode, description: '无需人工审批，自动执行操作' }],
   installation: { kind: 'npm', packageName: '@deepseek-ai/dsh' },
   async models() { return []; },
   async configuredModel() { return undefined; },
-  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto', sandboxEnabled = true } = {}) {
+  launch(prompt, externalSessionId, model, images) {
     if (images?.length) throw new Error('DeepSeek Harness headless 接入不支持图片附件输入');
     if (model) throw new Error('请在 DeepSeek Harness 的 headless 配置中选择模型');
-    const mode = permissionMode === 'read-only' || permissionMode === 'workspace-write' ? permissionMode
-      : sandboxEnabled ? 'workspace-write' : 'danger-full-access';
     const directory = mkdtempSync(join(tmpdir(), 'agent-muster-dsh-'));
     const patch = join(directory, 'permissions.yml');
-    writeFileSync(patch, `- id: sandbox-policy\n  config:\n    mode: ${mode}\n    workspaceRoot: !!js process.cwd()\n- id: approval\n  config:\n    policy: never\n`, { mode: 0o600 });
+    writeFileSync(patch, `- id: approval\n  config:\n    policy: never\n`, { mode: 0o600 });
     return {
       command: 'dsh',
       args: ['--profile', 'headless', '--patch', patch, '--json',
