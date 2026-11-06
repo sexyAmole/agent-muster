@@ -267,11 +267,11 @@ export function ChatComposer({ index, pane, agents, projects, sessions, pickingP
       <span className="agent-select"><Select aria-label={`窗口 ${index + 1} 选择 Agent`} variant="ghost" roundedFull value={composerAgent} renderIcon={value => value ? <AgentIcon agent={value} /> : null} disabled={busy || !agents.length} onChange={value => { setAgent(value); setModel(''); }}>{!composerAgent && <option value="">{agents.length ? '选择 Agent' : '暂无已安装的 Agent'}</option>}{agents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></span>
     </div>}
     {selected && selected.queuedMessages && selected.queuedMessages.length > 0 && <div className="message-queue" aria-label="待执行消息">
-      <div className="message-queue-heading"><span>{selected.queuePaused ? '队列已暂停' : '等待执行'}<span className="message-queue-count">{selected.queuedMessages.length} 条</span></span>{!running && <button type="button" className="message-queue-resume" disabled={busy || !modelsReady || !selected.externalSessionId} onClick={() => void updateQueue()}>继续队列</button>}</div>
+      {(selected.queuePaused || !running) && <div className="message-queue-heading"><span>{selected.queuePaused ? '队列已暂停' : '等待执行'}</span>{!running && <button type="button" className="message-queue-resume" disabled={busy || !modelsReady || !selected.externalSessionId} onClick={() => void updateQueue()}>继续队列</button>}</div>}
       <ol>{selected.queuedMessages.map((item, position) => <li key={item.id}>
-        <span className="message-queue-position" aria-hidden="true">{position + 1}</span>
+        <svg className="message-queue-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M8 8h5M8 12h5m2 3 4 3-4 3m-3-3h7" /></svg>
         <div className="message-queue-content">{item.content}{item.images && item.images.length > 0 && <span className="message-queue-images">{item.images.length} 张图片</span>}</div>
-        <button type="button" className="message-queue-remove" disabled={busy} aria-label={`移除排队消息 ${position + 1}`} data-tooltip={`移除排队消息 ${position + 1}`} onClick={() => void updateQueue(item.id)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
+        <button type="button" className="message-queue-remove" disabled={busy} aria-label={`移除排队消息 ${position + 1}`} data-tooltip={`移除排队消息 ${position + 1}`} onClick={() => void updateQueue(item.id)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6m4-6v6" /></svg></button>
       </li>)}</ol>
     </div>}
     <div className="chat-composer" ref={composerRef}>
