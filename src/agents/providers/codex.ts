@@ -48,6 +48,7 @@ function codexModels(): Promise<CodexModel[]> {
 export const codex: AgentProvider = {
   id: 'codex',
   sandboxSupported: true,
+  systemPromptSupported: true,
   permissionModes: [fullAutoMode, { id: 'read-only', name: '只读', description: '使用只读沙箱，禁止修改项目文件' }, { id: 'workspace-write', name: '项目内自动执行', description: '允许修改当前项目，越界操作直接拒绝' }, autoReviewMode],
   name: 'Codex',
   command: 'codex',
@@ -65,7 +66,7 @@ export const codex: AgentProvider = {
     const directory = process.env.CODEX_HOME ? resolve(process.env.CODEX_HOME) : join(homedir(), '.codex');
     return findJsonl(join(directory, 'sessions'), file => basename(file).endsWith(`-${session.externalSessionId}.jsonl`));
   },
-  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto', sandboxEnabled = true } = {}) {
+  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto', sandboxEnabled = true, systemPrompt } = {}) {
     const sandbox = permissionMode === 'read-only' || permissionMode === 'workspace-write' ? permissionMode
       : permissionMode === 'auto-review' || sandboxEnabled ? 'workspace-write' : 'danger-full-access';
     const executionArgs = ['-c', `sandbox_mode=${JSON.stringify(sandbox)}`, ...(permissionMode === 'auto-review' ? ['--approve-for-me'] : ['-c', 'approval_policy="never"'])];
@@ -106,6 +107,7 @@ export const codex: AgentProvider = {
             send({ method: 'initialized' });
             const configuration = {
               ...(model ? { model } : {}), sandbox,
+              ...(systemPrompt ? { developerInstructions: systemPrompt } : {}),
               approvalPolicy: permissionMode === 'auto-review' ? 'on-request' : 'never',
               approvalsReviewer: permissionMode === 'auto-review' ? 'guardian_subagent' : 'user',
             };

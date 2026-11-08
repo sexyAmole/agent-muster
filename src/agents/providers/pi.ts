@@ -47,6 +47,7 @@ function readPiResult(line: string): ParsedResult {
 export const pi: AgentProvider & { createResultReader(): ProtocolReader } = {
   id: 'pi',
   sandboxSupported: false,
+  systemPromptSupported: true,
   permissionModes: [fullAutoMode, readOnlyMode],
   name: 'Pi',
   command: 'pi',
@@ -68,10 +69,12 @@ export const pi: AgentProvider & { createResultReader(): ProtocolReader } = {
     const project = `--${resolve(session.cwd).replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
     return findJsonl(join(agentDir, 'sessions', project), file => basename(file).endsWith(`_${session.externalSessionId}.jsonl`));
   },
-  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto' } = {}) {
+  launch(prompt, externalSessionId, model, images, { permissionMode = 'full-auto', systemPrompt } = {}) {
+    // 用换行包裹提示词，避免 Pi 将路径形式的文本识别为文件。
+    const systemPromptArgs = systemPrompt ? ['--append-system-prompt', `\n${systemPrompt}\n`] : [];
     return {
       command: 'pi',
-      args: ['--mode', 'json', ...(permissionMode === 'read-only' ? ['--no-extensions', '--no-mcp', '--tools', 'read,grep,find,ls'] : []), ...(externalSessionId ? ['--session', externalSessionId] : []), ...(model ? ['--model', model] : []), ...(images?.map(image => `@${image.path}`) || [])],
+      args: ['--mode', 'json', ...(permissionMode === 'read-only' ? ['--no-extensions', '--no-mcp', '--tools', 'read,grep,find,ls'] : []), ...(externalSessionId ? ['--session', externalSessionId] : []), ...(model ? ['--model', model] : []), ...systemPromptArgs, ...(images?.map(image => `@${image.path}`) || [])],
       prompt,
     };
   },

@@ -16,6 +16,7 @@ export interface Launch {
 export interface ExecutionOptions {
   permissionMode?: string;
   sandboxEnabled?: boolean;
+  systemPrompt?: string;
 }
 
 export const fullAutoMode: PermissionMode = { id: 'full-auto', name: '全自动', description: '无需人工审批，仍受沙箱和明确的拒绝规则约束' };
@@ -80,6 +81,7 @@ export interface AgentProvider extends ProtocolAdapter {
   resolveExecutable?(): Promise<string | undefined>;
   version?(): Promise<string>;
   sandboxSupported: boolean;
+  systemPromptSupported?: boolean;
   permissionModes: PermissionMode[];
   name: string;
   command: string;

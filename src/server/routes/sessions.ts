@@ -9,7 +9,7 @@ import type { WecomRegistry } from '../../integrations/wecom/registry.js';
 import type { WeixinRegistry } from '../../integrations/weixin/registry.js';
 import type { AgentSession, SessionEvent } from '../../types.js';
 
-function sessionMetadata({ events, ...session }: AgentSession): Omit<AgentSession, 'events'> {
+function sessionMetadata({ events, systemPrompt, ...session }: AgentSession): Omit<AgentSession, 'events' | 'systemPrompt'> {
   return session;
 }
 
@@ -78,7 +78,7 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       if (typeof cwd !== 'string' || typeof prompt !== 'string') throw new Error('Project and prompt are required');
       if (model !== undefined && (typeof model !== 'string' || (model && !(await registry.loadModels(agent)).models.some(item => item.id === model)))) throw new Error('Invalid model');
       const images = await sessions.readImages(imageIds, agent);
-      response.status(201).json(sessionMetadata(await sessions.create(agent, cwd, prompt, model || undefined, undefined, images, permissionMode, sandboxEnabled)));
+      response.status(201).json(sessionMetadata(await sessions.create(agent, cwd, prompt, model || undefined, undefined, images, permissionMode, { sandboxEnabled })));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.post('/sessions/:id/messages', async (request, response) => {

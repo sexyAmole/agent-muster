@@ -190,7 +190,7 @@ export class SessionManager extends EventEmitter {
     this.append(session, { type: 'usage', text: JSON.stringify(session.usage) });
   }
 
-  async create(agent: string, cwd: string, prompt: string, model?: string, im?: ImBinding, images?: AgentImage[], permissionMode?: string | null, sandboxEnabled?: boolean): Promise<AgentSession> {
+  async create(agent: string, cwd: string, prompt: string, model?: string, im?: ImBinding, images?: AgentImage[], permissionMode?: string | null, { sandboxEnabled, systemPrompt }: { sandboxEnabled?: boolean; systemPrompt?: string } = {}): Promise<AgentSession> {
     validatePermissionMode(agent, permissionMode);
     if (!adapters[agent]) throw new Error('Unsupported agent');
     if (!prompt.trim()) throw new Error('Prompt is required');
@@ -202,6 +202,7 @@ export class SessionManager extends EventEmitter {
       id: `ses_${randomUUID()}`,
       agent,
       ...(im ? { im: [im] } : {}),
+      ...(im && systemPrompt && providers.get(agent)?.systemPromptSupported ? { systemPrompt } : {}),
       model,
       permissionMode: permissionMode || 'full-auto',
       sandboxEnabled: sessionSandboxEnabled(agent, permissionMode || 'full-auto', sandboxEnabled),
@@ -407,7 +408,7 @@ export class SessionManager extends EventEmitter {
 
   private start(session: AgentSession, prompt: string, images?: AgentImage[]): void {
     const adapter = adapters[session.agent];
-    const launch = adapter.launch(prompt, session.externalSessionId, session.model, images, { permissionMode: session.permissionMode, sandboxEnabled: session.sandboxEnabled });
+    const launch = adapter.launch(prompt, session.externalSessionId, session.model, images, { permissionMode: session.permissionMode, sandboxEnabled: session.sandboxEnabled, systemPrompt: session.systemPrompt });
     const readRaw = adapter.createRawReader?.();
     const run: RunState = { id: randomUUID(), orders: new Map(), failed: false, settled: false, aborted: false };
     const child = spawn(launch.command, launch.args, {

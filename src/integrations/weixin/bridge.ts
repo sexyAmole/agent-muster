@@ -80,7 +80,7 @@ export class WeixinBridge {
     const prompt = content || '请查看这张图片。';
     if (session) await this.sessions.send(session.id, prompt, binding.model, im, images, binding.permissionMode);
     else {
-      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images, binding.permissionMode);
+      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images, binding.permissionMode, { systemPrompt: binding.systemPrompt });
       await this.weixin.setSession(appId, chatId, session.id);
     }
     await waitForCompletion(this.sessions, session);

@@ -23,6 +23,7 @@ export interface PermissionMode {
 
 export interface AgentInfo {
   sandboxSupported: boolean;
+  systemPromptSupported: boolean;
   permissionModes: PermissionMode[];
   id: string;
   name: string;
@@ -97,6 +98,10 @@ export type ImContext =
 
 export type ImBinding = ImContext & { appId: string };
 
+export const imSystemPromptMaxLength = 8000;
+
+export type ImAppBindingUpdate = { project?: string | null; agent?: string | null; model?: string; permissionMode?: string; systemPrompt?: string };
+
 export interface SessionEvent {
   id: number;
   rawRecordId?: number;
@@ -164,6 +169,7 @@ export interface AgentSession {
   id: string;
   agent: string;
   im?: ImBinding[];
+  systemPrompt?: string;
   cwd: string;
   prompt: string;
   title?: string;

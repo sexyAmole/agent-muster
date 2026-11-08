@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import QRCode from 'qrcode';
 import type { ConversationSettings } from '../commands.js';
-import type { AgentImage } from '../../types.js';
-import { validatePermissionMode } from '../../agents/settings.js';
+import type { AgentImage, ImAppBindingUpdate } from '../../types.js';
+import { normalizeImSystemPrompt, validatePermissionMode } from '../../agents/settings.js';
 import { debugEnabled } from '../../debug.js';
 import { apiBase, validateApiBase, weixinRequest, WeixinAuthError, type QrStatus, type WeixinMessage, type WeixinImage } from './api.js';
 
@@ -16,7 +16,7 @@ const dataFile = join(directory, 'apps.json');
 const imageDirectory = join(directory, 'images');
 type Application = {
   id: string; clientId: string; botToken: string; baseUrl: string; userId: string;
-  name: string | null; icon: string | null; project: string | null; agent: string | null; model?: string; permissionMode?: string; createdAt: number;
+  name: string | null; icon: string | null; project: string | null; agent: string | null; model?: string; permissionMode?: string; systemPrompt?: string; createdAt: number;
   conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
   contextTokens: Record<string, string>; updatesCursor: string;
 };
@@ -39,14 +39,14 @@ export class WeixinRegistry extends EventEmitter<{ message: [WeixinEvent] }> {
   list() {
     return this.apps.map(app => ({
       id: app.id, clientId: app.clientId, name: app.name, icon: app.icon, project: app.project, agent: app.agent, model: app.model,
-      permissionMode: app.permissionMode, createdAt: app.createdAt,
+      permissionMode: app.permissionMode, systemPrompt: app.systemPrompt, createdAt: app.createdAt,
       connectionStatus: this.clients.get(app.id)?.status || 'idle', connectionError: this.clients.get(app.id)?.error,
     }));
   }
 
   getBinding(id: string, conversation?: string) {
     const app = this.apps.find(item => item.id === id);
-    return app ? { project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
+    return app ? { project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, systemPrompt: app.systemPrompt, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
   }
 
   getSession(id: string, chatId: string) { return this.apps.find(item => item.id === id)?.conversations[chatId]; }
@@ -231,12 +231,13 @@ export class WeixinRegistry extends EventEmitter<{ message: [WeixinEvent] }> {
     await this.send(id, chatId, content);
   }
 
-  async bind(id: string, binding: { project?: string | null; agent?: string | null; model?: string; permissionMode?: string }, projects: string[], agents: string[]) {
+  async bind(id: string, binding: ImAppBindingUpdate, projects: string[], agents: string[]) {
     if (binding.project !== undefined && binding.project !== null && !projects.includes(binding.project)) throw new Error('项目不存在');
     if (binding.agent !== undefined && binding.agent !== null && !agents.includes(binding.agent)) throw new Error('Agent 不可用');
     const app = this.getApp(id);
+    const agent = binding.agent !== undefined ? binding.agent : app.agent;
+    const systemPrompt = normalizeImSystemPrompt(agent, binding.systemPrompt);
     if (binding.permissionMode !== undefined) {
-      const agent = binding.agent !== undefined ? binding.agent : app.agent;
       if (!agent) throw new Error('请先选择 Agent');
       validatePermissionMode(agent, binding.permissionMode);
     }
@@ -248,6 +249,7 @@ export class WeixinRegistry extends EventEmitter<{ message: [WeixinEvent] }> {
     }
     if (binding.model !== undefined) app.model = binding.model;
     if (binding.permissionMode !== undefined) app.permissionMode = binding.permissionMode;
+    if (systemPrompt !== undefined) app.systemPrompt = systemPrompt || undefined;
     await this.persist();
     return this.list().find(item => item.id === id)!;
   }

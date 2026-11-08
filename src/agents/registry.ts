@@ -15,7 +15,7 @@ export class AgentRegistry {
     const agents = await Promise.all([...providers.values()].map(async definition => {
       const path = definition.resolveExecutable ? await definition.resolveExecutable() : await executablePath(definition.command);
       const installed = Boolean(path);
-      return { sandboxSupported: definition.sandboxSupported, permissionModes: definition.permissionModes, id: definition.id, name: definition.name, command: definition.command, installed, path, models: [] };
+      return { sandboxSupported: definition.sandboxSupported, systemPromptSupported: Boolean(definition.systemPromptSupported), permissionModes: definition.permissionModes, id: definition.id, name: definition.name, command: definition.command, installed, path, models: [] };
     }));
     this.modelQueries.clear();
     this.versionQueries.clear();

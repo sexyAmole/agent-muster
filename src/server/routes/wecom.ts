@@ -16,7 +16,7 @@ export function createWecomRouter(wecom: WecomRegistry, projects: ProjectRegistr
   });
   router.patch('/wecom/apps/:id', async (request, response) => {
     try {
-      const { project, agent, model, permissionMode } = request.body || {};
+      const { project, agent, model, permissionMode, systemPrompt } = request.body || {};
       if (project !== undefined && project !== null && typeof project !== 'string') throw new Error('项目无效');
       if (agent !== undefined && agent !== null && typeof agent !== 'string') throw new Error('Agent 无效');
       if (permissionMode !== undefined && typeof permissionMode !== 'string') throw new Error('权限模式无效');
@@ -28,7 +28,7 @@ export function createWecomRouter(wecom: WecomRegistry, projects: ProjectRegistr
         if (!details.installed) throw new Error('Agent 不可用');
         if (model && !details.models.some(item => item.id === model)) throw new Error('模型不存在');
       }
-      response.json(await wecom.bind(request.params.id, { project, agent, model, permissionMode }, projects.list(), registry.available().map(item => item.id)));
+      response.json(await wecom.bind(request.params.id, { project, agent, model, permissionMode, systemPrompt }, projects.list(), registry.available().map(item => item.id)));
     } catch (error) { response.status(400).json({ error: (error as Error).message }); }
   });
   router.delete('/wecom/apps/:id', async (request, response) => {

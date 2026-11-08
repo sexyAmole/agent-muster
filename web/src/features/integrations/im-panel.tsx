@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { AgentInfo, AgentSession } from '../../../../src/types';
+import { useEffect, useId, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { imSystemPromptMaxLength, type AgentInfo, type AgentSession, type ImAppBindingUpdate } from '../../../../src/types';
 import { AppIcon } from '../../shared/components/app-icon';
 import { useErrorMessage } from '../../shared/components/message';
 import { Select } from '../../shared/components/select';
 import { Tabs } from '../../shared/components/tabs';
 import { apiUrl } from '../../shared/lib/api-url';
 
-export type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; model?: string; permissionMode?: string; createdAt?: number; connectionError?: string; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
+export type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; model?: string; permissionMode?: string; systemPrompt?: string; createdAt?: number; connectionError?: string; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
 type SessionSummary = Omit<AgentSession, 'events'>;
-type Agent = Pick<AgentInfo, 'id' | 'name' | 'installed' | 'permissionModes'>;
+type Agent = Pick<AgentInfo, 'id' | 'name' | 'installed' | 'permissionModes' | 'systemPromptSupported'>;
 type Registration = { id: string; userCode?: string; verificationUrl?: string; qrCode: string; expiresAt: number; interval: number };
 type PollResult = { status: 'WAITING' | 'VERIFY' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; reason?: string };
 type Props = { active: boolean; sessions: SessionSummary[]; onOpenSession: (session: SessionSummary) => void; feishuApps: Application[]; onFeishuAppsChange: Dispatch<SetStateAction<Application[]>>; projects: string[]; agents: Agent[]; projectLabel: (path: string) => string };
@@ -48,14 +48,46 @@ type ImRobotEntryProps = {
   conversations: SessionSummary[];
   syncing: boolean;
   deleting: boolean;
-  onBind: (id: string, binding: { project?: string | null; agent?: string | null; model?: string; permissionMode?: string }) => void;
+  onBind: (id: string, binding: ImAppBindingUpdate) => void;
+  onSaveSystemPrompt: (id: string, prompt: string) => Promise<void>;
   onSync: (id: string) => void;
   onReconnect: () => void;
   onDelete: (app: Application) => void;
   onOpenSession: (session: SessionSummary) => void;
 };
 
-function ImRobotEntry({ app, platform, provider, agents, projects, projectLabel, conversations, syncing, deleting, onBind, onSync, onReconnect, onDelete, onOpenSession }: ImRobotEntryProps) {
+function ImSystemPrompt({ saved, onSave }: { saved: string; onSave: (prompt: string) => Promise<void> }) {
+  const id = useId();
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const prompt = draft ?? saved;
+  const changed = prompt.trim() !== saved;
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!changed || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      await onSave(prompt);
+      setDraft(null);
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  return <details className="im-system-prompt">
+    <summary>系统提示词{saved && <span>已配置</span>}</summary>
+    <form onSubmit={save}>
+      <p id={id}>留空可清除。仅新建会话生效，可在 IM 中发送 /new 开启新会话。</p>
+      <textarea aria-label="系统提示词" aria-describedby={id} rows={5} maxLength={imSystemPromptMaxLength} value={prompt} readOnly={saving} onChange={event => setDraft(event.target.value)} />
+      {error && <p className="im-system-prompt-error" role="alert">保存失败：{error}</p>}
+      <button type="submit" className="im-primary-button" disabled={!changed || saving}>{saving ? '保存中…' : '保存提示词'}</button>
+    </form>
+  </details>;
+}
+
+function ImRobotEntry({ app, platform, provider, agents, projects, projectLabel, conversations, syncing, deleting, onBind, onSaveSystemPrompt, onSync, onReconnect, onDelete, onOpenSession }: ImRobotEntryProps) {
   const agentInfo = agents.find(agent => agent.id === app.agent);
   const permissionMode = app.permissionMode || agentInfo?.permissionModes[0]?.id || '';
   const selectedPermission = agentInfo?.permissionModes.find(mode => mode.id === permissionMode);
@@ -149,6 +181,7 @@ function ImRobotEntry({ app, platform, provider, agents, projects, projectLabel,
           </Select>
         </label>
       </div>
+      {agentInfo?.systemPromptSupported && <ImSystemPrompt saved={app.systemPrompt ?? ''} onSave={prompt => onSaveSystemPrompt(app.id, prompt)} />}
     </div>
     <div className="im-conversations">
       <div className="im-conversations-header">
@@ -294,11 +327,9 @@ function ImIntegration({ active, sessions, onOpenSession, feishuApps, onFeishuAp
     finally { if (attempt === registrationAttempt.current) setVerifying(false); }
   }
 
-  async function bind(id: string, binding: { project?: string | null; agent?: string | null; model?: string; permissionMode?: string }) {
-    try {
-      const updated = await request<Application>(`/api/${provider}/apps/${id}`, { method: 'PATCH', body: JSON.stringify(binding) });
-      setApps(current => current.map(app => app.id === id ? updated : app));
-    } catch (reason) { setError((reason as Error).message); }
+  async function bind(id: string, binding: ImAppBindingUpdate) {
+    const updated = await request<Application>(`/api/${provider}/apps/${id}`, { method: 'PATCH', body: JSON.stringify(binding) });
+    setApps(current => current.map(app => app.id === id ? updated : app));
   }
 
   async function deleteApp(app: Application) {
@@ -339,7 +370,8 @@ function ImIntegration({ active, sessions, onOpenSession, feishuApps, onFeishuAp
           conversations={conversations}
           syncing={syncingId === app.id}
           deleting={deletingId === app.id}
-          onBind={(id, binding) => void bind(id, binding)}
+          onBind={(id, binding) => void bind(id, binding).catch(reason => setError((reason as Error).message))}
+          onSaveSystemPrompt={(id, systemPrompt) => bind(id, { systemPrompt })}
           onSync={(id) => void syncApp(id)}
           onReconnect={() => void startRegistration()}
           onDelete={(app) => void deleteApp(app)}

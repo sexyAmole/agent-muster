@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { WSClient, type TextMessage, type ImageMessage, type MixedMessage, type VoiceMessage, type ImageContent, type WsFrame } from '@wecom/aibot-node-sdk';
 import QRCode from 'qrcode';
 import type { ConversationSettings } from '../commands.js';
-import type { AgentImage } from '../../types.js';
-import { validatePermissionMode } from '../../agents/settings.js';
+import type { AgentImage, ImAppBindingUpdate } from '../../types.js';
+import { normalizeImSystemPrompt, validatePermissionMode } from '../../agents/settings.js';
 import { StreamReply, splitStreamContent } from '../stream-reply.js';
 import { debugEnabled } from '../../debug.js';
 
@@ -17,7 +17,7 @@ const dataFile = join(directory, 'apps.json');
 const imageDirectory = join(directory, 'images');
 type Application = {
   id: string; clientId: string; clientSecret: string; name: string | null; icon: string | null;
-  project: string | null; agent: string | null; model?: string; permissionMode?: string; createdAt?: number; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
+  project: string | null; agent: string | null; model?: string; permissionMode?: string; systemPrompt?: string; createdAt?: number; conversations: Record<string, string>; conversationSettings?: Record<string, ConversationSettings>;
 };
 type PollResult = { status: 'WAITING' | 'SUCCESS' | 'FAIL' | 'EXPIRED'; appId?: string; reason?: string };
 type Registration = { scode: string; expiresAt: number; result: PollResult; pending?: Promise<PollResult> };
@@ -60,7 +60,7 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
 
   getBinding(id: string, conversation?: string) {
     const app = this.apps.find(item => item.id === id);
-    return app ? { project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
+    return app ? { project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, systemPrompt: app.systemPrompt, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
   }
 
   getSession(id: string, chatId: string) {
@@ -228,12 +228,13 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
     await this.send(id, chatId, content);
   }
 
-  async bind(id: string, binding: { project?: string | null; agent?: string | null; model?: string; permissionMode?: string }, projects: string[], agents: string[]) {
+  async bind(id: string, binding: ImAppBindingUpdate, projects: string[], agents: string[]) {
     if (binding.project !== undefined && binding.project !== null && !projects.includes(binding.project)) throw new Error('项目不存在');
     if (binding.agent !== undefined && binding.agent !== null && !agents.includes(binding.agent)) throw new Error('Agent 不可用');
     const app = this.getApp(id);
+    const agent = binding.agent !== undefined ? binding.agent : app.agent;
+    const systemPrompt = normalizeImSystemPrompt(agent, binding.systemPrompt);
     if (binding.permissionMode !== undefined) {
-      const agent = binding.agent !== undefined ? binding.agent : app.agent;
       if (!agent) throw new Error('请先选择 Agent');
       validatePermissionMode(agent, binding.permissionMode);
     }
@@ -245,6 +246,7 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
     }
     if (binding.model !== undefined) app.model = binding.model;
     if (binding.permissionMode !== undefined) app.permissionMode = binding.permissionMode;
+    if (systemPrompt !== undefined) app.systemPrompt = systemPrompt || undefined;
     await this.persist();
     return this.list().find(item => item.id === id)!;
   }

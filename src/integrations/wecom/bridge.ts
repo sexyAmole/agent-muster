@@ -129,7 +129,7 @@ export class WecomBridge {
     if (session) {
       await this.sessions.send(session.id, prompt, binding.model, im, images, binding.permissionMode);
     } else {
-      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images, binding.permissionMode);
+      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images, binding.permissionMode, { systemPrompt: binding.systemPrompt });
       await this.wecom.setSession(appId, chatId, session.id);
     }
     const unwatch = watchStreamOutput(this.sessions, session, lastEventId, reply);

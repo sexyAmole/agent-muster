@@ -8,8 +8,8 @@ import { moveLegacyPath } from '../storage.js';
 import type { ConversationSettings } from '../commands.js';
 import { DWClient, TOPIC_ROBOT, type RobotMessage } from 'dingtalk-stream';
 import { EnvHttpProxyAgent, fetch } from 'undici';
-import type { AgentImage } from '../../types.js';
-import { validatePermissionMode } from '../../agents/settings.js';
+import type { AgentImage, ImAppBindingUpdate } from '../../types.js';
+import { normalizeImSystemPrompt, validatePermissionMode } from '../../agents/settings.js';
 import { StreamReply } from '../stream-reply.js';
 import { debugEnabled } from '../../debug.js';
 
@@ -37,7 +37,7 @@ type ConversationTarget = { robotCode: string } & ({ type: '1'; userId: string }
 type SendMessageResponse = { processQueryKey?: string; message?: string; invalidStaffIdList?: string[]; flowControlledStaffIdList?: string[] };
 type CardResponse = { success?: boolean; code?: string; result?: boolean | { success?: boolean; deliverResults?: { success?: boolean }[] } };
 class CardPermissionError extends Error {}
-type Application = { id: string; clientId: string; clientSecret: string; name: string | null; iconMime: string | null; project: string | null; agent: string | null; model?: string; permissionMode?: string; createdAt?: number; conversations: Record<string, string>; conversationTargets?: Record<string, ConversationTarget>; conversationSettings?: Record<string, ConversationSettings> };
+type Application = { id: string; clientId: string; clientSecret: string; name: string | null; iconMime: string | null; project: string | null; agent: string | null; model?: string; permissionMode?: string; systemPrompt?: string; createdAt?: number; conversations: Record<string, string>; conversationTargets?: Record<string, ConversationTarget>; conversationSettings?: Record<string, ConversationSettings> };
 type RobotMessageBase = Omit<RobotMessage, 'msgtype' | 'text'> & { conversationTitle?: string };
 type RobotImage = { downloadCode?: string; pictureDownloadCode?: string };
 type IncomingRobotMessage = RobotMessageBase & (
@@ -76,8 +76,8 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     await moveLegacyPath(join(rootDirectory, 'dingtalk-images'), imageDirectory);
     try {
       const stored = JSON.parse(await readFile(dataFile, 'utf8')) as Application[];
-      this.apps = stored.map(({ id, clientId, clientSecret, name, iconMime, project, agent, conversations, conversationTargets, conversationSettings, model, permissionMode, createdAt }) => ({
-        id, clientId, clientSecret, name: name || null, iconMime: iconMime || null, project, agent: agent || null, conversations: conversations || {}, conversationTargets, conversationSettings, model, permissionMode, createdAt,
+      this.apps = stored.map(({ id, clientId, clientSecret, name, iconMime, project, agent, conversations, conversationTargets, conversationSettings, model, permissionMode, systemPrompt, createdAt }) => ({
+        id, clientId, clientSecret, name: name || null, iconMime: iconMime || null, project, agent: agent || null, conversations: conversations || {}, conversationTargets, conversationSettings, model, permissionMode, systemPrompt, createdAt,
       }));
       let needsPersist = false;
       for (const app of this.apps) {
@@ -90,7 +90,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
   }
 
   list() {
-    return this.apps.map(({ id, clientId, name, iconMime, project, agent, model, permissionMode, createdAt }) => ({ id, clientId, name, icon: iconMime ? `/api/dingtalk/apps/${id}/icon` : null, project, agent, model, permissionMode, createdAt }));
+    return this.apps.map(({ id, clientId, name, iconMime, project, agent, model, permissionMode, systemPrompt, createdAt }) => ({ id, clientId, name, icon: iconMime ? `/api/dingtalk/apps/${id}/icon` : null, project, agent, model, permissionMode, systemPrompt, createdAt }));
   }
 
   async getIcon(id: string) {
@@ -101,7 +101,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
 
   getBinding(id: string, conversation?: string) {
     const app = this.apps.find(item => item.id === id);
-    return app ? { project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
+    return app ? { project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, systemPrompt: app.systemPrompt, ...(conversation ? app.conversationSettings?.[conversation] : undefined) } : undefined;
   }
 
   getSession(id: string, conversation: string): string | undefined {
@@ -374,13 +374,14 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     finally { registration.polling = undefined; }
   }
 
-  async bind(id: string, binding: { project?: string | null; agent?: string | null; model?: string; permissionMode?: string }, projects: string[], agents: string[]) {
+  async bind(id: string, binding: ImAppBindingUpdate, projects: string[], agents: string[]) {
     if (binding.project !== undefined && binding.project !== null && !projects.includes(binding.project)) throw new Error('项目不存在');
     if (binding.agent !== undefined && binding.agent !== null && !agents.includes(binding.agent)) throw new Error('Agent 不可用');
     const app = this.apps.find(item => item.id === id);
     if (!app) throw new Error('钉钉应用不存在');
+    const agent = binding.agent !== undefined ? binding.agent : app.agent;
+    const systemPrompt = normalizeImSystemPrompt(agent, binding.systemPrompt);
     if (binding.permissionMode !== undefined) {
-      const agent = binding.agent !== undefined ? binding.agent : app.agent;
       if (!agent) throw new Error('请先选择 Agent');
       validatePermissionMode(agent, binding.permissionMode);
     }
@@ -396,8 +397,9 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     }
     if (binding.model !== undefined) app.model = binding.model;
     if (binding.permissionMode !== undefined) app.permissionMode = binding.permissionMode;
+    if (systemPrompt !== undefined) app.systemPrompt = systemPrompt || undefined;
     await this.persist();
-    return { id: app.id, clientId: app.clientId, name: app.name, icon: app.iconMime ? `/api/dingtalk/apps/${app.id}/icon` : null, project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, createdAt: app.createdAt };
+    return { id: app.id, clientId: app.clientId, name: app.name, icon: app.iconMime ? `/api/dingtalk/apps/${app.id}/icon` : null, project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, systemPrompt: app.systemPrompt, createdAt: app.createdAt };
   }
 
   async remove(id: string): Promise<void> {
@@ -471,7 +473,7 @@ export class DingTalkRegistry extends EventEmitter<{ message: [DingTalkMessage] 
     app.name = match.name;
     app.iconMime = mime;
     await this.persist();
-    return { id: app.id, clientId: app.clientId, name: app.name, icon: `/api/dingtalk/apps/${app.id}/icon?v=${Date.now()}`, project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, createdAt: app.createdAt };
+    return { id: app.id, clientId: app.clientId, name: app.name, icon: `/api/dingtalk/apps/${app.id}/icon?v=${Date.now()}`, project: app.project, agent: app.agent, model: app.model, permissionMode: app.permissionMode, systemPrompt: app.systemPrompt, createdAt: app.createdAt };
   }
 
   private async getAccessToken(app: Application): Promise<string> {
