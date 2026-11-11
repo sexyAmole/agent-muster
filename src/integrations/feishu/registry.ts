@@ -8,6 +8,7 @@ import { Client, Domain, EventDispatcher, LoggerLevel, WSClient, registerApp, ty
 import QRCode from 'qrcode';
 import { moveLegacyPath } from '../storage.js';
 import type { ConversationSettings } from '../commands.js';
+import { conversationChatId } from '../conversation.js';
 import type { AgentImage, ImAppBindingUpdate } from '../../types.js';
 import { normalizeImSystemPrompt, validatePermissionMode } from '../../agents/settings.js';
 import { StreamReply, splitStreamContent } from '../stream-reply.js';
@@ -252,7 +253,7 @@ export class FeishuRegistry extends EventEmitter<{ message: [FeishuMessage] }> {
   async sendToSession(id: string, sessionId: string, content: string): Promise<void> {
     const chatId = Object.entries(this.getApp(id).conversations).find(([, value]) => value === sessionId)?.[0];
     if (!chatId) throw new Error('此对话尚无飞书发送目标');
-    await this.send(id, chatId, content, 'markdown');
+    await this.send(id, conversationChatId(chatId), content, 'markdown');
   }
 
   async bind(id: string, binding: ImAppBindingUpdate, projects: string[], agents: string[]) {

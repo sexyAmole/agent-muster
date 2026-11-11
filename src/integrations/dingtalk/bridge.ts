@@ -1,5 +1,6 @@
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { handleCommand } from '../commands.js';
+import { groupConversationKey } from '../conversation.js';
 import { withContextUsage } from '../reply.js';
 import { type StreamReply, watchStreamOutput } from '../stream-reply.js';
 import type { AgentRegistry } from '../../agents/registry.js';
@@ -76,6 +77,51 @@ export class DingTalkBridge {
   }
 
   private async readMessage(appId: string, message: DingTalkMessage['message'], agent: string, reply: StreamReply): Promise<{ content: string; images: AgentImage[] } | undefined> {
+    const container = message.msgtype === 'text' ? message.text : message.msgtype === 'richText' ? message.content : undefined;
+    if (!container?.isReplyMsg) return this.readMessageContent(appId, message, agent, reply);
+    const quoted = container.repliedMsg;
+    if (!quoted?.content) {
+      await reply.finish('钉钉未返回被引用消息的内容，请将原文直接发送给机器人。');
+      return;
+    }
+    const quotedContent = typeof quoted.content === 'string' ? JSON.parse(quoted.content) as Exclude<typeof quoted.content, string> : quoted.content;
+    let quotedMessage: DingTalkMessage['message'];
+    switch (quoted.msgType) {
+      case 'text': {
+        const text = quotedContent.text ?? quotedContent.content;
+        if (!text?.trim()) {
+          await reply.finish('钉钉未返回被引用消息的正文，请将原文直接发送给机器人。');
+          return;
+        }
+        quotedMessage = { ...message, msgtype: 'text', text: { content: text } };
+        break;
+      }
+      case 'picture':
+        quotedMessage = { ...message, msgtype: 'picture', content: quotedContent };
+        break;
+      case 'richText':
+        if (!quotedContent.richText) throw new Error('钉钉引用富文本消息缺少正文');
+        quotedMessage = { ...message, msgtype: 'richText', content: { richText: quotedContent.richText } };
+        break;
+      case 'audio':
+        quotedMessage = { ...message, msgtype: 'audio', content: quotedContent };
+        break;
+      default:
+        await reply.finish('暂不支持此类引用消息，请直接发送文字或图片。');
+        return;
+    }
+    const reference = await this.readMessageContent(appId, quotedMessage, agent, reply);
+    if (!reference) return;
+    const current = await this.readMessageContent(appId, message, agent, reply);
+    if (!current) return;
+    const sender = quoted.senderNick || quoted.senderId;
+    return {
+      content: `引用消息${sender ? `（${sender}）` : ''}：\n${reference.content.split('\n').map(line => `> ${line}`).join('\n')}\n\n当前消息：\n${current.content}`,
+      images: [...reference.images, ...current.images],
+    };
+  }
+
+  private async readMessageContent(appId: string, message: DingTalkMessage['message'], agent: string, reply: StreamReply): Promise<{ content: string; images: AgentImage[] } | undefined> {
     let content: string;
     const images: AgentImage[] = [];
     if (message.msgtype === 'text') content = message.text.content.trim();
@@ -124,7 +170,8 @@ export class DingTalkBridge {
 
   private async process(appId: string, conversation: string, message: DingTalkMessage['message'], reply: StreamReply): Promise<void> {
     if (!['text', 'audio', 'picture', 'richText'].includes(message.msgtype)) return;
-    if (message.msgtype === 'text' && !message.text.content.trim()) return;
+    if (message.msgtype === 'text' && !message.text.content.trim() && !message.text.isReplyMsg) return;
+    if (message.conversationType === '2') conversation = groupConversationKey(message.conversationId, message.senderStaffId);
     if (message.msgtype === 'text' && await handleCommand(message.text.content.trim(), appId, conversation, this.dingtalk, this.projects, this.agents, this.sessions, text => reply.finish(text))) return;
     const binding = await this.resolveBinding(appId, conversation, reply);
     if (!binding) return;
@@ -138,16 +185,13 @@ export class DingTalkBridge {
       senderName: message.senderNick,
       senderStaffId: message.senderStaffId,
     } };
-    const prompt = message.conversationType === '2'
-      ? `${message.senderNick}（${message.senderStaffId}）在群聊中说：\n${content}`
-      : content;
     const previousId = this.dingtalk.getSession(appId, conversation);
     let session = previousId ? this.sessions.get(previousId) : undefined;
     if (session && !terminalStatuses.has(session.status)) await waitForCompletion(this.sessions, session);
     const lastEventId = session?.events.at(-1)?.id || 0;
-    if (session) await this.sessions.send(session.id, prompt, binding.model, im, images, binding.permissionMode);
+    if (session) await this.sessions.send(session.id, content, binding.model, im, images, binding.permissionMode);
     else {
-      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images, binding.permissionMode, { systemPrompt: binding.systemPrompt });
+      session = await this.sessions.create(binding.agent, binding.project, content, binding.model || undefined, im, images, binding.permissionMode, { systemPrompt: binding.systemPrompt });
       await this.dingtalk.setSession(appId, conversation, session.id);
     }
     const unwatch = watchStreamOutput(this.sessions, session, lastEventId, reply);

@@ -100,7 +100,7 @@ export type ImBinding = ImContext & { appId: string };
 
 export const imSystemPromptMaxLength = 8000;
 
-export type ImAppBindingUpdate = { project?: string | null; agent?: string | null; model?: string; permissionMode?: string; systemPrompt?: string };
+export type ImAppBindingUpdate = { project?: string | null; agent?: string | null; model?: string; permissionMode?: string; systemPrompt?: string; autoReply?: boolean };
 
 export interface SessionEvent {
   id: number;

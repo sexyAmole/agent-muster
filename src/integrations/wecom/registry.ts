@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { WSClient, type TextMessage, type ImageMessage, type MixedMessage, type VoiceMessage, type ImageContent, type WsFrame } from '@wecom/aibot-node-sdk';
 import QRCode from 'qrcode';
 import type { ConversationSettings } from '../commands.js';
+import { conversationChatId } from '../conversation.js';
 import type { AgentImage, ImAppBindingUpdate } from '../../types.js';
 import { normalizeImSystemPrompt, validatePermissionMode } from '../../agents/settings.js';
 import { StreamReply, splitStreamContent } from '../stream-reply.js';
@@ -225,7 +226,7 @@ export class WecomRegistry extends EventEmitter<{ message: [WecomMessage] }> {
   async sendToSession(id: string, sessionId: string, content: string): Promise<void> {
     const chatId = Object.entries(this.getApp(id).conversations).find(([, value]) => value === sessionId)?.[0];
     if (!chatId) throw new Error('此对话尚无企业微信发送目标');
-    await this.send(id, chatId, content);
+    await this.send(id, conversationChatId(chatId), content);
   }
 
   async bind(id: string, binding: ImAppBindingUpdate, projects: string[], agents: string[]) {

@@ -390,6 +390,8 @@ button:disabled { cursor: not-allowed; }
 .im-binding-cell .select-chevron { color: #999; }
 .im-binding-divider { width: 1px; height: 20px; flex: none; background: #e0e0e0; }
 .im-system-prompt { margin: 0 16px 12px; color: #555; font-size: 12px; }
+.im-auto-reply { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 16px 12px; color: #333; font-size: 13px; }
+.im-auto-reply p { margin: 4px 0 0; color: #777; font-size: 12px; line-height: 1.5; }
 .im-system-prompt summary { padding: 8px 0; cursor: pointer; font-weight: 600; }
 .im-system-prompt summary span { margin-left: 8px; color: #777; font-weight: 400; }
 .im-system-prompt form { display: grid; justify-items: start; gap: 8px; }

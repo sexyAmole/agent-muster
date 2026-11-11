@@ -258,7 +258,6 @@ export function App() {
   }
 
   async function deleteSession(session: SessionSummary) {
-    if (!window.confirm(`删除对话“${session.title ?? session.prompt}”？此操作会删除对话记录。`)) return;
     setError('');
     try {
       await api(`/api/sessions/${session.id}`, { method: 'DELETE' });

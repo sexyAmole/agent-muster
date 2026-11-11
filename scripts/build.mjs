@@ -11,6 +11,8 @@ await build({
   platform: 'node',
   format: 'esm',
   target: 'node22.19',
+  // 使用 ESM 入口，让打包器解析内部依赖，避免 UMD 包装中的 require 残留。
+  alias: { 'jsonc-parser': 'jsonc-parser/lib/esm/main.js' },
   external: ['vite', 'electron', 'node-pty', 'ws', '@xterm/headless', '@xterm/addon-serialize'],
   banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url); const __dirname = import.meta.dirname;" },
   logLevel: 'info',

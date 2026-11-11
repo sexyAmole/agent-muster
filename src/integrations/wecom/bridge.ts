@@ -1,6 +1,7 @@
 import { MessageType, type ImageContent } from '@wecom/aibot-node-sdk';
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { handleCommand } from '../commands.js';
+import { groupConversationKey } from '../conversation.js';
 import { withContextUsage } from '../reply.js';
 import { type StreamReply, watchStreamOutput } from '../stream-reply.js';
 import type { AgentRegistry } from '../../agents/registry.js';
@@ -112,25 +113,25 @@ export class WecomBridge {
     }
     content = content.trim();
     if (!content && !attachments.length) return;
-    if (!attachments.length && await handleCommand(content, appId, chatId, this.wecom, this.projects, this.agents, this.sessions, text => reply.finish(text))) return;
-    const binding = await this.resolveBinding(appId, chatId, reply);
-    if (!binding) return;
     const senderId = message.from.userid;
     if (!senderId) throw new Error('企业微信消息缺少发送人标识');
+    const conversation = message.chattype === 'group' ? groupConversationKey(chatId, senderId) : chatId;
+    if (!attachments.length && await handleCommand(content, appId, conversation, this.wecom, this.projects, this.agents, this.sessions, text => reply.finish(text))) return;
+    const binding = await this.resolveBinding(appId, conversation, reply);
+    if (!binding) return;
     const images = await this.downloadImages(appId, binding.agent, attachments, reply);
     if (!images) return;
     if (!content && images.length) content = '请查看这张图片。';
     const im: ImBinding = { platform: 'wecom', appId, conversation: { type: message.chattype === 'group' ? 'group' : 'single', senderId } };
-    const prompt = message.chattype === 'group' ? `${senderId} 在群聊中说：\n${content}` : content;
-    const previousId = this.wecom.getSession(appId, chatId);
+    const previousId = this.wecom.getSession(appId, conversation);
     let session = previousId ? this.sessions.get(previousId) : undefined;
     if (session && (this.sessions.isRunning(session.id) || !terminalStatuses.has(session.status))) await waitForCompletion(this.sessions, session);
     const lastEventId = session?.events.at(-1)?.id || 0;
     if (session) {
-      await this.sessions.send(session.id, prompt, binding.model, im, images, binding.permissionMode);
+      await this.sessions.send(session.id, content, binding.model, im, images, binding.permissionMode);
     } else {
-      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images, binding.permissionMode, { systemPrompt: binding.systemPrompt });
-      await this.wecom.setSession(appId, chatId, session.id);
+      session = await this.sessions.create(binding.agent, binding.project, content, binding.model || undefined, im, images, binding.permissionMode, { systemPrompt: binding.systemPrompt });
+      await this.wecom.setSession(appId, conversation, session.id);
     }
     const unwatch = watchStreamOutput(this.sessions, session, lastEventId, reply);
     try {

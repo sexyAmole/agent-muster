@@ -6,7 +6,7 @@ import { Select } from '../../shared/components/select';
 import { Tabs } from '../../shared/components/tabs';
 import { apiUrl } from '../../shared/lib/api-url';
 
-export type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; model?: string; permissionMode?: string; systemPrompt?: string; createdAt?: number; connectionError?: string; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
+export type Application = { id: string; clientId: string; name: string | null; icon: string | null; project: string | null; agent: string | null; model?: string; permissionMode?: string; systemPrompt?: string; autoReply?: boolean; createdAt?: number; connectionError?: string; connectionStatus?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' };
 type SessionSummary = Omit<AgentSession, 'events'>;
 type Agent = Pick<AgentInfo, 'id' | 'name' | 'installed' | 'permissionModes' | 'systemPromptSupported'>;
 type Registration = { id: string; userCode?: string; verificationUrl?: string; qrCode: string; expiresAt: number; interval: number };
@@ -50,6 +50,7 @@ type ImRobotEntryProps = {
   deleting: boolean;
   onBind: (id: string, binding: ImAppBindingUpdate) => void;
   onSaveSystemPrompt: (id: string, prompt: string) => Promise<void>;
+  onSaveAutoReply: (id: string, enabled: boolean) => Promise<void>;
   onSync: (id: string) => void;
   onReconnect: () => void;
   onDelete: (app: Application) => void;
@@ -87,13 +88,15 @@ function ImSystemPrompt({ saved, onSave }: { saved: string; onSave: (prompt: str
   </details>;
 }
 
-function ImRobotEntry({ app, platform, provider, agents, projects, projectLabel, conversations, syncing, deleting, onBind, onSaveSystemPrompt, onSync, onReconnect, onDelete, onOpenSession }: ImRobotEntryProps) {
+function ImRobotEntry({ app, platform, provider, agents, projects, projectLabel, conversations, syncing, deleting, onBind, onSaveSystemPrompt, onSaveAutoReply, onSync, onReconnect, onDelete, onOpenSession }: ImRobotEntryProps) {
   const agentInfo = agents.find(agent => agent.id === app.agent);
   const permissionMode = app.permissionMode || agentInfo?.permissionModes[0]?.id || '';
   const selectedPermission = agentInfo?.permissionModes.find(mode => mode.id === permissionMode);
   const [modelDetails, setModelDetails] = useState<AgentInfo | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelError, setModelError] = useState('');
+  const [savingAutoReply, setSavingAutoReply] = useState(false);
+  const autoReplyDescription = useId();
   const defaultBindingAttempt = useRef('');
   useErrorMessage(modelError, setModelError);
 
@@ -181,6 +184,15 @@ function ImRobotEntry({ app, platform, provider, agents, projects, projectLabel,
           </Select>
         </label>
       </div>
+      {provider === 'dingtalk' && <div className="im-auto-reply">
+        <div><span>自动回复</span><p id={autoReplyDescription}>关闭后仍执行消息，结果仅保存在对话中。</p></div>
+        <button type="button" role="switch" className="agent-sandbox-switch" aria-label={`设置 ${app.name || app.clientId} 的自动回复`} aria-describedby={autoReplyDescription} aria-checked={app.autoReply !== false} aria-busy={savingAutoReply} disabled={savingAutoReply} onClick={async () => {
+          setSavingAutoReply(true);
+          try { await onSaveAutoReply(app.id, app.autoReply === false); }
+          catch (reason) { setModelError((reason as Error).message); }
+          finally { setSavingAutoReply(false); }
+        }}><span className="agent-sandbox-track" aria-hidden="true" /></button>
+      </div>}
       {agentInfo?.systemPromptSupported && <ImSystemPrompt saved={app.systemPrompt ?? ''} onSave={prompt => onSaveSystemPrompt(app.id, prompt)} />}
     </div>
     <div className="im-conversations">
@@ -372,6 +384,7 @@ function ImIntegration({ active, sessions, onOpenSession, feishuApps, onFeishuAp
           deleting={deletingId === app.id}
           onBind={(id, binding) => void bind(id, binding).catch(reason => setError((reason as Error).message))}
           onSaveSystemPrompt={(id, systemPrompt) => bind(id, { systemPrompt })}
+          onSaveAutoReply={(id, autoReply) => bind(id, { autoReply })}
           onSync={(id) => void syncApp(id)}
           onReconnect={() => void startRegistration()}
           onDelete={(app) => void deleteApp(app)}

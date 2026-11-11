@@ -1,5 +1,6 @@
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { handleCommand } from '../commands.js';
+import { groupConversationKey } from '../conversation.js';
 import { withContextUsage } from '../reply.js';
 import { type StreamReply, watchStreamOutput } from '../stream-reply.js';
 import type { AgentRegistry } from '../../agents/registry.js';
@@ -146,25 +147,25 @@ export class FeishuBridge {
     let { content } = parsed;
     const { imageKeys } = parsed;
     if (!content && !imageKeys.length) return;
-    if (!imageKeys.length && await handleCommand(content, appId, message.chat_id, this.feishu, this.projects, this.agents, this.sessions, text => reply.finish(text))) return;
-    const binding = await this.resolveBinding(appId, message.chat_id, reply);
-    if (!binding) return;
     const senderId = sender.sender_id?.open_id;
     if (!senderId) throw new Error('飞书消息缺少发送人标识');
+    const conversation = message.chat_type === 'group' ? groupConversationKey(message.chat_id, senderId) : message.chat_id;
+    if (!imageKeys.length && await handleCommand(content, appId, conversation, this.feishu, this.projects, this.agents, this.sessions, text => reply.finish(text))) return;
+    const binding = await this.resolveBinding(appId, conversation, reply);
+    if (!binding) return;
     const images = await this.downloadImages(appId, message, binding.agent, imageKeys, reply);
     if (!images) return;
     if (!content && images.length) content = '请查看这张图片。';
     const im: ImBinding = { platform: 'feishu', appId, conversation: { type: message.chat_type === 'group' ? 'group' : 'single', senderId } };
-    const prompt = message.chat_type === 'group' ? `${senderId} 在群聊中说：\n${content}` : content;
-    const previousId = this.feishu.getSession(appId, message.chat_id);
+    const previousId = this.feishu.getSession(appId, conversation);
     let session = previousId ? this.sessions.get(previousId) : undefined;
     if (session && (this.sessions.isRunning(session.id) || !terminalStatuses.has(session.status))) await waitForCompletion(this.sessions, session);
     const lastEventId = session?.events.at(-1)?.id || 0;
     if (session) {
-      await this.sessions.send(session.id, prompt, binding.model, im, images, binding.permissionMode);
+      await this.sessions.send(session.id, content, binding.model, im, images, binding.permissionMode);
     } else {
-      session = await this.sessions.create(binding.agent, binding.project, prompt, binding.model || undefined, im, images, binding.permissionMode, { systemPrompt: binding.systemPrompt });
-      await this.feishu.setSession(appId, message.chat_id, session.id);
+      session = await this.sessions.create(binding.agent, binding.project, content, binding.model || undefined, im, images, binding.permissionMode, { systemPrompt: binding.systemPrompt });
+      await this.feishu.setSession(appId, conversation, session.id);
     }
     const unwatch = watchStreamOutput(this.sessions, session, lastEventId, reply);
     try {
