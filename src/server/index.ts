@@ -11,6 +11,7 @@ import type { WeixinRegistry } from '../integrations/weixin/registry.js';
 import type { ProjectRegistry } from '../projects/registry.js';
 import type { SessionManager } from '../sessions/manager.js';
 import { createAgentRouter } from './routes/agents.js';
+import { createExtensionRouter } from './routes/extensions.js';
 import { createProjectRouter } from './routes/projects.js';
 import { createSessionRouter } from './routes/sessions.js';
 import { createDingTalkRouter } from './routes/dingtalk.js';
@@ -65,6 +66,7 @@ export async function startServer(port: number, registry: AgentRegistry, project
 
   const agentManagement = new AgentManagement(registry);
   app.use('/api', createAgentRouter(registry, agentManagement, sessions));
+  app.use('/api', createExtensionRouter(registry));
   app.use('/api', createProjectRouter(projects, sessions, dingtalk, feishu, wecom, weixin, terminals.closeProject));
   app.use('/api', createDingTalkRouter(dingtalk, projects, registry));
   app.use('/api', createFeishuRouter(feishu, projects, registry));

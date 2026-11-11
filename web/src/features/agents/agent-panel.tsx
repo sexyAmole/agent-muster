@@ -1,16 +1,19 @@
 import { useEffect, useId, useState } from 'react';
 import type { AgentAction, AgentInfo, ManagedAgent } from '../../../../src/types';
+import { extensionAgents, type ExtensionAgent } from '../../../../src/agents/extensions/types';
 import { useErrorMessage } from '../../shared/components/message';
+import { Tabs } from '../../shared/components/tabs';
 import { apiUrl } from '../../shared/lib/api-url';
 import { AgentIcon } from './agent-icon';
+import { ExtensionPanel } from './extension-panel';
 
 type Props = { active: boolean; agents: AgentInfo[]; onChange: (agents: AgentInfo[]) => void };
 type AgentOperation = { id: string; action: AgentAction };
+type ManagementTab = 'cli' | 'skills' | 'mcp';
 const actionLabels: Record<AgentAction, string> = { install: '安装', update: '更新', uninstall: '卸载' };
 const installationUrls: Partial<Record<string, string>> = {
   qodercn: 'https://docs.qoder.cn/cli/installation',
   workbuddy: 'https://www.workbuddy.cn/',
-  trae: 'https://docs.trae.cn/cli_get-started-with-trae-cli-2?lang=zh',
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -137,6 +140,8 @@ function AgentEntry({ agent, active, revision, disabled, operation, onRun }: Age
 }
 
 export function AgentPanel({ active, agents: availableAgents, onChange }: Props) {
+  const [tab, setTab] = useState<ManagementTab>('cli');
+  const [extensionAgent, setExtensionAgent] = useState<ExtensionAgent | null>(null);
   const [agents, setAgents] = useState<ManagedAgent[]>(availableAgents);
   const [loading, setLoading] = useState(false);
   const [operation, setOperation] = useState<AgentOperation | null>(null);
@@ -147,6 +152,10 @@ export function AgentPanel({ active, agents: availableAgents, onChange }: Props)
   const [revision, setRevision] = useState(0);
 
   useEffect(() => { setAgents(availableAgents); }, [availableAgents]);
+  useEffect(() => {
+    const installed = availableAgents.filter(agent => agent.installed && Object.hasOwn(extensionAgents, agent.id));
+    setExtensionAgent(current => installed.some(agent => agent.id === current) ? current : (installed[0]?.id as ExtensionAgent | undefined) ?? null);
+  }, [availableAgents]);
 
   async function refresh() {
     setLoading(true); setError('');
@@ -175,9 +184,16 @@ export function AgentPanel({ active, agents: availableAgents, onChange }: Props)
   }
 
   return <section className="agent-panel" aria-label="Agent 管理">
-    <div className="im-intro"><div><h1>Agent 管理</h1><p className="agent-intro">管理本机 CLI 的安装、版本和更新。</p></div></div>
-    <div className="agent-feedback" role="status" aria-live="polite">{operation ? `正在${actionLabels[operation.action]} ${agents.find(agent => agent.id === operation.id)?.name}，请等待完成…` : message}</div>
-    <div className="agent-list">{[...agents].sort((a, b) => Number(b.installed) - Number(a.installed)).map(agent => <AgentEntry key={agent.id} agent={agent} active={active} revision={revision} disabled={loading || Boolean(operation)} operation={operation} onRun={run} />)}</div>
-    {output && <details className="agent-operation-output"><summary>操作输出</summary><pre>{output}</pre></details>}
+    <div className="im-intro"><h1>Agent 管理</h1></div>
+    <Tabs<ManagementTab> value={tab} onChange={setTab} items={[{ value: 'cli', label: 'CLI' }, { value: 'skills', label: 'Skills' }, { value: 'mcp', label: 'MCP' }]} aria-label="Agent 管理分类">
+      {tab === 'cli' ? <>
+        <p className="agent-intro">管理本机 CLI 的安装、版本和更新。</p>
+        <div className="agent-feedback" role="status" aria-live="polite">{operation ? `正在${actionLabels[operation.action]} ${agents.find(agent => agent.id === operation.id)?.name}，请等待完成…` : message}</div>
+        <div className="agent-list">{[...agents].sort((a, b) => Number(b.installed) - Number(a.installed)).map(agent => <AgentEntry key={agent.id} agent={agent} active={active} revision={revision} disabled={loading || Boolean(operation)} operation={operation} onRun={run} />)}</div>
+        {output && <details className="agent-operation-output"><summary>操作输出</summary><pre>{output}</pre></details>}
+      </> : active && (extensionAgent
+        ? <ExtensionPanel key={tab} kind={tab} agent={extensionAgent} agents={availableAgents} refreshing={loading} onRefreshAgents={refresh} onAgentChange={setExtensionAgent} />
+        : <div><p className="im-empty">暂无已安装的 Agent，可在 CLI 标签页安装。</p><button type="button" className="agent-heading-action" disabled={loading} onClick={() => void refresh()}>{loading ? '检测中…' : '刷新安装状态'}</button></div>)}
+    </Tabs>
   </section>;
 }

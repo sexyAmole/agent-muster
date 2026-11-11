@@ -88,7 +88,9 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       if (typeof content !== 'string') throw new Error('Message is required');
       const session = sessions.get(request.params.id);
       if (!session) throw new Error('Session not found');
-      if (!registry.get(session.agent)?.installed) throw new Error('此 Agent 已卸载，请先重新安装');
+      const agent = registry.get(session.agent);
+      if (!agent) throw new Error('此会话的 Agent 已不受支持');
+      if (!agent.installed) throw new Error('此 Agent 已卸载，请先重新安装');
       if (model !== undefined && (typeof model !== 'string' || (model && !(await registry.loadModels(session.agent)).models.some(item => item.id === model)))) throw new Error('Invalid model');
       const images = await sessions.readImages(imageIds, session.agent);
       response.json(sessionMetadata(await sessions.send(request.params.id, content, model, undefined, images, permissionMode, sandboxEnabled, true)));
@@ -175,7 +177,9 @@ export function createSessionRouter(sessions: SessionManager, registry: AgentReg
       if (agentManagement.operating) throw new Error('正在执行 Agent 操作，请完成后再继续队列');
       const session = sessions.get(request.params.id);
       if (!session) throw new Error('会话不存在');
-      if (!registry.get(session.agent)?.installed) throw new Error('此 Agent 已卸载，请先重新安装');
+      const agent = registry.get(session.agent);
+      if (!agent) throw new Error('此会话的 Agent 已不受支持');
+      if (!agent.installed) throw new Error('此 Agent 已卸载，请先重新安装');
       response.json(sessionMetadata(sessions.resumeQueue(request.params.id)));
     }
     catch (error) { response.status(400).json({ error: (error as Error).message }); }

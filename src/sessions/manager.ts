@@ -45,7 +45,7 @@ export class SessionManager extends EventEmitter {
         this.store.saveMetadata(session);
       }
       if (session.sandboxEnabled === undefined) {
-        const required = ['codex', 'trae'].includes(session.agent) && ['read-only', 'workspace-write', 'auto-review'].includes(session.permissionMode);
+        const required = session.agent === 'codex' && ['read-only', 'workspace-write', 'auto-review'].includes(session.permissionMode);
         session.sandboxEnabled = required || Boolean(providers.get(session.agent)?.sandboxSupported && getSandboxEnabled(session.agent));
         this.store.saveMetadata(session);
       }
@@ -222,6 +222,7 @@ export class SessionManager extends EventEmitter {
   async send(id: string, message: string, model?: string, im?: ImBinding, images?: AgentImage[], permissionMode?: string | null, sandboxEnabled?: boolean, allowQueue = false): Promise<AgentSession> {
     const session = this.sessions.get(id);
     if (!session) throw new Error('Session not found');
+    if (!providers.has(session.agent)) throw new Error('此会话的 Agent 已不受支持');
     if (!message.trim()) throw new Error('Message is required');
     const child = this.processes.get(id);
     if (child && !allowQueue && (session.status === 'completed' || session.status === 'stopped')) await once(child, 'close');
@@ -230,7 +231,7 @@ export class SessionManager extends EventEmitter {
     if (!session.externalSessionId && !(allowQueue && this.processes.has(id))) throw new Error('This agent did not create a resumable session');
     validatePermissionMode(session.agent, permissionMode);
     const nextMode = permissionMode === undefined ? session.permissionMode || 'full-auto' : permissionMode || 'full-auto';
-    const required = ['codex', 'trae'].includes(session.agent) && ['read-only', 'workspace-write', 'auto-review'].includes(nextMode);
+    const required = session.agent === 'codex' && ['read-only', 'workspace-write', 'auto-review'].includes(nextMode);
     const enabled = sessionSandboxEnabled(session.agent, nextMode, sandboxEnabled === undefined ? required ? true : session.sandboxEnabled : sandboxEnabled);
     if (allowQueue && (this.processes.has(id) || session.queuedMessages?.length)) {
       session.queuedMessages = [...session.queuedMessages || [], {

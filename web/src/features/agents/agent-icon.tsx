@@ -6,12 +6,13 @@ const agentIcons: Record<string, string> = {
   opencode: new URL('../../shared/assets/agents/opencode.svg', import.meta.url).href,
   pi: new URL('../../shared/assets/agents/pi.svg', import.meta.url).href,
   workbuddy: new URL('../../shared/assets/agents/workbuddy.png', import.meta.url).href,
-  trae: new URL('../../shared/assets/agents/trae.png', import.meta.url).href,
   qodercn: new URL('../../shared/assets/agents/qodercn.svg', import.meta.url).href,
   kimi: new URL('../../shared/assets/agents/kimi.svg', import.meta.url).href,
   dsh: new URL('../../shared/assets/agents/dsh.svg', import.meta.url).href,
 };
 
 export function AgentIcon({ agent, className }: { agent: string; className?: string }) {
-  return <img className={`agent-icon${className ? ` ${className}` : ''}`} src={agentIcons[agent]} alt="" aria-hidden="true" />;
+  const src = agentIcons[agent];
+  if (!src) return null;
+  return <img className={`agent-icon${className ? ` ${className}` : ''}`} src={src} alt="" aria-hidden="true" />;
 }
