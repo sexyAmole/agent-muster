@@ -5,6 +5,7 @@
 Agent Muster 是使用 TypeScript、Express、React 19 和 Vite 的本地 Agent 管理工具。
 
 - `src/cli.ts`：命令行入口；`bin/agent-muster.js`：发布包启动入口。
+- `src/runtime.ts`：CLI 与桌面端共用的运行时；各模块约定、结构和依赖见 [src/AGENTS.md](./src/AGENTS.md) 及其子模块说明。
 - `src/server/`：HTTP 服务；`src/agents/`：Agent 注册、适配与安装管理。
 - `src/projects/`、`src/sessions/`：项目及会话管理；`src/types.ts`：共享类型。
 - `src/integrations/dingtalk/`、`src/integrations/feishu/`：平台配置与消息桥接。
@@ -48,4 +49,4 @@ PR 描述说明具体问题、修改后的行为和验证结果；有关联问�
 
 ## 配置与凭证
 
-本地数据保存在 `~/.agent-muster/`。其中 `dingtalk-apps.json`、`feishu-apps.json` 含应用凭证，不得提交或放入日志、截图及 PR。服务保持监听本机地址 `127.0.0.1`。
+本地数据保存在 `~/.agent-muster/`。其中 `im/<平台>/apps.json` 含应用凭证，不得提交或放入日志、截图及 PR。服务保持监听本机地址 `127.0.0.1`。
