@@ -1,6 +1,5 @@
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { handleCommand } from '../commands.js';
-import { withContextUsage } from '../reply.js';
 import type { AgentRegistry } from '../../agents/registry.js';
 import { WeixinRegistry, type WeixinEvent } from './registry.js';
 import type { SessionManager } from '../../sessions/manager.js';
@@ -39,9 +38,10 @@ export class WeixinBridge {
     if (this.seen.has(messageKey)) return;
     this.seen.add(messageKey);
     if (this.seen.size > 1000) this.seen.delete(this.seen.values().next().value!);
-    const acknowledgement = this.weixin.send(appId, message.from_user_id, '正在处理中…', message.context_token)
+    const previous = this.queues.get(key);
+    const acknowledgement = this.weixin.send(appId, message.from_user_id, previous ? '上一条消息还没处理完，这条已排队。不要催，慢慢来。' : '正在处理中…', message.context_token)
       .catch(() => { console.error('微信处理提示发送失败'); });
-    const task = Promise.all([this.queues.get(key), acknowledgement]).then(() => this.process(event)).catch(async () => {
+    const task = Promise.all([previous, acknowledgement]).then(() => this.process(event)).catch(async () => {
       console.error('微信消息处理失败，请检查会话日志');
       try { await this.weixin.send(appId, message.from_user_id!, 'Agent 执行失败，请在 Agent Muster 中查看会话日志。', message.context_token); }
       catch { console.error('微信错误消息发送失败'); }
@@ -87,6 +87,6 @@ export class WeixinBridge {
     let output: string | undefined;
     for (const event of this.sessions.eventsAfter(session.id, lastEventId)) if (event.type === 'output') output = event.text.trim();
     const result = session.status === 'completed' ? output || 'Agent 已执行完成。' : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
-    await reply(withContextUsage(result, session.usage));
+    await reply(result);
   }
 }

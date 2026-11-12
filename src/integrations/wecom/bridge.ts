@@ -2,7 +2,6 @@ import { MessageType, type ImageContent } from '@wecom/aibot-node-sdk';
 import type { ProjectRegistry } from '../../projects/registry.js';
 import { handleCommand } from '../commands.js';
 import { groupConversationKey } from '../conversation.js';
-import { withContextUsage } from '../reply.js';
 import { type StreamReply, watchStreamOutput } from '../stream-reply.js';
 import type { AgentRegistry } from '../../agents/registry.js';
 import { WecomRegistry, type WecomMessage } from './registry.js';
@@ -44,10 +43,13 @@ export class WecomBridge {
     if (this.seen.has(messageKey)) return;
     this.seen.add(messageKey);
     if (this.seen.size > 1000) this.seen.delete(this.seen.values().next().value!);
-    const response = this.wecom.startReply(appId, chatId, frame).then(reply => ({ reply }), error => ({ error }));
-    const task = Promise.all([this.queues.get(key), response]).then(async ([, result]) => {
-      if ('error' in result) throw result.error;
-      const { reply } = result;
+    const previous = this.queues.get(key);
+    const acknowledgement = previous
+      ? this.wecom.send(appId, chatId, '上一条消息还没处理完，这条已排队。不要催，慢慢来。')
+        .catch(error => { console.error('企业微信排队提示发送失败：', error); })
+      : undefined;
+    const task = Promise.all([previous, acknowledgement]).then(async () => {
+      const reply = await this.wecom.startReply(appId, chatId, frame);
       try {
         await this.process(appId, chatId, message, reply);
         await reply.finish('未识别到消息内容。');
@@ -98,7 +100,7 @@ export class WecomBridge {
       if (event.type === 'output') output = event.text.trim();
     }
     const reply = session.status === 'completed' ? output || 'Agent 已执行完成。' : 'Agent 执行失败，请在 Agent Muster 中查看会话日志。';
-    await response.finish(withContextUsage(reply, session.usage));
+    await response.finish(reply);
   }
 
   private async process(appId: string, chatId: string, message: NonNullable<WecomMessage['frame']['body']>, reply: StreamReply): Promise<void> {

@@ -16,7 +16,7 @@
 
 - `commands.ts`：项目、模型、会话及状态聊天指令。
 - `stream-reply.ts`：流式回复节流、监听与按字节分段工具。
-- `reply.ts`：回复上下文用量展示；`storage.ts`：旧平台配置路径迁移。
+- `storage.ts`：旧平台配置路径迁移。
 - `dingtalk/`、`feishu/`、`wecom/`：钉钉、飞书、企业微信，各自的 `registry.ts` 管理平台连接与收发，`bridge.ts` 路由任务。
 - `weixin/`：微信 Registry、Bridge，以及 `api.ts` 中的请求、协议类型和地址校验。
 
